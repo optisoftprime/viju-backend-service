@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { UpdateProfilePhotoDto, ChangePasswordDto, PurchaseFilterDto } from './dto/customer.dto';
+import {
+  UpdateProfilePhotoDto,
+  ChangePasswordDto,
+  PurchaseFilterDto,
+} from './dto/customer.dto';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -49,7 +53,13 @@ export class CustomerService {
     if (filter.search) {
       where.OR = [
         { erpId: { contains: filter.search, mode: 'insensitive' } },
-        { items: { some: { productName: { contains: filter.search, mode: 'insensitive' } } } },
+        {
+          items: {
+            some: {
+              productName: { contains: filter.search, mode: 'insensitive' },
+            },
+          },
+        },
       ];
     }
 

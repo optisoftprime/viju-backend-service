@@ -21,8 +21,13 @@ export class OfficerController {
   }
 
   @Get('customers/:id')
-  @ApiOperation({ summary: 'Get detailed account view for a specific assigned customer' })
-  async getCustomerDetail(@CurrentUser() user: any, @Param('id') customerId: string) {
+  @ApiOperation({
+    summary: 'Get detailed account view for a specific assigned customer',
+  })
+  async getCustomerDetail(
+    @CurrentUser() user: any,
+    @Param('id') customerId: string,
+  ) {
     return this.officerService.getCustomerDetail(user.id, customerId);
   }
 

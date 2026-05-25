@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { ReassignOfficerDto, CreateOfficerDto } from './dto/admin.dto';
 import * as bcrypt from 'bcryptjs';
@@ -9,15 +13,27 @@ export class AdminService {
 
   async getDashboardStats() {
     const totalCustomers = await this.prisma.customer.count();
-    const totalOfficers = await this.prisma.staff.count({ where: { role: 'OFFICER' } });
-    const openTickets = await this.prisma.supportTicket.count({ where: { status: 'OPEN' } });
-    
-    const customers = await this.prisma.customer.findMany({
-      select: { outstandingBalance: true }
+    const totalOfficers = await this.prisma.staff.count({
+      where: { role: 'OFFICER' },
     });
-    const totalOutstandingBalance = customers.reduce((sum, c) => sum + (c.outstandingBalance || 0), 0);
+    const openTickets = await this.prisma.supportTicket.count({
+      where: { status: 'OPEN' },
+    });
 
-    return { totalCustomers, totalOfficers, openTickets, totalOutstandingBalance };
+    const customers = await this.prisma.customer.findMany({
+      select: { outstandingBalance: true },
+    });
+    const totalOutstandingBalance = customers.reduce(
+      (sum, c) => sum + (c.outstandingBalance || 0),
+      0,
+    );
+
+    return {
+      totalCustomers,
+      totalOfficers,
+      openTickets,
+      totalOutstandingBalance,
+    };
   }
 
   async getAllCustomers() {
@@ -33,10 +49,14 @@ export class AdminService {
   }
 
   async reassignOfficer(customerId: string, dto: ReassignOfficerDto) {
-    const customer = await this.prisma.customer.findUnique({ where: { id: customerId } });
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+    });
     if (!customer) throw new NotFoundException('Customer not found');
 
-    const officer = await this.prisma.staff.findFirst({ where: { id: dto.newOfficerId, role: 'OFFICER' } });
+    const officer = await this.prisma.staff.findFirst({
+      where: { id: dto.newOfficerId, role: 'OFFICER' },
+    });
     if (!officer) throw new NotFoundException('Officer not found');
 
     return this.prisma.customer.update({
@@ -59,7 +79,9 @@ export class AdminService {
   }
 
   async createOfficer(dto: CreateOfficerDto) {
-    const existing = await this.prisma.staff.findFirst({ where: { email: dto.email } });
+    const existing = await this.prisma.staff.findFirst({
+      where: { email: dto.email },
+    });
     if (existing) throw new BadRequestException('Email already in use');
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
@@ -70,19 +92,21 @@ export class AdminService {
         email: dto.email,
         password: hashedPassword,
       },
-      select: { id: true, name: true, email: true }
+      select: { id: true, name: true, email: true },
     });
   }
 
   async deactivateOfficer(officerId: string) {
     const officer = await this.prisma.staff.findUnique({
       where: { id: officerId },
-      include: { customers: true }
+      include: { customers: true },
     });
 
     if (!officer) throw new NotFoundException('Officer not found');
     if (officer.customers.length > 0) {
-      throw new BadRequestException('Cannot deactivate officer. Please reassign their customers first.');
+      throw new BadRequestException(
+        'Cannot deactivate officer. Please reassign their customers first.',
+      );
     }
 
     return this.prisma.staff.update({

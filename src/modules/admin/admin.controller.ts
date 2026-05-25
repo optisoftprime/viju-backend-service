@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Param,
+  Body,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -28,7 +37,10 @@ export class AdminController {
 
   @Patch('customers/:id/reassign')
   @ApiOperation({ summary: 'Reassign customer to a new officer' })
-  async reassignOfficer(@Param('id') id: string, @Body() dto: ReassignOfficerDto) {
+  async reassignOfficer(
+    @Param('id') id: string,
+    @Body() dto: ReassignOfficerDto,
+  ) {
     await this.adminService.reassignOfficer(id, dto);
     return { message: 'Officer reassigned successfully' };
   }

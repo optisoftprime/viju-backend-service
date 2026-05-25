@@ -31,7 +31,8 @@ export class OfficerService {
       },
     });
 
-    if (!customer) throw new NotFoundException('Customer not found or not assigned to you');
+    if (!customer)
+      throw new NotFoundException('Customer not found or not assigned to you');
     return customer;
   }
 

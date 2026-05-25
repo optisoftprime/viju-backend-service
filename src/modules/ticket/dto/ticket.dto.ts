@@ -2,7 +2,9 @@ import { IsString, IsNotEmpty, IsEnum, IsOptional } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateTicketDto {
-  @ApiProperty({ enum: ['ACCOUNT_QUERY', 'DELIVERY_ISSUE', 'PRODUCT_QUERY', 'OTHER'] })
+  @ApiProperty({
+    enum: ['ACCOUNT_QUERY', 'DELIVERY_ISSUE', 'PRODUCT_QUERY', 'OTHER'],
+  })
   @IsEnum(['ACCOUNT_QUERY', 'DELIVERY_ISSUE', 'PRODUCT_QUERY', 'OTHER'])
   category: any;
 
@@ -35,7 +37,9 @@ export class ReplyTicketDto {
 }
 
 export class UpdateTicketStatusDto {
-  @ApiProperty({ enum: ['OPEN', 'IN_PROGRESS', 'AWAITING_CUSTOMER', 'RESOLVED'] })
+  @ApiProperty({
+    enum: ['OPEN', 'IN_PROGRESS', 'AWAITING_CUSTOMER', 'RESOLVED'],
+  })
   @IsEnum(['OPEN', 'IN_PROGRESS', 'AWAITING_CUSTOMER', 'RESOLVED'])
   status: any;
 }
