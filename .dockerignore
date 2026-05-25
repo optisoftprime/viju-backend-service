@@ -1,9 +1,7 @@
-.git
-.gitignore
-node_modules/
-dist/
-Dockerfile
-docker-compose.yml
+node_modules
+dist
 .env
-.dockerignore
-npm-debug.log
+.env.docker
+.git
+*.md
+coverage

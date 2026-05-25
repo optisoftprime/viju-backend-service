@@ -1,40 +1,30 @@
-version: '3.8'
-
 services:
-  viju-api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: viju-backend
-    ports:
-      - "3000:3000"
+  postgres:
+    image: postgres:16-alpine
     environment:
-      - NODE_ENV=production
-      - PORT=3000
-      - JWT_SECRET=super-secret-key-123
-      # Maps internally to the database service defined below via the 'viju-db' hostname
-      - DATABASE_URL=postgresql://vijuadmin:viju_secret_password@viju-db:5432/viju_db?schema=public
-    depends_on:
-      viju-db:
-        condition: service_healthy
-    restart: on-failure
-
-  viju-db:
-    image: postgres:15-alpine
-    container_name: viju-database
-    environment:
-      POSTGRES_USER: vijuadmin
-      POSTGRES_PASSWORD: viju_secret_password
-      POSTGRES_DB: viju_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: viju
     ports:
-      - "5432:5432"
+      - '5432:5432'
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U vijuadmin -d viju_db"]
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 5s
       timeout: 5s
       retries: 5
 
+  app:
+    build: .
+    ports:
+      - '${PORT:-3000}:3000'
+    env_file:
+      - .env.docker
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
-  pgdata:
+  pg_data:
