@@ -1,0 +1,62 @@
+enum StaffRole {
+  ADMIN
+  OFFICER
+}
+
+enum AccountStatus {
+  ACTIVE
+  ON_HOLD
+}
+
+model Customer {
+  id                 String         @id @default(uuid())
+  erpId              String         @unique 
+  name               String
+  phone              String         @unique
+  password           String?        
+  profilePhotoUrl    String?
+  accountStatus      AccountStatus  @default(ACTIVE)
+  outstandingBalance Float          @default(0.0)
+  
+  assignedOfficerId  String?
+  assignedOfficer    Staff?         @relation("OfficerToCustomer", fields: [assignedOfficerId], references: [id])
+
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  purchases          Purchase[]
+  payments           Payment[]
+  messages           Message[]      
+  supportTickets     SupportTicket[]
+  ticketReplies      TicketReply[]  
+  notifications      Notification[] 
+}
+
+model Staff {
+  id                 String         @id @default(uuid())
+  role               StaffRole
+  name               String
+  email              String         @unique
+  password           String?
+  isActive           Boolean        @default(true)
+  
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  customers          Customer[]     @relation("OfficerToCustomer")
+  messages           Message[]      
+  ticketReplies      TicketReply[]  
+  notifications      Notification[] 
+}
+
+model OtpVerification {
+  id          String    @id @default(uuid())
+  phone       String
+  code        String
+  expiresAt   DateTime
+  attempts    Int       @default(0)
+  lockedUntil DateTime?
+  createdAt   DateTime  @default(now())
+  
+  @@index([phone])
+}
