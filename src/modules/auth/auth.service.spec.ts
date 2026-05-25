@@ -5,6 +5,11 @@ import { JwtService } from '@nestjs/jwt';
 import { UnauthorizedException, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 
+jest.mock('bcryptjs', () => ({
+  compare: jest.fn(),
+  hash: jest.fn(),
+}));
+
 describe('AuthService', () => {
   let service: AuthService;
   let prisma: PrismaService;
@@ -66,7 +71,7 @@ describe('AuthService', () => {
         phone: '12345',
         password: 'hashed',
       });
-      jest.spyOn(bcrypt, 'compare').mockImplementation(async () => false);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
 
       await expect(
         service.customerLogin({ phone: '12345', password: 'wrong_password' }),
@@ -81,7 +86,7 @@ describe('AuthService', () => {
         phone: '12345',
         password: 'hashed',
       });
-      jest.spyOn(bcrypt, 'compare').mockImplementation(async () => true);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
       const result = await service.customerLogin({
         phone: '12345',
