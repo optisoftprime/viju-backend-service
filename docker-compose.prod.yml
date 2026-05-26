@@ -5,12 +5,4 @@ services:
       - '${PORT:-3000}:${PORT:-3000}'
     env_file:
       - .env
-    environment:
-      DATABASE_URL: postgresql://postgres:optisoft@host.docker.internal:5432/vijudb?schema=public
     restart: unless-stopped
-    networks:
-      - default
-
-networks:
-  default:
-    driver: bridge
