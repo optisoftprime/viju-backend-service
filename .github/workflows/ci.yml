@@ -88,8 +88,8 @@ jobs:
             EOF
 
             # Build and restart (app-only, no postgres container)
-            docker compose -f docker-compose.prod.yml down
-            docker compose -f docker-compose.prod.yml up --build -d
+            docker-compose -f docker-compose.prod.yml down
+            docker-compose -f docker-compose.prod.yml up --build -d
 
             # Cleanup old images
             docker image prune -f
