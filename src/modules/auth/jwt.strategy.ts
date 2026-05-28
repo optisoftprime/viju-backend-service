@@ -13,27 +13,34 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>(
-        'JWT_SECRET',
-        'super-secret-key-123',
-      ),
+      secretOrKey: configService.get<string>('JWT_SECRET', 'super-secret-key-123'),
     });
   }
 
   async validate(payload: any) {
     let user: any = null;
-
+    
     if (payload.type === 'CUSTOMER') {
-      user = await this.prisma.customer.findUnique({
-        where: { id: payload.sub },
-      });
-      if (user) user.role = 'CUSTOMER';
+      const customer = await this.prisma.customer.findUnique({ where: { id: payload.sub } });
+      if (customer) {
+        user = { ...customer, role: 'CUSTOMER' };
+      }
     } else if (payload.type === 'STAFF') {
       user = await this.prisma.staff.findUnique({ where: { id: payload.sub } });
     }
 
-    if (!user || user.isActive === false || user.accountStatus === 'ON_HOLD') {
-      throw new UnauthorizedException();
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    // Check staff active status
+    if (payload.type === 'STAFF' && user.isActive === false) {
+      throw new UnauthorizedException('Staff account is inactive');
+    }
+
+    // Check customer account status
+    if (payload.type === 'CUSTOMER' && user.accountStatus === 'ON_HOLD') {
+      throw new UnauthorizedException('Customer account is on hold');
     }
 
     return user;
