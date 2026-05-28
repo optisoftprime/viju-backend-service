@@ -1,7 +1,12 @@
 import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { ErpService } from './erp.service';
-import { SyncBalanceDto, SyncPurchaseDto, SyncPaymentDto, SyncStockDto } from './dto/erp.dto';
+import {
+  SyncBalanceDto,
+  SyncPurchaseDto,
+  SyncPaymentDto,
+  SyncStockDto,
+} from './dto/erp.dto';
 
 // In production, require an API key guard or strict IP Whitelisting
 @ApiTags('ERP Webhooks')
@@ -27,7 +32,9 @@ export class ErpController {
 
   @Post('sync/purchases')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Sync customer purchase order creation/update from ERP' })
+  @ApiOperation({
+    summary: 'Sync customer purchase order creation/update from ERP',
+  })
   async syncPurchase(@Body() dto: SyncPurchaseDto) {
     await this.erpService.syncPurchase(dto);
     return { success: true, message: 'Purchase synced successfully' };

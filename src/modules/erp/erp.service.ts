@@ -1,14 +1,24 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { SyncBalanceDto, SyncPurchaseDto, SyncPaymentDto, SyncStockDto } from './dto/erp.dto';
+import {
+  SyncBalanceDto,
+  SyncPurchaseDto,
+  SyncPaymentDto,
+  SyncStockDto,
+} from './dto/erp.dto';
 
 @Injectable()
 export class ErpService {
   constructor(private readonly prisma: PrismaService) {}
 
   async syncBalance(dto: SyncBalanceDto) {
-    const customer = await this.prisma.customer.findUnique({ where: { erpId: dto.erpId } });
-    if (!customer) throw new NotFoundException(`Customer with ERP ID ${dto.erpId} not found`);
+    const customer = await this.prisma.customer.findUnique({
+      where: { erpId: dto.erpId },
+    });
+    if (!customer)
+      throw new NotFoundException(
+        `Customer with ERP ID ${dto.erpId} not found`,
+      );
 
     return this.prisma.customer.update({
       where: { id: customer.id },
@@ -32,8 +42,13 @@ export class ErpService {
   }
 
   async syncPurchase(dto: SyncPurchaseDto) {
-    const customer = await this.prisma.customer.findUnique({ where: { erpId: dto.customerErpId } });
-    if (!customer) throw new NotFoundException(`Customer with ERP ID ${dto.customerErpId} not found`);
+    const customer = await this.prisma.customer.findUnique({
+      where: { erpId: dto.customerErpId },
+    });
+    if (!customer)
+      throw new NotFoundException(
+        `Customer with ERP ID ${dto.customerErpId} not found`,
+      );
 
     return this.prisma.$transaction(async (prisma) => {
       // Upsert Purchase
@@ -55,9 +70,11 @@ export class ErpService {
       });
 
       // Clear existing items and recreate
-      await prisma.purchaseItem.deleteMany({ where: { purchaseId: purchase.id } });
+      await prisma.purchaseItem.deleteMany({
+        where: { purchaseId: purchase.id },
+      });
       await prisma.purchaseItem.createMany({
-        data: dto.items.map(i => ({
+        data: dto.items.map((i) => ({
           purchaseId: purchase.id,
           productName: i.productName,
           quantity: i.quantity,
@@ -71,8 +88,13 @@ export class ErpService {
   }
 
   async syncPayment(dto: SyncPaymentDto) {
-    const customer = await this.prisma.customer.findUnique({ where: { erpId: dto.customerErpId } });
-    if (!customer) throw new NotFoundException(`Customer with ERP ID ${dto.customerErpId} not found`);
+    const customer = await this.prisma.customer.findUnique({
+      where: { erpId: dto.customerErpId },
+    });
+    if (!customer)
+      throw new NotFoundException(
+        `Customer with ERP ID ${dto.customerErpId} not found`,
+      );
 
     return this.prisma.payment.upsert({
       where: { erpId: dto.erpId },

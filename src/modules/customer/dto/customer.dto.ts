@@ -1,4 +1,10 @@
-import { IsString, IsNotEmpty, IsOptional, MinLength, IsDateString } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  MinLength,
+  IsDateString,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateProfilePhotoDto {
@@ -17,7 +23,9 @@ export class ChangePasswordDto {
 }
 
 export class PurchaseFilterDto {
-  @ApiPropertyOptional({ description: 'Search term for product name or order ID' })
+  @ApiPropertyOptional({
+    description: 'Search term for product name or order ID',
+  })
   @IsOptional()
   @IsString()
   search?: string;

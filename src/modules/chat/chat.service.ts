@@ -1,4 +1,8 @@
-import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { SendMessageDto } from './dto/chat.dto';
 
@@ -8,18 +12,26 @@ export class ChatService {
 
   async getMessages(user: any, otherUserId: string) {
     if (user.role === 'CUSTOMER') {
-      const customer = await this.prisma.customer.findUnique({ where: { id: user.id } });
+      const customer = await this.prisma.customer.findUnique({
+        where: { id: user.id },
+      });
       if (customer?.assignedOfficerId !== otherUserId) {
-        throw new ForbiddenException('You can only chat with your assigned account officer.');
+        throw new ForbiddenException(
+          'You can only chat with your assigned account officer.',
+        );
       }
       return this.prisma.message.findMany({
         where: { customerId: user.id, staffId: otherUserId },
         orderBy: { createdAt: 'asc' },
       });
     } else if (user.role === 'OFFICER') {
-      const customer = await this.prisma.customer.findUnique({ where: { id: otherUserId } });
+      const customer = await this.prisma.customer.findUnique({
+        where: { id: otherUserId },
+      });
       if (customer?.assignedOfficerId !== user.id) {
-        throw new ForbiddenException('You can only chat with customers assigned to you.');
+        throw new ForbiddenException(
+          'You can only chat with customers assigned to you.',
+        );
       }
       return this.prisma.message.findMany({
         where: { customerId: otherUserId, staffId: user.id },
@@ -34,17 +46,25 @@ export class ChatService {
     let senderType = '';
 
     if (user.role === 'CUSTOMER') {
-      const customer = await this.prisma.customer.findUnique({ where: { id: user.id } });
+      const customer = await this.prisma.customer.findUnique({
+        where: { id: user.id },
+      });
       if (customer?.assignedOfficerId !== receiverId) {
-        throw new ForbiddenException('You can only send messages to your assigned account officer.');
+        throw new ForbiddenException(
+          'You can only send messages to your assigned account officer.',
+        );
       }
       customerId = user.id;
       staffId = receiverId;
       senderType = 'CUSTOMER';
     } else if (user.role === 'OFFICER') {
-      const customer = await this.prisma.customer.findUnique({ where: { id: receiverId } });
+      const customer = await this.prisma.customer.findUnique({
+        where: { id: receiverId },
+      });
       if (customer?.assignedOfficerId !== user.id) {
-        throw new ForbiddenException('You can only send messages to your assigned customers.');
+        throw new ForbiddenException(
+          'You can only send messages to your assigned customers.',
+        );
       }
       customerId = receiverId;
       staffId = user.id;
@@ -65,7 +85,7 @@ export class ChatService {
   async getAudits(adminId: string, customerId: string) {
     return this.prisma.message.findMany({
       where: { customerId },
-      orderBy: { createdAt: 'asc' }
+      orderBy: { createdAt: 'asc' },
     });
   }
 }

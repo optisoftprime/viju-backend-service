@@ -17,7 +17,10 @@ export class ChatController {
   @Get(':otherUserId')
   @Roles('CUSTOMER', 'OFFICER')
   @ApiOperation({ summary: 'Get full message history with a specific user' })
-  async getMessages(@CurrentUser() user: any, @Param('otherUserId') otherUserId: string) {
+  async getMessages(
+    @CurrentUser() user: any,
+    @Param('otherUserId') otherUserId: string,
+  ) {
     return this.chatService.getMessages(user, otherUserId);
   }
 
@@ -34,8 +37,13 @@ export class ChatController {
 
   @Get('audit/:customerId')
   @Roles('ADMIN')
-  @ApiOperation({ summary: 'Admin read-only audit of a customer\'s chat history' })
-  async auditCustomerChats(@CurrentUser() user: any, @Param('customerId') customerId: string) {
+  @ApiOperation({
+    summary: "Admin read-only audit of a customer's chat history",
+  })
+  async auditCustomerChats(
+    @CurrentUser() user: any,
+    @Param('customerId') customerId: string,
+  ) {
     return this.chatService.getAudits(user.id, customerId);
   }
 }

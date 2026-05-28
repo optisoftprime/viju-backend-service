@@ -1,7 +1,17 @@
-import { Injectable, UnauthorizedException, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { JwtService } from '@nestjs/jwt';
-import { RequestOtpDto, VerifyOtpDto, CustomerLoginDto, StaffLoginDto } from './dto/auth.dto';
+import {
+  RequestOtpDto,
+  VerifyOtpDto,
+  CustomerLoginDto,
+  StaffLoginDto,
+} from './dto/auth.dto';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -17,16 +27,18 @@ export class AuthService {
     });
 
     if (!customer) {
-      throw new NotFoundException('This number is not registered with Viju. Please contact your account officer.');
+      throw new NotFoundException(
+        'This number is not registered with Viju. Please contact your account officer.',
+      );
     }
 
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); 
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     await this.prisma.otpVerification.create({
       data: {
         phone: dto.phone,
-        code, 
+        code,
         expiresAt,
       },
     });
@@ -43,10 +55,14 @@ export class AuthService {
 
     if (!otpRec) throw new BadRequestException('No OTP found for this number');
     if (otpRec.lockedUntil && otpRec.lockedUntil > new Date()) {
-      throw new UnauthorizedException('Account locked due to too many attempts. Please try again later.');
+      throw new UnauthorizedException(
+        'Account locked due to too many attempts. Please try again later.',
+      );
     }
     if (otpRec.expiresAt < new Date()) {
-      throw new BadRequestException('OTP has expired. Please request a new one.');
+      throw new BadRequestException(
+        'OTP has expired. Please request a new one.',
+      );
     }
 
     if (otpRec.code !== dto.code) {
@@ -54,7 +70,10 @@ export class AuthService {
         where: { id: otpRec.id },
         data: {
           attempts: otpRec.attempts + 1,
-          lockedUntil: otpRec.attempts + 1 >= 3 ? new Date(Date.now() + 30 * 60 * 1000) : null,
+          lockedUntil:
+            otpRec.attempts + 1 >= 3
+              ? new Date(Date.now() + 30 * 60 * 1000)
+              : null,
         },
       });
       throw new UnauthorizedException('Invalid OTP code');
@@ -71,7 +90,9 @@ export class AuthService {
       data: { password: hashedPassword },
     });
 
-    await this.prisma.otpVerification.deleteMany({ where: { phone: dto.phone } });
+    await this.prisma.otpVerification.deleteMany({
+      where: { phone: dto.phone },
+    });
 
     return this.generateToken(customer, 'CUSTOMER');
   }
@@ -81,10 +102,12 @@ export class AuthService {
       where: { phone: dto.phone },
     });
 
-    if (!customer || !customer.password) throw new UnauthorizedException('Incorrect password. Please try again.');
+    if (!customer || !customer.password)
+      throw new UnauthorizedException('Incorrect password. Please try again.');
 
     const isMatch = await bcrypt.compare(dto.password, customer.password);
-    if (!isMatch) throw new UnauthorizedException('Incorrect password. Please try again.');
+    if (!isMatch)
+      throw new UnauthorizedException('Incorrect password. Please try again.');
 
     return this.generateToken(customer, 'CUSTOMER');
   }
@@ -94,7 +117,8 @@ export class AuthService {
       where: { email: dto.email },
     });
 
-    if (!staff || !staff.password) throw new UnauthorizedException('Incorrect credentials.');
+    if (!staff || !staff.password)
+      throw new UnauthorizedException('Incorrect credentials.');
 
     const isMatch = await bcrypt.compare(dto.password, staff.password);
     if (!isMatch) throw new UnauthorizedException('Incorrect credentials.');
@@ -103,10 +127,10 @@ export class AuthService {
   }
 
   private generateToken(user: any, entityType: 'CUSTOMER' | 'STAFF') {
-    const payload = { 
-      sub: user.id, 
+    const payload = {
+      sub: user.id,
       role: entityType === 'CUSTOMER' ? 'CUSTOMER' : user.role,
-      type: entityType
+      type: entityType,
     };
     return {
       access_token: this.jwtService.sign(payload),

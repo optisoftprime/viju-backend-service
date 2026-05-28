@@ -5,6 +5,11 @@ import { JwtService } from '@nestjs/jwt';
 import { UnauthorizedException, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 
+jest.mock('bcryptjs', () => ({
+  compare: jest.fn(),
+  hash: jest.fn(),
+}));
+
 describe('AuthService', () => {
   let service: AuthService;
   let prisma: PrismaService;
@@ -55,27 +60,46 @@ describe('AuthService', () => {
   describe('customerLogin', () => {
     it('should throw Unauthorized if customer is not found', async () => {
       mockPrisma.customer.findFirst.mockResolvedValue(null);
-      await expect(service.customerLogin({ phone: '12345', password: 'password' }))
-        .rejects.toThrow(UnauthorizedException);
+      await expect(
+        service.customerLogin({ phone: '12345', password: 'password' }),
+      ).rejects.toThrow(UnauthorizedException);
     });
 
     it('should throw Unauthorized if password is wrong', async () => {
-      mockPrisma.customer.findFirst.mockResolvedValue({ id: '1', phone: '12345', password: 'hashed' });
-      jest.spyOn(bcrypt, 'compare').mockImplementation(async () => false);
+      mockPrisma.customer.findFirst.mockResolvedValue({
+        id: '1',
+        phone: '12345',
+        password: 'hashed',
+      });
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
 
-      await expect(service.customerLogin({ phone: '12345', password: 'wrong_password' }))
-        .rejects.toThrow(UnauthorizedException);
+      await expect(
+        service.customerLogin({ phone: '12345', password: 'wrong_password' }),
+      ).rejects.toThrow(UnauthorizedException);
     });
 
     it('should return token if login succeeds', async () => {
-      mockPrisma.customer.findFirst.mockResolvedValue({ id: '1', name: 'John Doe', role: 'CUSTOMER', phone: '12345', password: 'hashed' });
-      jest.spyOn(bcrypt, 'compare').mockImplementation(async () => true);
+      mockPrisma.customer.findFirst.mockResolvedValue({
+        id: '1',
+        name: 'John Doe',
+        role: 'CUSTOMER',
+        phone: '12345',
+        password: 'hashed',
+      });
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
-      const result = await service.customerLogin({ phone: '12345', password: 'correct_password' });
-      
+      const result = await service.customerLogin({
+        phone: '12345',
+        password: 'correct_password',
+      });
+
       expect(result.access_token).toBe('mocked_jwt_token');
       expect(result.user.name).toBe('John Doe');
-      expect(mockJwt.sign).toHaveBeenCalledWith({ sub: '1', role: 'CUSTOMER', type: 'CUSTOMER' });
+      expect(mockJwt.sign).toHaveBeenCalledWith({
+        sub: '1',
+        role: 'CUSTOMER',
+        type: 'CUSTOMER',
+      });
     });
   });
 });

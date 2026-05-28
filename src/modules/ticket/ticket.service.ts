@@ -1,6 +1,14 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { CreateTicketDto, ReplyTicketDto, UpdateTicketStatusDto } from './dto/ticket.dto';
+import {
+  CreateTicketDto,
+  ReplyTicketDto,
+  UpdateTicketStatusDto,
+} from './dto/ticket.dto';
 
 @Injectable()
 export class TicketService {
@@ -49,14 +57,22 @@ export class TicketService {
     if (user.role === 'CUSTOMER' && ticket.customerId !== user.id) {
       throw new ForbiddenException('Access denied');
     }
-    if (user.role === 'OFFICER' && ticket.customer.assignedOfficerId !== user.id) {
+    if (
+      user.role === 'OFFICER' &&
+      ticket.customer.assignedOfficerId !== user.id
+    ) {
       throw new ForbiddenException('Access denied');
     }
 
     return ticket;
   }
 
-  async replyToTicket(ticketId: string, senderId: string, dto: ReplyTicketDto, role: string) {
+  async replyToTicket(
+    ticketId: string,
+    senderId: string,
+    dto: ReplyTicketDto,
+    role: string,
+  ) {
     const ticket = await this.getTicket(ticketId, { id: senderId, role });
 
     return this.prisma.ticketReply.create({
@@ -71,8 +87,15 @@ export class TicketService {
     });
   }
 
-  async updateStatus(ticketId: string, officerId: string, dto: UpdateTicketStatusDto) {
-    const ticket = await this.getTicket(ticketId, { id: officerId, role: 'OFFICER' });
+  async updateStatus(
+    ticketId: string,
+    officerId: string,
+    dto: UpdateTicketStatusDto,
+  ) {
+    const ticket = await this.getTicket(ticketId, {
+      id: officerId,
+      role: 'OFFICER',
+    });
 
     return this.prisma.supportTicket.update({
       where: { id: ticket.id },

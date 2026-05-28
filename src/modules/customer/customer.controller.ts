@@ -5,7 +5,11 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { UpdateProfilePhotoDto, ChangePasswordDto, PurchaseFilterDto } from './dto/customer.dto';
+import {
+  UpdateProfilePhotoDto,
+  ChangePasswordDto,
+  PurchaseFilterDto,
+} from './dto/customer.dto';
 
 @ApiTags('Customer Portal')
 @ApiBearerAuth()
@@ -23,20 +27,29 @@ export class CustomerController {
 
   @Patch('me/photo')
   @ApiOperation({ summary: 'Update customer profile photo' })
-  async updatePhoto(@CurrentUser() user: any, @Body() dto: UpdateProfilePhotoDto) {
+  async updatePhoto(
+    @CurrentUser() user: any,
+    @Body() dto: UpdateProfilePhotoDto,
+  ) {
     return this.customerService.updatePhoto(user.id, dto);
   }
 
   @Patch('me/password')
   @ApiOperation({ summary: 'Change customer password' })
-  async changePassword(@CurrentUser() user: any, @Body() dto: ChangePasswordDto) {
+  async changePassword(
+    @CurrentUser() user: any,
+    @Body() dto: ChangePasswordDto,
+  ) {
     await this.customerService.changePassword(user.id, dto);
     return { message: 'Password updated successfully' };
   }
 
   @Get('me/purchases')
   @ApiOperation({ summary: 'Get customer purchase history' })
-  async getPurchases(@CurrentUser() user: any, @Query() filter: PurchaseFilterDto) {
+  async getPurchases(
+    @CurrentUser() user: any,
+    @Query() filter: PurchaseFilterDto,
+  ) {
     return this.customerService.getPurchases(user.id, filter);
   }
 
