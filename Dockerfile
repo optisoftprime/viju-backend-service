@@ -6,6 +6,7 @@ RUN apk add --no-cache openssl
 
 # ─── Install & Build ────────────────────────────────────
 FROM base AS build
+ARG BUILD_DATE
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY prisma ./prisma/
