@@ -1,6 +1,9 @@
 enum StaffRole {
   ADMIN
   OFFICER
+  REGIONAL_ADMIN
+  LOADING_OFFICER
+  WAREHOUSE_OFFICER
 }
 
 enum AccountStatus {
