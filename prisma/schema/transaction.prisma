@@ -34,7 +34,7 @@ model PurchaseItem {
 
 model Payment {
   id             String   @id @default(uuid())
-  erpId          String   @unique
+  erpId          String?  @unique
   customerId     String
   customer       Customer @relation(fields: [customerId], references: [id])
   date           DateTime
@@ -42,4 +42,6 @@ model Payment {
   reference      String?
   runningBalance Float
   createdAt      DateTime @default(now())
+
+  broadcast Broadcast?
 }

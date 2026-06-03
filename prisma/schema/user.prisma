@@ -43,6 +43,7 @@ model Customer {
   pushTokens       PushToken[]
   loadingRequests  LoadingRequest[]
   termsAcceptances TermsAcceptance[]
+  broadcasts       Broadcast[]       @relation("BroadcastToCustomer")
 }
 
 model Staff {
@@ -70,6 +71,7 @@ model Staff {
   notifications       Notification[]
   pushTokens          PushToken[]
   loadingRequests     LoadingRequest[]  @relation("LoadingOfficerToRequest")
+  broadcastsSent      Broadcast[]       @relation("StaffToBroadcast")
 }
 
 model OtpVerification {
