@@ -8,6 +8,7 @@ import { AdminModule } from './modules/admin/admin.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { TicketModule } from './modules/ticket/ticket.module';
 import { ErpModule } from './modules/erp/erp.module';
+import { PushModule } from './modules/push/push.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ErpModule } from './modules/erp/erp.module';
     ChatModule,
     TicketModule,
     ErpModule,
+    PushModule,
   ],
   controllers: [],
   providers: [],
