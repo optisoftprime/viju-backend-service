@@ -6,6 +6,7 @@ import {
   VerifyOtpDto,
   CustomerLoginDto,
   StaffLoginDto,
+  StaffWebLoginDto,
 } from './dto/auth.dto';
 
 @ApiTags('Authentication')
@@ -36,8 +37,22 @@ export class AuthController {
 
   @Post('staff/login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Admin or Officer login via email and password' })
+  @ApiOperation({
+    summary: 'Legacy: Staff login via email and password',
+    description: 'Retained for transition. New web portal uses /auth/staff/web-login.',
+  })
   async staffLogin(@Body() dto: StaffLoginDto) {
     return this.authService.staffLogin(dto);
+  }
+
+  @Post('staff/web-login')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Staff web-portal login via ERP username + code (PRD F11/F14)',
+    description:
+      'Officers, regional admins and administrators sign in to the web portal using credentials issued by the ERP. The platform validates against ERP, upserts a local Staff row, and returns a JWT.',
+  })
+  async staffWebLogin(@Body() dto: StaffWebLoginDto) {
+    return this.authService.staffWebLogin(dto);
   }
 }

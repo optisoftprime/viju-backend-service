@@ -12,9 +12,12 @@ import {
   VerifyOtpDto,
   CustomerLoginDto,
   StaffLoginDto,
+  StaffWebLoginDto,
 } from './dto/auth.dto';
 import * as bcrypt from 'bcryptjs';
 import { SmsService } from '../../infrastructure/sms/sms.service';
+import { ErpService } from '../../infrastructure/erp/erp.types';
+import { StaffRole } from '@prisma/client';
 
 const PASSWORD_MAX_ATTEMPTS = 5;
 const PASSWORD_LOCK_MINUTES = 30;
@@ -25,6 +28,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly sms: SmsService,
+    private readonly erp: ErpService,
   ) {}
 
   async requestOtp(dto: RequestOtpDto) {
@@ -152,6 +156,48 @@ export class AuthService {
     }
 
     return this.generateToken(customer, 'CUSTOMER');
+  }
+
+  async staffWebLogin(dto: StaffWebLoginDto) {
+    const erpStaff = await this.erp.validateStaffCredentials(
+      dto.username,
+      dto.code,
+    );
+    if (!erpStaff) {
+      throw new UnauthorizedException('Invalid username or code.');
+    }
+
+    let staff = await this.prisma.staff.findUnique({
+      where: { username: erpStaff.username },
+    });
+
+    if (!staff) {
+      staff = await this.prisma.staff.upsert({
+        where: { email: erpStaff.email },
+        update: {
+          username: erpStaff.username,
+          erpCode: erpStaff.erpCode,
+          phone: erpStaff.phone,
+          role: erpStaff.role as StaffRole,
+          region: erpStaff.region ?? null,
+        },
+        create: {
+          name: erpStaff.name,
+          email: erpStaff.email,
+          phone: erpStaff.phone,
+          username: erpStaff.username,
+          erpCode: erpStaff.erpCode,
+          role: erpStaff.role as StaffRole,
+          region: erpStaff.region ?? null,
+        },
+      });
+    }
+
+    if (!staff.isActive) {
+      throw new ForbiddenException('Account deactivated. Contact admin.');
+    }
+
+    return this.generateToken(staff, 'STAFF');
   }
 
   async staffLogin(dto: StaffLoginDto) {

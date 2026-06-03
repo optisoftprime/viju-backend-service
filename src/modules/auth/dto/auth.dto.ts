@@ -56,3 +56,51 @@ export class StaffLoginDto {
   @IsNotEmpty()
   password: string;
 }
+
+export class StaffWebLoginDto {
+  @ApiProperty({
+    description: 'ERP username (PRD F11 - replaces email/password for web)',
+    example: 'james.o',
+  })
+  @IsString()
+  @IsNotEmpty()
+  username: string;
+
+  @ApiProperty({
+    description: 'ERP-issued code (acts as password for web portal)',
+    example: 'twye79woe88',
+  })
+  @IsString()
+  @IsNotEmpty()
+  code: string;
+}
+
+export class StaffPasswordResetRequestDto {
+  @ApiProperty({
+    description:
+      "Officer's registered phone number or email address (PRD F18 #7)",
+    example: 'james.o@viju.example',
+  })
+  @IsString()
+  @IsNotEmpty()
+  identifier: string;
+}
+
+export class StaffPasswordResetConfirmDto {
+  @ApiProperty({ description: 'Identifier used in the request step' })
+  @IsString()
+  @IsNotEmpty()
+  identifier: string;
+
+  @ApiProperty({ description: '6-digit OTP delivered via SMS or email' })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(6)
+  code: string;
+
+  @ApiProperty({ description: 'New password' })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(8)
+  newPassword: string;
+}
