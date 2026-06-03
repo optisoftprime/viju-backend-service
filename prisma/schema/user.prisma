@@ -45,6 +45,9 @@ model Staff {
   role               StaffRole
   name               String
   email              String         @unique
+  phone              String         @unique
+  username           String?        @unique
+  erpCode            String?
   password           String?
   isActive           Boolean        @default(true)
   region             Region?
