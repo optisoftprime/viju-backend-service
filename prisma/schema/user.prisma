@@ -34,11 +34,11 @@ model Customer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  purchases      Purchase[]
-  payments       Payment[]
-  messages       Message[]
-  supportTickets SupportTicket[]
-  ticketReplies  TicketReply[]
+  purchases        Purchase[]
+  payments         Payment[]
+  messages         Message[]
+  supportTickets   SupportTicket[]
+  ticketReplies    TicketReply[]
   notifications    Notification[]
   pushTokens       PushToken[]
   loadingRequests  LoadingRequest[]
