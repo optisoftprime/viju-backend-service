@@ -25,10 +25,11 @@ async function main() {
       password: customerPassword,
       accountStatus: 'ACTIVE',
       outstandingBalance: 0.0,
+      region: 'LAGOS',
     },
   });
 
-  const customer2 = await prisma.customer.upsert({
+  await prisma.customer.upsert({
     where: { phone: '254787654321' },
     update: {},
     create: {
@@ -38,16 +39,18 @@ async function main() {
       password: customerPassword,
       accountStatus: 'ACTIVE',
       outstandingBalance: 5000.0,
+      region: 'SOUTH_WEST',
     },
   });
 
   // Create test staff
-  const admin = await prisma.staff.upsert({
+  await prisma.staff.upsert({
     where: { email: 'admin@viju.local' },
     update: {},
     create: {
       name: 'Admin User',
       email: 'admin@viju.local',
+      phone: '+2348000000001',
       password: staffPassword,
       role: 'ADMIN',
       isActive: true,
@@ -60,8 +63,10 @@ async function main() {
     create: {
       name: 'Sales Officer',
       email: 'officer@viju.local',
+      phone: '+2348000000002',
       password: staffPassword,
       role: 'OFFICER',
+      region: 'LAGOS',
       isActive: true,
     },
   });

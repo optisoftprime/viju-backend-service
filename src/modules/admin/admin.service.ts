@@ -90,9 +90,11 @@ export class AdminService {
         role: 'OFFICER',
         name: dto.name,
         email: dto.email,
+        phone: dto.phone,
+        region: dto.region,
         password: hashedPassword,
       },
-      select: { id: true, name: true, email: true },
+      select: { id: true, name: true, email: true, phone: true, region: true },
     });
   }
 
