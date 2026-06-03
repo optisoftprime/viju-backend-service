@@ -4,7 +4,11 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { ReassignOfficerDto, CreateOfficerDto } from './dto/admin.dto';
+import {
+  ReassignOfficerDto,
+  CreateOfficerDto,
+  CreateTestCustomerDto,
+} from './dto/admin.dto';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -95,6 +99,36 @@ export class AdminService {
         password: hashedPassword,
       },
       select: { id: true, name: true, email: true, phone: true, region: true },
+    });
+  }
+
+  async createTestCustomer(dto: CreateTestCustomerDto) {
+    const existing = await this.prisma.customer.findFirst({
+      where: { phone: dto.phone },
+    });
+    if (existing) {
+      throw new BadRequestException(
+        'A customer with that phone number already exists.',
+      );
+    }
+
+    const erpId = dto.erpId ?? `MOCK-${Date.now()}`;
+    return this.prisma.customer.create({
+      data: {
+        erpId,
+        name: dto.name,
+        phone: dto.phone,
+        email: dto.email,
+        region: dto.region,
+      },
+      select: {
+        id: true,
+        erpId: true,
+        name: true,
+        phone: true,
+        email: true,
+        region: true,
+      },
     });
   }
 

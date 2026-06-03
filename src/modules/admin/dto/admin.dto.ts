@@ -49,3 +49,33 @@ export class CreateOfficerDto {
   @MinLength(8)
   password: string;
 }
+
+export class CreateTestCustomerDto {
+  @ApiProperty({ example: '+2348012345678' })
+  @IsString()
+  @IsNotEmpty()
+  phone: string;
+
+  @ApiProperty({ example: 'Test Distributor Ltd' })
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @ApiProperty({ enum: Region, example: Region.LAGOS })
+  @IsEnum(Region)
+  region: Region;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'ERP customer ID. If omitted, a MOCK- prefixed ID is generated. Will collide with real ERP IDs once F8 sync lands.',
+  })
+  @IsOptional()
+  @IsString()
+  erpId?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+}

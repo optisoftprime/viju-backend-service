@@ -13,7 +13,11 @@ import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { ReassignOfficerDto, CreateOfficerDto } from './dto/admin.dto';
+import {
+  ReassignOfficerDto,
+  CreateOfficerDto,
+  CreateTestCustomerDto,
+} from './dto/admin.dto';
 
 @ApiTags('Admin Portal')
 @ApiBearerAuth()
@@ -43,6 +47,18 @@ export class AdminController {
   ) {
     await this.adminService.reassignOfficer(id, dto);
     return { message: 'Officer reassigned successfully' };
+  }
+
+  @Post('customers')
+  @ApiOperation({
+    summary: 'Create a test customer (mocks ERP customer sync)',
+    description:
+      'Stand-in for the ERP customer sync (PRD F8) until that integration lands. ' +
+      'Lets FE/QA seed any phone number for OTP flow testing without waiting on ERP. ' +
+      'Replace or remove once /erp/sync/customers is wired up.',
+  })
+  async createTestCustomer(@Body() dto: CreateTestCustomerDto) {
+    return this.adminService.createTestCustomer(dto);
   }
 
   @Get('officers')

@@ -4,7 +4,8 @@ import { IsEnum, IsNotEmpty, IsString } from 'class-validator';
 
 export class RegisterPushTokenDto {
   @ApiProperty({
-    description: 'Device push token from FCM (Android), APNs (iOS), or Web Push',
+    description:
+      'Device push token from FCM (Android), APNs (iOS), or Web Push',
     example: 'cKx4...:APA91bH...',
   })
   @IsString()

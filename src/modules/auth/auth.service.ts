@@ -20,6 +20,7 @@ import * as bcrypt from 'bcryptjs';
 import { SmsService } from '../../infrastructure/sms/sms.service';
 import { ErpService } from '../../infrastructure/erp/erp.types';
 import { StaffRole } from '@prisma/client';
+import { isDevMode } from '../../common/utils/env';
 
 const PASSWORD_MAX_ATTEMPTS = 5;
 const PASSWORD_LOCK_MINUTES = 30;
@@ -59,7 +60,15 @@ export class AuthService {
       to: dto.phone,
       body: `Your Viju verification code is ${code}. It expires in 10 minutes.`,
     });
-    return { message: 'OTP sent successfully' };
+
+    return {
+      message: 'OTP sent successfully',
+      ...(isDevMode() && {
+        devOtp: code,
+        devNote:
+          'OTP is included in this response because NODE_ENV !== "production". Never enable dev mode in prod.',
+      }),
+    };
   }
 
   async verifyOtp(dto: VerifyOtpDto) {
@@ -180,7 +189,7 @@ export class AuthService {
           username: erpStaff.username,
           erpCode: erpStaff.erpCode,
           phone: erpStaff.phone,
-          role: erpStaff.role as StaffRole,
+          role: erpStaff.role,
           region: erpStaff.region ?? null,
         },
         create: {
@@ -189,7 +198,7 @@ export class AuthService {
           phone: erpStaff.phone,
           username: erpStaff.username,
           erpCode: erpStaff.erpCode,
-          role: erpStaff.role as StaffRole,
+          role: erpStaff.role,
           region: erpStaff.region ?? null,
         },
       });
@@ -239,7 +248,10 @@ export class AuthService {
       });
     }
 
-    return { message: 'If the account exists, an OTP has been sent.' };
+    return {
+      message: 'If the account exists, an OTP has been sent.',
+      ...(isDevMode() && { devOtp: code }),
+    };
   }
 
   async confirmStaffPasswordReset(dto: StaffPasswordResetConfirmDto) {

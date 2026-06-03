@@ -41,7 +41,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Legacy: Staff login via email and password',
-    description: 'Retained for transition. New web portal uses /auth/staff/web-login.',
+    description:
+      'Retained for transition. New web portal uses /auth/staff/web-login.',
   })
   async staffLogin(@Body() dto: StaffLoginDto) {
     return this.authService.staffLogin(dto);

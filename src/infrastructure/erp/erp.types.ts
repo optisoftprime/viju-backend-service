@@ -76,7 +76,12 @@ export interface ErpStaffCredential {
   name: string;
   email: string;
   phone: string;
-  role: 'OFFICER' | 'ADMIN' | 'REGIONAL_ADMIN' | 'LOADING_OFFICER' | 'WAREHOUSE_OFFICER';
+  role:
+    | 'OFFICER'
+    | 'ADMIN'
+    | 'REGIONAL_ADMIN'
+    | 'LOADING_OFFICER'
+    | 'WAREHOUSE_OFFICER';
   region?: ErpRegion;
 }
 
@@ -86,12 +91,19 @@ export interface DateRange {
 }
 
 export abstract class ErpService {
-  abstract findCustomerByPhone(phone: string): Promise<ErpCustomerProfile | null>;
-  abstract getCustomerProfile(erpId: string): Promise<ErpCustomerProfile | null>;
+  abstract findCustomerByPhone(
+    phone: string,
+  ): Promise<ErpCustomerProfile | null>;
+  abstract getCustomerProfile(
+    erpId: string,
+  ): Promise<ErpCustomerProfile | null>;
   abstract getWalletBalance(erpId: string): Promise<ErpWalletBalance>;
   abstract getStockBalance(erpId: string): Promise<ErpStockBalance>;
   abstract getInvoices(erpId: string, range?: DateRange): Promise<ErpInvoice[]>;
-  abstract getPurchases(erpId: string, range?: DateRange): Promise<ErpPurchase[]>;
+  abstract getPurchases(
+    erpId: string,
+    range?: DateRange,
+  ): Promise<ErpPurchase[]>;
   abstract getPayments(erpId: string, range?: DateRange): Promise<ErpPayment[]>;
   abstract validateStaffCredentials(
     username: string,

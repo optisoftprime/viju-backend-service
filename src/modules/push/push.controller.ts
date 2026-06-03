@@ -23,10 +23,7 @@ export class PushController {
     description:
       'Idempotent: re-registering the same token updates platform and reactivates if previously unregistered.',
   })
-  register(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: RegisterPushTokenDto,
-  ) {
+  register(@CurrentUser() user: AuthUser, @Body() dto: RegisterPushTokenDto) {
     return this.pushService.register({
       token: dto.token,
       platform: dto.platform,

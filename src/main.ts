@@ -1,7 +1,8 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { isDevMode } from './common/utils/env';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -41,11 +42,15 @@ async function bootstrap() {
         type: 'http',
         scheme: 'bearer',
         bearerFormat: 'JWT',
-        description: 'JWT issued by /auth/customer/login or /auth/staff/web-login',
+        description:
+          'JWT issued by /auth/customer/login or /auth/staff/web-login',
       },
       'JWT',
     )
-    .addTag('Authentication', 'Customer OTP/password + staff ERP credential login')
+    .addTag(
+      'Authentication',
+      'Customer OTP/password + staff ERP credential login',
+    )
     .addTag('Push Notifications', 'Device push token registration')
     .addTag('Customer', 'Distributor self-service (mobile app)')
     .addTag('Officer', 'Account officer endpoints (web portal)')
@@ -66,9 +71,15 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
-  console.log(`Application is running on: http://localhost:${port}/api/v1`);
-  console.log(
-    `Swagger Docs are available at: http://localhost:${port}/api/docs`,
-  );
+
+  const logger = new Logger('Bootstrap');
+  logger.log(`Application is running on: http://localhost:${port}/api/v1`);
+  logger.log(`Swagger docs: http://localhost:${port}/api/docs`);
+
+  if (isDevMode()) {
+    logger.warn(
+      '⚠️  DEV MODE: OTPs are returned in API responses. Never run with NODE_ENV !== "production" in prod.',
+    );
+  }
 }
 void bootstrap();
