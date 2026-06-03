@@ -7,6 +7,8 @@ import {
   CustomerLoginDto,
   StaffLoginDto,
   StaffWebLoginDto,
+  StaffPasswordResetRequestDto,
+  StaffPasswordResetConfirmDto,
 } from './dto/auth.dto';
 
 @ApiTags('Authentication')
@@ -54,5 +56,25 @@ export class AuthController {
   })
   async staffWebLogin(@Body() dto: StaffWebLoginDto) {
     return this.authService.staffWebLogin(dto);
+  }
+
+  @Post('staff/password-reset/request')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Staff password reset - request OTP (PRD F18 #7)',
+    description:
+      'Send a 6-digit OTP to the officer/admin via SMS (phone) or email. Always returns success message regardless of whether the account exists, to avoid leaking valid identifiers.',
+  })
+  async requestStaffPasswordReset(@Body() dto: StaffPasswordResetRequestDto) {
+    return this.authService.requestStaffPasswordReset(dto);
+  }
+
+  @Post('staff/password-reset/confirm')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Staff password reset - submit OTP and set new password',
+  })
+  async confirmStaffPasswordReset(@Body() dto: StaffPasswordResetConfirmDto) {
+    return this.authService.confirmStaffPasswordReset(dto);
   }
 }

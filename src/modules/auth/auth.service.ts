@@ -13,6 +13,8 @@ import {
   CustomerLoginDto,
   StaffLoginDto,
   StaffWebLoginDto,
+  StaffPasswordResetRequestDto,
+  StaffPasswordResetConfirmDto,
 } from './dto/auth.dto';
 import * as bcrypt from 'bcryptjs';
 import { SmsService } from '../../infrastructure/sms/sms.service';
@@ -212,6 +214,81 @@ export class AuthService {
     if (!isMatch) throw new UnauthorizedException('Incorrect credentials.');
 
     return this.generateToken(staff, 'STAFF');
+  }
+
+  async requestStaffPasswordReset(dto: StaffPasswordResetRequestDto) {
+    const staff = await this.findStaffByIdentifier(dto.identifier);
+    if (!staff) {
+      return { message: 'If the account exists, an OTP has been sent.' };
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await this.prisma.otpVerification.create({
+      data: { phone: dto.identifier, code, expiresAt },
+    });
+
+    const isEmail = dto.identifier.includes('@');
+    if (isEmail) {
+      console.log(`[email mock] reset code ${code} -> ${dto.identifier}`);
+    } else {
+      await this.sms.send({
+        to: dto.identifier,
+        body: `Your Viju password reset code is ${code}. Expires in 10 minutes.`,
+      });
+    }
+
+    return { message: 'If the account exists, an OTP has been sent.' };
+  }
+
+  async confirmStaffPasswordReset(dto: StaffPasswordResetConfirmDto) {
+    const otp = await this.prisma.otpVerification.findFirst({
+      where: { phone: dto.identifier },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!otp) throw new BadRequestException('No reset request found.');
+    if (otp.expiresAt < new Date())
+      throw new BadRequestException('Reset code expired.');
+    if (otp.lockedUntil && otp.lockedUntil > new Date())
+      throw new ForbiddenException('Too many attempts. Try again later.');
+
+    if (otp.code !== dto.code) {
+      await this.prisma.otpVerification.update({
+        where: { id: otp.id },
+        data: {
+          attempts: otp.attempts + 1,
+          lockedUntil:
+            otp.attempts + 1 >= 3
+              ? new Date(Date.now() + 30 * 60 * 1000)
+              : null,
+        },
+      });
+      throw new UnauthorizedException('Invalid code.');
+    }
+
+    const staff = await this.findStaffByIdentifier(dto.identifier);
+    if (!staff) throw new NotFoundException('Account not found.');
+
+    const hashed = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.staff.update({
+      where: { id: staff.id },
+      data: { password: hashed, failedLoginAttempts: 0, lockedUntil: null },
+    });
+
+    await this.prisma.otpVerification.deleteMany({
+      where: { phone: dto.identifier },
+    });
+
+    return { message: 'Password updated. You can now log in.' };
+  }
+
+  private findStaffByIdentifier(identifier: string) {
+    return this.prisma.staff.findFirst({
+      where: identifier.includes('@')
+        ? { email: identifier }
+        : { phone: identifier },
+    });
   }
 
   private generateToken(user: any, entityType: 'CUSTOMER' | 'STAFF') {
