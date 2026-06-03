@@ -4,6 +4,8 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { UnauthorizedException, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
+import { SmsService } from '../../infrastructure/sms/sms.service';
+import { ErpService } from '../../infrastructure/erp/erp.types';
 
 jest.mock('bcryptjs', () => ({
   compare: jest.fn(),
@@ -35,12 +37,26 @@ describe('AuthService', () => {
     sign: jest.fn().mockReturnValue('mocked_jwt_token'),
   };
 
+  const mockSms = { send: jest.fn().mockResolvedValue(undefined) };
+  const mockErp = {
+    findCustomerByPhone: jest.fn(),
+    getCustomerProfile: jest.fn(),
+    getWalletBalance: jest.fn(),
+    getStockBalance: jest.fn(),
+    getInvoices: jest.fn(),
+    getPurchases: jest.fn(),
+    getPayments: jest.fn(),
+    validateStaffCredentials: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: JwtService, useValue: mockJwt },
+        { provide: SmsService, useValue: mockSms },
+        { provide: ErpService, useValue: mockErp },
       ],
     }).compile();
 
