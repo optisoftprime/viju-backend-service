@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { JwtService } from '@nestjs/jwt';
@@ -13,12 +14,17 @@ import {
   StaffLoginDto,
 } from './dto/auth.dto';
 import * as bcrypt from 'bcryptjs';
+import { SmsService } from '../../infrastructure/sms/sms.service';
+
+const PASSWORD_MAX_ATTEMPTS = 5;
+const PASSWORD_LOCK_MINUTES = 30;
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly sms: SmsService,
   ) {}
 
   async requestOtp(dto: RequestOtpDto) {
@@ -43,7 +49,10 @@ export class AuthService {
       },
     });
 
-    console.log(`[SMS MOCK] Sent code ${code} to ${dto.phone}`);
+    await this.sms.send({
+      to: dto.phone,
+      body: `Your Viju verification code is ${code}. It expires in 10 minutes.`,
+    });
     return { message: 'OTP sent successfully' };
   }
 
@@ -105,9 +114,42 @@ export class AuthService {
     if (!customer || !customer.password)
       throw new UnauthorizedException('Incorrect password. Please try again.');
 
+    if (customer.lockedUntil && customer.lockedUntil > new Date()) {
+      const minutesLeft = Math.ceil(
+        (customer.lockedUntil.getTime() - Date.now()) / 60_000,
+      );
+      throw new ForbiddenException(
+        `Your account is locked. Try again in ${minutesLeft} minutes.`,
+      );
+    }
+
     const isMatch = await bcrypt.compare(dto.password, customer.password);
-    if (!isMatch)
+    if (!isMatch) {
+      const nextAttempts = customer.failedLoginAttempts + 1;
+      const willLock = nextAttempts >= PASSWORD_MAX_ATTEMPTS;
+      await this.prisma.customer.update({
+        where: { id: customer.id },
+        data: {
+          failedLoginAttempts: willLock ? 0 : nextAttempts,
+          lockedUntil: willLock
+            ? new Date(Date.now() + PASSWORD_LOCK_MINUTES * 60_000)
+            : null,
+        },
+      });
+      if (willLock) {
+        throw new ForbiddenException(
+          `Account locked for ${PASSWORD_LOCK_MINUTES} minutes due to too many failed attempts.`,
+        );
+      }
       throw new UnauthorizedException('Incorrect password. Please try again.');
+    }
+
+    if (customer.failedLoginAttempts > 0 || customer.lockedUntil) {
+      await this.prisma.customer.update({
+        where: { id: customer.id },
+        data: { failedLoginAttempts: 0, lockedUntil: null },
+      });
+    }
 
     return this.generateToken(customer, 'CUSTOMER');
   }
