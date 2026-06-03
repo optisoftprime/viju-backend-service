@@ -2,7 +2,9 @@ import {
   PrismaClient,
   Region,
   StaffRole,
+  AccountStatus,
   Staff,
+  Customer,
   Purchase,
   LoadingRequestStatus,
 } from '@prisma/client';
@@ -39,34 +41,51 @@ async function main() {
   await prisma.customer.updateMany({ data: { assignedOfficerId: null } });
   await prisma.staff.deleteMany({});
 
-  // ─── Customers ─────────────────────────────────────────
-  const customer1 = await prisma.customer.upsert({
-    where: { phone: MAIN_TEST_PHONE },
-    update: {},
-    create: {
-      erpId: 'CUST001',
-      name: 'John Doe',
-      phone: MAIN_TEST_PHONE,
-      password: customerPassword,
-      accountStatus: 'ACTIVE',
-      outstandingBalance: 480000,
-      region: 'LAGOS',
-    },
-  });
+  // ─── Customers (10 total, distributed across regions) ──
+  const customerSeeds: Array<{
+    erpId: string;
+    name: string;
+    phone: string;
+    region: Region;
+    accountStatus: AccountStatus;
+    outstandingBalance: number;
+  }> = [
+    { erpId: 'CUST001', name: 'John Doe',             phone: MAIN_TEST_PHONE,      region: 'LAGOS',      accountStatus: 'ACTIVE',  outstandingBalance: 480000 },
+    { erpId: 'CUST002', name: 'Jane Smith',           phone: SECONDARY_TEST_PHONE, region: 'SOUTH_WEST', accountStatus: 'ACTIVE',  outstandingBalance: 5000   },
+    { erpId: 'CUST003', name: 'Ade Foods Ltd',        phone: '+2349011000003',     region: 'LAGOS',      accountStatus: 'ACTIVE',  outstandingBalance: 1240000 },
+    { erpId: 'CUST004', name: 'K1 Fresh Mart',        phone: '+2349011000004',     region: 'LAGOS',      accountStatus: 'ACTIVE',  outstandingBalance: 0       },
+    { erpId: 'CUST005', name: 'Alhaji Bello & Sons',  phone: '+2349011000005',     region: 'NORTH',      accountStatus: 'ACTIVE',  outstandingBalance: 190980  },
+    { erpId: 'CUST006', name: 'Ikorodu Mega Distributor', phone: '+2349011000006', region: 'LAGOS',      accountStatus: 'ACTIVE',  outstandingBalance: 320500  },
+    { erpId: 'CUST007', name: 'Unity Stores Nig. Ltd',phone: '+2349011000007',     region: 'SOUTH_EAST', accountStatus: 'ON_HOLD', outstandingBalance: 75000   },
+    { erpId: 'CUST008', name: 'Alhaji Faruk Shola',   phone: '+2349011000008',     region: 'NORTH',      accountStatus: 'ACTIVE',  outstandingBalance: 0       },
+    { erpId: 'CUST009', name: 'Bello & Sons LTD',     phone: '+2349011000009',     region: 'SOUTH_WEST', accountStatus: 'ACTIVE',  outstandingBalance: 60000   },
+    { erpId: 'CUST010', name: 'Akpan Stores',         phone: '+2349011000010',     region: 'SOUTH_EAST', accountStatus: 'ACTIVE',  outstandingBalance: 0       },
+  ];
 
-  await prisma.customer.upsert({
-    where: { phone: SECONDARY_TEST_PHONE },
-    update: {},
-    create: {
-      erpId: 'CUST002',
-      name: 'Jane Smith',
-      phone: SECONDARY_TEST_PHONE,
-      password: customerPassword,
-      accountStatus: 'ACTIVE',
-      outstandingBalance: 5000,
-      region: 'SOUTH_WEST',
-    },
-  });
+  const customers: Customer[] = [];
+  for (const c of customerSeeds) {
+    const customer = await prisma.customer.upsert({
+      where: { phone: c.phone },
+      update: {
+        erpId: c.erpId,
+        name: c.name,
+        region: c.region,
+        accountStatus: c.accountStatus,
+        outstandingBalance: c.outstandingBalance,
+      },
+      create: {
+        erpId: c.erpId,
+        name: c.name,
+        phone: c.phone,
+        password: customerPassword,
+        accountStatus: c.accountStatus,
+        outstandingBalance: c.outstandingBalance,
+        region: c.region,
+      },
+    });
+    customers.push(customer);
+  }
+  const customer1 = customers[0];
 
   // ─── Staff (10 across all roles) ───────────────────────
   const staffSeeds: Array<{
@@ -77,7 +96,7 @@ async function main() {
     region: Region | null;
   }> = [
     { email: 'admin@viju.local',     name: 'Admin User',          phone: '+2348000000001', role: 'ADMIN',             region: null      },
-    { email: 'admin2@viju.local',    name: 'Second Admin',        phone: '+2348000000002', role: 'ADMIN',             region: null      },
+    { email: 'officer.north@viju.local',    name: 'Aisha Bello',    phone: '+2348000000002', role: 'OFFICER',           region: 'NORTH'     },
     { email: 'officer.lagos@viju.local',    name: 'Funmi Adelaja',  phone: '+2348000000003', role: 'OFFICER',           region: 'LAGOS'     },
     { email: 'officer.sw@viju.local',       name: 'David Ukonmagu', phone: '+2348000000004', role: 'OFFICER',           region: 'SOUTH_WEST' },
     { email: 'officer.se@viju.local',       name: 'Emeka Nwakolo',  phone: '+2348000000005', role: 'OFFICER',           region: 'SOUTH_EAST' },
@@ -128,6 +147,27 @@ async function main() {
     update: { isPrimary: false },
     create: { customerId: customer1.id, staffId: secondLagosOfficer.id, isPrimary: false },
   });
+
+  // Assign each other customer to an officer in their region
+  const officersByRegion: Record<string, Staff | undefined> = {
+    LAGOS:      lagosOfficer,
+    SOUTH_WEST: staffList.find((s) => s.email === 'officer.sw@viju.local'),
+    SOUTH_EAST: staffList.find((s) => s.email === 'officer.se@viju.local'),
+    NORTH:      staffList.find((s) => s.email === 'officer.north@viju.local'),
+  };
+  for (const c of customers.slice(1)) {
+    const officer = officersByRegion[c.region];
+    if (!officer) continue;
+    await prisma.customer.update({
+      where: { id: c.id },
+      data: { assignedOfficerId: officer.id },
+    });
+    await prisma.customerOfficer.upsert({
+      where: { customerId_staffId: { customerId: c.id, staffId: officer.id } },
+      update: { isPrimary: true },
+      create: { customerId: c.id, staffId: officer.id, isPrimary: true },
+    });
+  }
 
   // ─── 10 Stock items (shared catalogue) ──────────────────
   const stockProducts = [
@@ -341,8 +381,18 @@ async function main() {
 
   console.log('✅ Seed complete.\n');
   console.log('📋 CUSTOMER LOGINS (password: ' + CUSTOMER_PASSWORD + ')');
-  console.log(`   ${MAIN_TEST_PHONE}  → John Doe (Lagos)   — has 10x of each entity for list testing`);
-  console.log(`   ${SECONDARY_TEST_PHONE}  → Jane Smith (SW)\n`);
+  for (const c of customerSeeds) {
+    const tag =
+      c.phone === MAIN_TEST_PHONE
+        ? '← MAIN test: 10x of every entity'
+        : c.accountStatus === 'ON_HOLD'
+          ? '(on hold)'
+          : '';
+    console.log(
+      `   ${c.phone.padEnd(16)} ${c.region.padEnd(11)} ${c.name.padEnd(28)} ${tag}`,
+    );
+  }
+  console.log('');
   console.log('📋 STAFF LOGINS (password: ' + STAFF_PASSWORD + ')');
   for (const s of staffSeeds) {
     console.log(`   ${s.email.padEnd(32)} ${s.role.padEnd(18)} ${s.region ?? '—'}`);
