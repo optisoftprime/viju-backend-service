@@ -29,6 +29,8 @@ model Customer {
   assignedOfficerId  String?
   assignedOfficer    Staff?         @relation("OfficerToCustomer", fields: [assignedOfficerId], references: [id])
 
+  officerAssignments CustomerOfficer[]
+
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
@@ -59,11 +61,12 @@ model Staff {
   createdAt          DateTime       @default(now())
   updatedAt          DateTime       @updatedAt
 
-  customers          Customer[]     @relation("OfficerToCustomer")
-  messages           Message[]
-  ticketReplies      TicketReply[]
-  notifications      Notification[]
-  pushTokens         PushToken[]
+  customers             Customer[]        @relation("OfficerToCustomer")
+  customerAssignments   CustomerOfficer[] @relation("StaffToCustomerAssignment")
+  messages              Message[]
+  ticketReplies         TicketReply[]
+  notifications         Notification[]
+  pushTokens            PushToken[]
 }
 
 model OtpVerification {
