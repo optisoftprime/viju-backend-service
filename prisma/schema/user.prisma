@@ -12,61 +12,61 @@ enum AccountStatus {
 }
 
 model Customer {
-  id                 String         @id @default(uuid())
-  erpId              String         @unique
+  id                 String        @id @default(uuid())
+  erpId              String        @unique
   name               String
-  phone              String         @unique
+  phone              String        @unique
   email              String?
   password           String?
   profilePhotoUrl    String?
-  accountStatus      AccountStatus  @default(ACTIVE)
-  outstandingBalance Float          @default(0.0)
+  accountStatus      AccountStatus @default(ACTIVE)
+  outstandingBalance Float         @default(0.0)
   region             Region
 
-  failedLoginAttempts Int           @default(0)
+  failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
 
-  assignedOfficerId  String?
-  assignedOfficer    Staff?         @relation("OfficerToCustomer", fields: [assignedOfficerId], references: [id])
+  assignedOfficerId String?
+  assignedOfficer   Staff?  @relation("OfficerToCustomer", fields: [assignedOfficerId], references: [id])
 
   officerAssignments CustomerOfficer[]
 
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  purchases          Purchase[]
-  payments           Payment[]
-  messages           Message[]
-  supportTickets     SupportTicket[]
-  ticketReplies      TicketReply[]
-  notifications      Notification[]
-  pushTokens         PushToken[]
+  purchases      Purchase[]
+  payments       Payment[]
+  messages       Message[]
+  supportTickets SupportTicket[]
+  ticketReplies  TicketReply[]
+  notifications  Notification[]
+  pushTokens     PushToken[]
 }
 
 model Staff {
-  id                 String         @id @default(uuid())
-  role               StaffRole
-  name               String
-  email              String         @unique
-  phone              String         @unique
-  username           String?        @unique
-  erpCode            String?
-  password           String?
-  isActive           Boolean        @default(true)
-  region             Region?
+  id       String    @id @default(uuid())
+  role     StaffRole
+  name     String
+  email    String    @unique
+  phone    String    @unique
+  username String?   @unique
+  erpCode  String?
+  password String?
+  isActive Boolean   @default(true)
+  region   Region?
 
-  failedLoginAttempts Int           @default(0)
+  failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
-  
-  createdAt          DateTime       @default(now())
-  updatedAt          DateTime       @updatedAt
 
-  customers             Customer[]        @relation("OfficerToCustomer")
-  customerAssignments   CustomerOfficer[] @relation("StaffToCustomerAssignment")
-  messages              Message[]
-  ticketReplies         TicketReply[]
-  notifications         Notification[]
-  pushTokens            PushToken[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customers           Customer[]        @relation("OfficerToCustomer")
+  customerAssignments CustomerOfficer[] @relation("StaffToCustomerAssignment")
+  messages            Message[]
+  ticketReplies       TicketReply[]
+  notifications       Notification[]
+  pushTokens          PushToken[]
 }
 
 model OtpVerification {
@@ -77,6 +77,6 @@ model OtpVerification {
   attempts    Int       @default(0)
   lockedUntil DateTime?
   createdAt   DateTime  @default(now())
-  
+
   @@index([phone])
 }
