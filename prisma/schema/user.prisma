@@ -39,8 +39,10 @@ model Customer {
   messages       Message[]
   supportTickets SupportTicket[]
   ticketReplies  TicketReply[]
-  notifications  Notification[]
-  pushTokens     PushToken[]
+  notifications    Notification[]
+  pushTokens       PushToken[]
+  loadingRequests  LoadingRequest[]
+  termsAcceptances TermsAcceptance[]
 }
 
 model Staff {
@@ -67,6 +69,7 @@ model Staff {
   ticketReplies       TicketReply[]
   notifications       Notification[]
   pushTokens          PushToken[]
+  loadingRequests     LoadingRequest[]  @relation("LoadingOfficerToRequest")
 }
 
 model OtpVerification {
