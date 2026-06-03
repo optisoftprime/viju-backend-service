@@ -34,10 +34,11 @@ model Customer {
 
   purchases          Purchase[]
   payments           Payment[]
-  messages           Message[]      
+  messages           Message[]
   supportTickets     SupportTicket[]
-  ticketReplies      TicketReply[]  
-  notifications      Notification[] 
+  ticketReplies      TicketReply[]
+  notifications      Notification[]
+  pushTokens         PushToken[]
 }
 
 model Staff {
@@ -59,9 +60,10 @@ model Staff {
   updatedAt          DateTime       @updatedAt
 
   customers          Customer[]     @relation("OfficerToCustomer")
-  messages           Message[]      
-  ticketReplies      TicketReply[]  
-  notifications      Notification[] 
+  messages           Message[]
+  ticketReplies      TicketReply[]
+  notifications      Notification[]
+  pushTokens         PushToken[]
 }
 
 model OtpVerification {
