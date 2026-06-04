@@ -42,7 +42,8 @@ export class AdminController {
 
   @Get('customers')
   @ApiOperation({
-    summary: 'List customers with optional region filter + name/erpId search (PRD F14 AC5)',
+    summary:
+      'List customers with optional region filter + name/erpId search (PRD F14 AC5)',
   })
   async getAllCustomers(
     @Query('region')
@@ -53,7 +54,9 @@ export class AdminController {
   }
 
   @Get('customers/export.csv')
-  @ApiOperation({ summary: 'Export filtered customer list as CSV (PRD F14 AC6)' })
+  @ApiOperation({
+    summary: 'Export filtered customer list as CSV (PRD F14 AC6)',
+  })
   async exportCustomers(
     @Query('region')
     region: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH' | undefined,
