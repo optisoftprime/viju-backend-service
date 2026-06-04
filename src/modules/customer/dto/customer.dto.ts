@@ -22,6 +22,18 @@ export class ChangePasswordDto {
   newPassword: string;
 }
 
+export class StatementRangeDto {
+  @ApiPropertyOptional({ description: 'ISO date — inclusive start' })
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @ApiPropertyOptional({ description: 'ISO date — inclusive end' })
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+}
+
 export class PurchaseFilterDto {
   @ApiPropertyOptional({
     description: 'Search term for product name or order ID',

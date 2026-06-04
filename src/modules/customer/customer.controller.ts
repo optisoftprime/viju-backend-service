@@ -9,6 +9,9 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CustomerService } from './customer.service';
+import { StatementService } from './statement.service';
+import { Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -17,6 +20,7 @@ import {
   UpdateProfilePhotoDto,
   ChangePasswordDto,
   PurchaseFilterDto,
+  StatementRangeDto,
 } from './dto/customer.dto';
 
 @ApiTags('Customer Portal')
@@ -25,7 +29,10 @@ import {
 @Roles('CUSTOMER')
 @Controller('customers')
 export class CustomerController {
-  constructor(private readonly customerService: CustomerService) {}
+  constructor(
+    private readonly customerService: CustomerService,
+    private readonly statementService: StatementService,
+  ) {}
 
   @Get('me/home')
   @ApiOperation({
@@ -119,6 +126,52 @@ export class CustomerController {
   })
   async getInvoices(@CurrentUser() user: any) {
     return this.customerService.getInvoices(user.id);
+  }
+
+  @Get('me/account-statement.pdf')
+  @ApiOperation({
+    summary: 'Generate Account Statement PDF (PRD F8 AC6)',
+    description:
+      'Returns a binary PDF (Content-Type: application/pdf) containing ' +
+      'invoices, payments, and running wallet balance for the date range. ' +
+      'Omit dates to get the full lifetime statement.',
+  })
+  async getAccountStatement(
+    @CurrentUser() user: any,
+    @Query() range: StatementRangeDto,
+    @Res() res: Response,
+  ) {
+    const buf = await this.statementService.generateAccountStatement(
+      user.id,
+      range,
+    );
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="viju-account-statement.pdf"',
+    );
+    res.send(buf);
+  }
+
+  @Get('me/stock-statement.pdf')
+  @ApiOperation({
+    summary: 'Generate Stock Statement PDF (PRD F8 AC7)',
+  })
+  async getStockStatement(
+    @CurrentUser() user: any,
+    @Query() range: StatementRangeDto,
+    @Res() res: Response,
+  ) {
+    const buf = await this.statementService.generateStockStatement(
+      user.id,
+      range,
+    );
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="viju-stock-statement.pdf"',
+    );
+    res.send(buf);
   }
 
   @Get('me/invoices/:id')
