@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
+import { EmailService } from '../../infrastructure/email/email.types';
 import {
   ReassignOfficerDto,
   CreateOfficerDto,
@@ -20,6 +21,7 @@ export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
+    private readonly email: EmailService,
   ) {}
 
   async getDashboardStats() {
@@ -174,7 +176,7 @@ export class AdminService {
     if (existing) throw new BadRequestException('Email already in use');
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
-    return this.prisma.staff.create({
+    const officer = await this.prisma.staff.create({
       data: {
         role: 'OFFICER',
         name: dto.name,
@@ -185,6 +187,27 @@ export class AdminService {
       },
       select: { id: true, name: true, email: true, phone: true, region: true },
     });
+
+    // PRD F18 AC4 — email the new officer their login credentials
+    await this.email.send({
+      to: dto.email,
+      subject: 'Welcome to Viju Account Officer Portal',
+      body: [
+        `Hello ${dto.name},`,
+        '',
+        'An account has been created for you on the Viju Account Officer Portal.',
+        '',
+        `Email:    ${dto.email}`,
+        `Region:   ${dto.region ?? '—'}`,
+        `Password: ${dto.password}`,
+        '',
+        'Please log in and change your password as soon as possible.',
+        '',
+        'Viju Team',
+      ].join('\n'),
+    });
+
+    return officer;
   }
 
   async createTestCustomer(dto: CreateTestCustomerDto) {

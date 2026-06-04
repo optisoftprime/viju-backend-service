@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AdminService } from './admin.service';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
+import { EmailService } from '../../infrastructure/email/email.types';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 
 describe('AdminService', () => {
@@ -22,6 +23,7 @@ describe('AdminService', () => {
   };
 
   const mockNotifications = { notify: jest.fn().mockResolvedValue(undefined) };
+  const mockEmail = { send: jest.fn().mockResolvedValue(undefined) };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -29,6 +31,7 @@ describe('AdminService', () => {
         AdminService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: NotificationService, useValue: mockNotifications },
+        { provide: EmailService, useValue: mockEmail },
       ],
     }).compile();
 
