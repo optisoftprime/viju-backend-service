@@ -1,4 +1,12 @@
-import { Controller, Get, Patch, Body, UseGuards, Query } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Patch,
+  Body,
+  UseGuards,
+  Query,
+  Param,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { CustomerService } from './customer.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -77,6 +85,22 @@ export class CustomerController {
     @Query() filter: PurchaseFilterDto,
   ) {
     return this.customerService.getPurchases(user.id, filter);
+  }
+
+  @Get('me/purchases/:id')
+  @ApiOperation({
+    summary: 'Order detail with line items + linked invoice (PRD F3 AC2)',
+    description:
+      'Tapping any order on the Payment tab opens this detail view: ' +
+      'individual product lines, status, and the derived invoice number. ' +
+      'Invoice number is generated from the order ERP id until ERP supplies ' +
+      'the real link.',
+  })
+  async getPurchaseDetail(
+    @CurrentUser() user: any,
+    @Param('id') purchaseId: string,
+  ) {
+    return this.customerService.getPurchaseDetail(user.id, purchaseId);
   }
 
   @Get('me/payments')

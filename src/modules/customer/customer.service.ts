@@ -211,6 +211,46 @@ export class CustomerService {
     });
   }
 
+  async getPurchaseDetail(customerId: string, purchaseId: string) {
+    const purchase = await this.prisma.purchase.findFirst({
+      where: { id: purchaseId, customerId },
+      include: {
+        items: {
+          select: {
+            id: true,
+            productName: true,
+            quantity: true,
+            unitPrice: true,
+            lineTotal: true,
+          },
+        },
+      },
+    });
+    if (!purchase) throw new NotFoundException('Order not found');
+
+    return {
+      id: purchase.id,
+      orderId: purchase.erpId,
+      orderDate: purchase.orderDate,
+      status: purchase.status,
+      totalItems: purchase.totalItems,
+      totalValue: purchase.totalValue,
+      linkedInvoiceNumber: this.deriveInvoiceNumber(purchase.erpId),
+      items: purchase.items,
+    };
+  }
+
+  /**
+   * Until the real ERP supplies invoice numbers, derive a stable one
+   * from the purchase ERP id. Format mirrors what the FE shows in Figma
+   * (e.g. order VJ-2026-675 -> invoice INV-444120).
+   */
+  private deriveInvoiceNumber(purchaseErpId: string): string {
+    const digits = purchaseErpId.replace(/\D/g, '');
+    const tail = digits.slice(-6).padStart(6, '0');
+    return `INV-${tail}`;
+  }
+
   async getPayments(customerId: string) {
     return this.prisma.payment.findMany({
       where: { customerId },
