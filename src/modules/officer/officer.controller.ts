@@ -14,6 +14,18 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 export class OfficerController {
   constructor(private readonly officerService: OfficerService) {}
 
+  @Get('dashboard')
+  @ApiOperation({
+    summary: 'Officer dashboard summary cards (PRD F9)',
+    description:
+      'Returns the four top-of-page cards: total distributors, overdue ' +
+      'balances, open tickets, unread messages — all scoped to the ' +
+      'officer’s portfolio.',
+  })
+  async getDashboard(@CurrentUser() user: any) {
+    return this.officerService.getDashboardSummary(user.id);
+  }
+
   @Get('customers')
   @ApiOperation({ summary: 'Get list of customers assigned to the officer' })
   async getCustomers(@CurrentUser() user: any) {
@@ -22,13 +34,58 @@ export class OfficerController {
 
   @Get('customers/:id')
   @ApiOperation({
-    summary: 'Get detailed account view for a specific assigned customer',
+    summary: 'Legacy aggregate detail (kept for backwards compat) — prefer the per-tab endpoints',
   })
   async getCustomerDetail(
     @CurrentUser() user: any,
     @Param('id') customerId: string,
   ) {
     return this.officerService.getCustomerDetail(user.id, customerId);
+  }
+
+  @Get('customers/:id/overview')
+  @ApiOperation({ summary: 'Distributor Overview tab (PRD F10)' })
+  async getCustomerOverview(
+    @CurrentUser() user: any,
+    @Param('id') customerId: string,
+  ) {
+    return this.officerService.getCustomerOverview(user.id, customerId);
+  }
+
+  @Get('customers/:id/orders')
+  @ApiOperation({ summary: 'Distributor Orders tab (PRD F10)' })
+  async getCustomerOrders(
+    @CurrentUser() user: any,
+    @Param('id') customerId: string,
+  ) {
+    return this.officerService.getCustomerOrders(user.id, customerId);
+  }
+
+  @Get('customers/:id/invoices')
+  @ApiOperation({ summary: 'Distributor Invoices tab (PRD F10)' })
+  async getCustomerInvoices(
+    @CurrentUser() user: any,
+    @Param('id') customerId: string,
+  ) {
+    return this.officerService.getCustomerInvoices(user.id, customerId);
+  }
+
+  @Get('customers/:id/stock')
+  @ApiOperation({ summary: 'Distributor Stock tab (PRD F10)' })
+  async getCustomerStock(
+    @CurrentUser() user: any,
+    @Param('id') customerId: string,
+  ) {
+    return this.officerService.getCustomerStock(user.id, customerId);
+  }
+
+  @Get('customers/:id/waybills')
+  @ApiOperation({ summary: 'Distributor Waybills tab (PRD F10)' })
+  async getCustomerWaybills(
+    @CurrentUser() user: any,
+    @Param('id') customerId: string,
+  ) {
+    return this.officerService.getCustomerWaybills(user.id, customerId);
   }
 
   @Get('stock')
