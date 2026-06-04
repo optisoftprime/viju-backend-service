@@ -4,11 +4,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { NotificationService } from '../../infrastructure/notification/notification.service';
 import { SendMessageDto } from './dto/chat.dto';
 
 @Injectable()
 export class ChatService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationService,
+  ) {}
 
   async getMessages(user: any, otherUserId: string) {
     if (user.role === 'CUSTOMER') {
@@ -71,7 +75,7 @@ export class ChatService {
       senderType = 'STAFF';
     }
 
-    return this.prisma.message.create({
+    const message = await this.prisma.message.create({
       data: {
         customerId,
         staffId,
@@ -80,6 +84,43 @@ export class ChatService {
         attachmentUrl: dto.attachmentUrl,
       },
     });
+
+    // PRD §6 notification triggers
+    if (senderType === 'STAFF') {
+      // Customer-facing display name is always 'Viju Account Officer' (PRD F6)
+      await this.notifications.notify({
+        recipientType: 'CUSTOMER',
+        recipientId: customerId,
+        title: 'Viju Account Officer',
+        body: (dto.content ?? '').slice(0, 120),
+        type: 'CHAT_MESSAGE_FROM_OFFICER',
+        data: { messageId: message.id },
+      });
+    } else {
+      // Notify ALL officers assigned to this customer (primary + secondary)
+      const assignments = await this.prisma.customerOfficer.findMany({
+        where: { customerId },
+        select: { staffId: true },
+      });
+      const recipientIds = new Set<string>(assignments.map((a) => a.staffId));
+      recipientIds.add(staffId); // fallback for legacy assignedOfficerId
+      const customer = await this.prisma.customer.findUnique({
+        where: { id: customerId },
+        select: { name: true },
+      });
+      for (const recipientId of recipientIds) {
+        await this.notifications.notify({
+          recipientType: 'STAFF',
+          recipientId,
+          title: `New message from ${customer?.name ?? 'distributor'}`,
+          body: (dto.content ?? '').slice(0, 120),
+          type: 'CHAT_MESSAGE_FROM_CUSTOMER',
+          data: { messageId: message.id, customerId },
+        });
+      }
+    }
+
+    return message;
   }
 
   async getAudits(adminId: string, customerId: string) {

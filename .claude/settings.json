@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test *)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'feat\\(notifications\\): wire PRD §6 triggers across chat/ticket/admin *)",
+      "Bash(git push *)"
+    ]
+  }
+}

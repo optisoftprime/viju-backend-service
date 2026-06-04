@@ -4,6 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { NotificationService } from '../../infrastructure/notification/notification.service';
 import {
   ReassignOfficerDto,
   CreateOfficerDto,
@@ -16,7 +17,10 @@ import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationService,
+  ) {}
 
   async getDashboardStats() {
     const totalCustomers = await this.prisma.customer.count();
@@ -66,10 +70,22 @@ export class AdminService {
     });
     if (!officer) throw new NotFoundException('Officer not found');
 
-    return this.prisma.customer.update({
+    const updated = await this.prisma.customer.update({
       where: { id: customerId },
       data: { assignedOfficerId: dto.newOfficerId },
     });
+
+    // PRD §6 — notify the new officer
+    await this.notifications.notify({
+      recipientType: 'STAFF',
+      recipientId: dto.newOfficerId,
+      title: 'Customer assigned',
+      body: `${customer.name} has been assigned to you`,
+      type: 'CUSTOMER_REASSIGNED',
+      data: { customerId },
+    });
+
+    return updated;
   }
 
   async getOfficers() {

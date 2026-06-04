@@ -4,6 +4,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { NotificationService } from '../../infrastructure/notification/notification.service';
 import {
   CreateTicketDto,
   ReplyTicketDto,
@@ -12,11 +13,14 @@ import {
 
 @Injectable()
 export class TicketService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationService,
+  ) {}
 
   async createTicket(customerId: string, dto: CreateTicketDto) {
     const ticketId = `TKT-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
-    return this.prisma.supportTicket.create({
+    const ticket = await this.prisma.supportTicket.create({
       data: {
         ticketId,
         customerId,
@@ -26,6 +30,26 @@ export class TicketService {
         attachmentUrl: dto.attachmentUrl,
       },
     });
+
+    // PRD §6 — notify assigned officers
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { name: true, officerAssignments: { select: { staffId: true } } },
+    });
+    if (customer) {
+      for (const a of customer.officerAssignments) {
+        await this.notifications.notify({
+          recipientType: 'STAFF',
+          recipientId: a.staffId,
+          title: `New ticket from ${customer.name}`,
+          body: `${dto.subject}`,
+          type: 'TICKET_CREATED',
+          data: { ticketId: ticket.id },
+        });
+      }
+    }
+
+    return ticket;
   }
 
   async getCustomerTickets(customerId: string) {
@@ -75,7 +99,7 @@ export class TicketService {
   ) {
     const ticket = await this.getTicket(ticketId, { id: senderId, role });
 
-    return this.prisma.ticketReply.create({
+    const reply = await this.prisma.ticketReply.create({
       data: {
         ticketId: ticket.id,
         senderType: role === 'CUSTOMER' ? 'CUSTOMER' : 'STAFF',
@@ -85,6 +109,35 @@ export class TicketService {
         attachmentUrl: dto.attachmentUrl,
       },
     });
+
+    // PRD §6 — staff reply pushes customer; customer reply notifies officers
+    if (role === 'CUSTOMER') {
+      const assignments = await this.prisma.customerOfficer.findMany({
+        where: { customerId: ticket.customerId },
+        select: { staffId: true },
+      });
+      for (const a of assignments) {
+        await this.notifications.notify({
+          recipientType: 'STAFF',
+          recipientId: a.staffId,
+          title: `Ticket reply: ${ticket.subject}`,
+          body: dto.content.slice(0, 120),
+          type: 'TICKET_REPLY_FROM_CUSTOMER',
+          data: { ticketId: ticket.id },
+        });
+      }
+    } else {
+      await this.notifications.notify({
+        recipientType: 'CUSTOMER',
+        recipientId: ticket.customerId,
+        title: 'Your ticket has a new reply from your officer',
+        body: dto.content.slice(0, 120),
+        type: 'TICKET_REPLY_FROM_OFFICER',
+        data: { ticketId: ticket.id },
+      });
+    }
+
+    return reply;
   }
 
   async updateStatus(
@@ -97,9 +150,21 @@ export class TicketService {
       role: 'OFFICER',
     });
 
-    return this.prisma.supportTicket.update({
+    const updated = await this.prisma.supportTicket.update({
       where: { id: ticket.id },
       data: { status: dto.status },
     });
+
+    // PRD §6 — status change pushes customer
+    await this.notifications.notify({
+      recipientType: 'CUSTOMER',
+      recipientId: ticket.customerId,
+      title: 'Ticket status updated',
+      body: `Your ticket status is now: ${dto.status}`,
+      type: 'TICKET_STATUS_CHANGED',
+      data: { ticketId: ticket.id, status: dto.status },
+    });
+
+    return updated;
   }
 }
