@@ -9,6 +9,8 @@ import {
   StaffWebLoginDto,
   StaffPasswordResetRequestDto,
   StaffPasswordResetConfirmDto,
+  RefreshTokenDto,
+  LogoutDto,
 } from './dto/auth.dto';
 
 @ApiTags('Authentication')
@@ -68,6 +70,32 @@ export class AuthController {
   })
   async requestStaffPasswordReset(@Body() dto: StaffPasswordResetRequestDto) {
     return this.authService.requestStaffPasswordReset(dto);
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Exchange a refresh token for a new access + refresh pair',
+    description:
+      'Refresh tokens are single-use — successful refresh rotates the token, ' +
+      'the previous one is marked revoked. Reusing an already-revoked refresh ' +
+      'token revokes the entire chain and forces re-login (theft defence).',
+  })
+  async refresh(@Body() dto: RefreshTokenDto) {
+    return this.authService.refresh(dto.refresh_token);
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Revoke a refresh token (logout this session)',
+    description:
+      'Pass the refresh_token from your login response. Access tokens stay ' +
+      'valid until their own short expiry; the refresh token is revoked so ' +
+      'no further access tokens can be minted from it.',
+  })
+  async logout(@Body() dto: LogoutDto) {
+    return this.authService.logout(dto.refresh_token);
   }
 
   @Post('staff/password-reset/confirm')

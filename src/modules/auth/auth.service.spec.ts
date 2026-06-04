@@ -31,6 +31,12 @@ describe('AuthService', () => {
       update: jest.fn(),
       deleteMany: jest.fn(),
     },
+    refreshToken: {
+      create: jest.fn().mockResolvedValue({ id: 'rt-1' }),
+      findUnique: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn(),
+    },
   };
 
   const mockJwt = {

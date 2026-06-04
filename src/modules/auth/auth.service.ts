@@ -303,19 +303,163 @@ export class AuthService {
     });
   }
 
-  private generateToken(user: any, entityType: 'CUSTOMER' | 'STAFF') {
-    const payload = {
-      sub: user.id,
-      role: entityType === 'CUSTOMER' ? 'CUSTOMER' : user.role,
-      type: entityType,
-    };
-    return {
-      access_token: this.jwtService.sign(payload),
-      user: {
-        id: user.id,
-        name: user.name,
-        role: payload.role,
+  private async generateToken(
+    user: any,
+    entityType: 'CUSTOMER' | 'STAFF',
+  ) {
+    const role = entityType === 'CUSTOMER' ? 'CUSTOMER' : user.role;
+
+    const refreshTokenRow = await this.prisma.refreshToken.create({
+      data: {
+        ...(entityType === 'CUSTOMER'
+          ? { customerId: user.id }
+          : { staffId: user.id }),
+        expiresAt: new Date(Date.now() + REFRESH_EXPIRY_MS),
       },
+    });
+
+    const accessPayload = { sub: user.id, role, type: entityType };
+    const refreshPayload = {
+      sub: user.id,
+      type: entityType,
+      jti: refreshTokenRow.id,
+      kind: 'refresh' as const,
     };
+
+    const access_token = this.jwtService.sign(accessPayload);
+    const refresh_token = this.jwtService.sign(refreshPayload, {
+      expiresIn: REFRESH_EXPIRY_SECONDS,
+    });
+
+    return {
+      access_token,
+      refresh_token,
+      expires_in: ACCESS_EXPIRY_SECONDS,
+      refresh_expires_in: REFRESH_EXPIRY_SECONDS,
+      user: { id: user.id, name: user.name, role },
+    };
+  }
+
+  /**
+   * Validate a refresh token, rotate it, and return a new token pair.
+   * Reuse of an already-revoked token is treated as a potential theft
+   * signal — we revoke the WHOLE chain and force re-login.
+   */
+  async refresh(refreshToken: string) {
+    let payload: { sub: string; jti: string; type: 'CUSTOMER' | 'STAFF'; kind: string };
+    try {
+      payload = this.jwtService.verify(refreshToken);
+    } catch {
+      throw new UnauthorizedException('Invalid or expired refresh token.');
+    }
+    if (payload.kind !== 'refresh' || !payload.jti) {
+      throw new UnauthorizedException('Token is not a refresh token.');
+    }
+
+    const row = await this.prisma.refreshToken.findUnique({
+      where: { id: payload.jti },
+    });
+    if (!row) {
+      throw new UnauthorizedException('Refresh token not recognised.');
+    }
+    if (row.revokedAt) {
+      // Token reuse — revoke the entire chain as defence in depth.
+      await this.revokeChain(row.id);
+      throw new UnauthorizedException(
+        'Refresh token has been revoked. Please log in again.',
+      );
+    }
+    if (row.expiresAt < new Date()) {
+      throw new UnauthorizedException(
+        'Refresh token expired. Please log in again.',
+      );
+    }
+
+    const user =
+      payload.type === 'CUSTOMER'
+        ? await this.prisma.customer.findUnique({ where: { id: payload.sub } })
+        : await this.prisma.staff.findUnique({ where: { id: payload.sub } });
+    if (!user) throw new UnauthorizedException('User no longer exists.');
+
+    const fresh = await this.generateToken(user, payload.type);
+    // Mark the old row revoked + chained to the new one
+    await this.prisma.refreshToken.update({
+      where: { id: row.id },
+      data: { revokedAt: new Date(), lastUsedAt: new Date() },
+    });
+    // (replacedById is set on the OLD row, pointing at the new jti)
+    const newJti = this.jwtService.decode(fresh.refresh_token) as {
+      jti?: string;
+    } | null;
+    if (newJti?.jti) {
+      await this.prisma.refreshToken.update({
+        where: { id: row.id },
+        data: { replacedById: newJti.jti },
+      });
+    }
+    return fresh;
+  }
+
+  async logout(refreshToken: string): Promise<{ message: string }> {
+    try {
+      const payload = this.jwtService.verify(refreshToken) as {
+        jti?: string;
+      };
+      if (payload.jti) {
+        await this.prisma.refreshToken.updateMany({
+          where: { id: payload.jti, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
+    } catch {
+      // Already invalid — treat as logged out
+    }
+    return { message: 'Logged out.' };
+  }
+
+  private async revokeChain(rootId: string) {
+    // Walk forward via replacedById and revoke any non-revoked descendant
+    let current: string | null = rootId;
+    const seen = new Set<string>();
+    while (current && !seen.has(current)) {
+      seen.add(current);
+      const row = await this.prisma.refreshToken.findUnique({
+        where: { id: current },
+      });
+      if (!row) break;
+      if (!row.revokedAt) {
+        await this.prisma.refreshToken.update({
+          where: { id: row.id },
+          data: { revokedAt: new Date() },
+        });
+      }
+      current = row.replacedById;
+    }
+  }
+}
+
+const ACCESS_EXPIRY_SECONDS = parseDurationToSeconds(
+  process.env.JWT_EXPIRATION ?? '1h',
+);
+const REFRESH_EXPIRY_SECONDS = parseDurationToSeconds(
+  process.env.JWT_REFRESH_EXPIRATION ?? '30d',
+);
+const REFRESH_EXPIRY_MS = REFRESH_EXPIRY_SECONDS * 1000;
+
+function parseDurationToSeconds(input: string): number {
+  const m = input.match(/^(\d+)([smhd])$/);
+  if (!m) return 3600;
+  const n = parseInt(m[1], 10);
+  switch (m[2]) {
+    case 's':
+      return n;
+    case 'm':
+      return n * 60;
+    case 'h':
+      return n * 3600;
+    case 'd':
+      return n * 86400;
+    default:
+      return 3600;
   }
 }

@@ -86,6 +86,23 @@ export class StaffPasswordResetRequestDto {
   identifier: string;
 }
 
+export class RefreshTokenDto {
+  @ApiProperty({ description: 'The refresh_token returned at login/refresh' })
+  @IsString()
+  @IsNotEmpty()
+  refresh_token: string;
+}
+
+export class LogoutDto {
+  @ApiProperty({
+    description:
+      'Refresh token to revoke. Provide the refresh_token from your login response.',
+  })
+  @IsString()
+  @IsNotEmpty()
+  refresh_token: string;
+}
+
 export class StaffPasswordResetConfirmDto {
   @ApiProperty({ description: 'Identifier used in the request step' })
   @IsString()
