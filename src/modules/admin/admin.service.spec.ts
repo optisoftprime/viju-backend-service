@@ -55,13 +55,16 @@ describe('AdminService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should throw NotFound if target officer does not exist', async () => {
-      mockPrisma.customer.findUnique.mockResolvedValue({ id: '1' });
+    it('should throw BadRequest if target officer is not active or not in customer region', async () => {
+      mockPrisma.customer.findUnique.mockResolvedValue({
+        id: '1',
+        region: 'LAGOS',
+      });
       mockPrisma.staff.findFirst.mockResolvedValue(null);
 
       await expect(
         service.reassignOfficer('1', { newOfficerId: 'bad_officer_id' }),
-      ).rejects.toThrow(NotFoundException);
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('should cleanly update the DB and resolve if validation passes', async () => {
