@@ -376,6 +376,76 @@ async function main() {
     });
   }
 
+  // ─── Light data for the OTHER 9 customers ──────────────
+  // Each gets one purchase + one ticket + one chat message so the
+  // /officers/customers dashboard table renders meaningful rows
+  // (last purchase date, open ticket count, last contact date).
+  const otherCustomers = customers.slice(1);
+  for (let i = 0; i < otherCustomers.length; i++) {
+    const c = otherCustomers[i];
+    const officer = await prisma.customerOfficer.findFirst({
+      where: { customerId: c.id, isPrimary: true },
+    });
+    if (!officer) continue;
+
+    const daysAgo = (i + 1) * 3;
+    const orderDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+    const product = stockProducts[i % stockProducts.length];
+
+    const purchase = await prisma.purchase.create({
+      data: {
+        erpId: `${c.erpId}-ORD-001`,
+        customerId: c.id,
+        orderDate,
+        totalItems: 1,
+        totalValue: 250000 + i * 15000,
+        status: i % 3 === 0 ? 'PROCESSING' : 'DELIVERED',
+      },
+    });
+    await prisma.purchaseItem.create({
+      data: {
+        purchaseId: purchase.id,
+        productName: product.name,
+        quantity: 10 + i,
+        unitPrice: 12500,
+        lineTotal: (10 + i) * 12500,
+      },
+    });
+
+    await prisma.payment.create({
+      data: {
+        erpId: `${c.erpId}-PAY-001`,
+        customerId: c.id,
+        date: new Date(orderDate.getTime() + 24 * 60 * 60 * 1000),
+        amount: 100000,
+        reference: `PAY-${c.erpId}`,
+        runningBalance: c.outstandingBalance,
+      },
+    });
+
+    if (i % 2 === 0) {
+      await prisma.supportTicket.create({
+        data: {
+          ticketId: `TKT-${c.erpId}-001`,
+          customerId: c.id,
+          category: 'DELIVERY_ISSUE',
+          subject: `Delivery delay on ${product.name}`,
+          description: 'Need an update on my pending loading.',
+          status: 'OPEN',
+        },
+      });
+    }
+
+    await prisma.message.create({
+      data: {
+        customerId: c.id,
+        staffId: officer.staffId,
+        senderType: 'CUSTOMER',
+        content: `Hello, please confirm my latest payment for ${product.name}.`,
+      },
+    });
+  }
+
   // Suppress 'unused' warning for adminUser (kept for future audit-log seeds)
   void adminUser;
 
