@@ -6,8 +6,11 @@ import {
   Delete,
   Param,
   Body,
+  Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -38,9 +41,32 @@ export class AdminController {
   }
 
   @Get('customers')
-  @ApiOperation({ summary: 'Get all customers across the organization' })
-  async getAllCustomers() {
-    return this.adminService.getAllCustomers();
+  @ApiOperation({
+    summary: 'List customers with optional region filter + name/erpId search (PRD F14 AC5)',
+  })
+  async getAllCustomers(
+    @Query('region')
+    region?: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH',
+    @Query('search') search?: string,
+  ) {
+    return this.adminService.getAllCustomers({ region, search });
+  }
+
+  @Get('customers/export.csv')
+  @ApiOperation({ summary: 'Export filtered customer list as CSV (PRD F14 AC6)' })
+  async exportCustomers(
+    @Query('region')
+    region: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH' | undefined,
+    @Query('search') search: string | undefined,
+    @Res() res: Response,
+  ) {
+    const csv = await this.adminService.exportCustomersCsv({ region, search });
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename="viju-customers.csv"',
+    );
+    res.send(csv);
   }
 
   @Patch('customers/:id/reassign')

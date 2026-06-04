@@ -154,17 +154,25 @@ export class CustomerService {
         erpId: true,
         name: true,
         phone: true,
+        email: true,
+        region: true,
         accountStatus: true,
         outstandingBalance: true,
         profilePhotoUrl: true,
-        assignedOfficer: {
-          select: { id: true, name: true, email: true },
-        },
+        assignedOfficer: { select: { id: true } },
       },
     });
 
     if (!customer) throw new NotFoundException('Customer profile not found');
-    return customer;
+
+    // PRD F8 AC2 + F6: customer never sees individual officer names.
+    const { assignedOfficer, ...rest } = customer;
+    return {
+      ...rest,
+      accountOfficer: assignedOfficer
+        ? { displayName: 'Viju Account Officer' }
+        : null,
+    };
   }
 
   async updatePhoto(customerId: string, dto: UpdateProfilePhotoDto) {
@@ -265,7 +273,7 @@ export class CustomerService {
         select: {
           outstandingBalance: true,
           updatedAt: true,
-          assignedOfficer: { select: { phone: true, name: true } },
+          assignedOfficer: { select: { id: true } },
         },
       }),
       this.prisma.purchase.findMany({
@@ -308,9 +316,8 @@ export class CustomerService {
         isOverdue: customer.outstandingBalance < 0,
         lastUpdated: customer.updatedAt,
       },
-      contactNote: customer.assignedOfficer
-        ? `To make a payment, contact your account officer (${customer.assignedOfficer.name}).`
-        : 'To make a payment, contact your account officer.',
+      // PRD F4 AC8 + F6: generic label only — never officer's actual name
+      contactNote: 'To make a payment, contact your Viju Account Officer.',
       invoices,
       paymentHistory: payments,
     };

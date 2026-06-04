@@ -47,16 +47,73 @@ export class AdminService {
     };
   }
 
-  async getAllCustomers() {
+  async getAllCustomers(filter?: {
+    region?: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH';
+    search?: string;
+  }) {
     return this.prisma.customer.findMany({
+      where: {
+        ...(filter?.region ? { region: filter.region } : {}),
+        ...(filter?.search
+          ? {
+              OR: [
+                { name: { contains: filter.search, mode: 'insensitive' } },
+                { erpId: { contains: filter.search, mode: 'insensitive' } },
+              ],
+            }
+          : {}),
+      },
       select: {
         id: true,
         name: true,
         erpId: true,
+        phone: true,
+        region: true,
+        accountStatus: true,
         outstandingBalance: true,
-        assignedOfficer: { select: { name: true, email: true } },
+        _count: { select: { supportTickets: { where: { status: 'OPEN' } } } },
+        officerAssignments: {
+          select: { staff: { select: { id: true, name: true, email: true } } },
+        },
       },
     });
+  }
+
+  async exportCustomersCsv(filter?: {
+    region?: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH';
+    search?: string;
+  }): Promise<string> {
+    const rows = await this.getAllCustomers(filter);
+    const header = [
+      'erpId',
+      'name',
+      'phone',
+      'region',
+      'accountStatus',
+      'outstandingBalance',
+      'openTickets',
+      'assignedOfficers',
+    ].join(',');
+    const lines = rows.map((c) =>
+      [
+        this.csv(c.erpId),
+        this.csv(c.name),
+        this.csv(c.phone),
+        c.region,
+        c.accountStatus,
+        c.outstandingBalance,
+        c._count.supportTickets,
+        this.csv(
+          c.officerAssignments.map((a) => a.staff.name).join(' / ') || '',
+        ),
+      ].join(','),
+    );
+    return [header, ...lines].join('\n');
+  }
+
+  private csv(value: string): string {
+    if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
+    return value;
   }
 
   async reassignOfficer(customerId: string, dto: ReassignOfficerDto) {
@@ -65,10 +122,19 @@ export class AdminService {
     });
     if (!customer) throw new NotFoundException('Customer not found');
 
+    // PRD F16 AC2: new officer must be active and in the SAME region
     const officer = await this.prisma.staff.findFirst({
-      where: { id: dto.newOfficerId, role: 'OFFICER' },
+      where: {
+        id: dto.newOfficerId,
+        role: 'OFFICER',
+        isActive: true,
+        region: customer.region,
+      },
     });
-    if (!officer) throw new NotFoundException('Officer not found');
+    if (!officer)
+      throw new BadRequestException(
+        'New officer must be active and in the same region as the customer.',
+      );
 
     const updated = await this.prisma.customer.update({
       where: { id: customerId },
