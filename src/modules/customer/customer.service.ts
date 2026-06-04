@@ -257,4 +257,106 @@ export class CustomerService {
       orderBy: { date: 'desc' },
     });
   }
+
+  async getInvoices(customerId: string) {
+    const [customer, purchases, payments] = await Promise.all([
+      this.prisma.customer.findUnique({
+        where: { id: customerId },
+        select: {
+          outstandingBalance: true,
+          updatedAt: true,
+          assignedOfficer: { select: { phone: true, name: true } },
+        },
+      }),
+      this.prisma.purchase.findMany({
+        where: { customerId },
+        orderBy: { orderDate: 'desc' },
+        select: {
+          id: true,
+          erpId: true,
+          orderDate: true,
+          totalValue: true,
+          status: true,
+        },
+      }),
+      this.prisma.payment.findMany({
+        where: { customerId },
+        orderBy: { date: 'desc' },
+        select: {
+          id: true,
+          date: true,
+          amount: true,
+          reference: true,
+          runningBalance: true,
+        },
+      }),
+    ]);
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    const invoices = purchases.map((p) => ({
+      id: p.id,
+      invoiceNumber: this.deriveInvoiceNumber(p.erpId),
+      orderId: p.erpId,
+      date: p.orderDate,
+      totalAmount: p.totalValue,
+      status: this.deriveInvoiceStatus(p.status),
+    }));
+
+    return {
+      walletBalance: {
+        amount: customer.outstandingBalance,
+        isOverdue: customer.outstandingBalance < 0,
+        lastUpdated: customer.updatedAt,
+      },
+      contactNote: customer.assignedOfficer
+        ? `To make a payment, contact your account officer (${customer.assignedOfficer.name}).`
+        : 'To make a payment, contact your account officer.',
+      invoices,
+      paymentHistory: payments,
+    };
+  }
+
+  async getInvoiceDetail(customerId: string, invoiceId: string) {
+    const purchase = await this.prisma.purchase.findFirst({
+      where: { id: invoiceId, customerId },
+      include: {
+        items: {
+          select: {
+            id: true,
+            productName: true,
+            quantity: true,
+            unitPrice: true,
+            lineTotal: true,
+          },
+        },
+      },
+    });
+    if (!purchase) throw new NotFoundException('Invoice not found');
+
+    const subtotal = purchase.items.reduce((a, i) => a + i.lineTotal, 0);
+    const tax = 0;
+    return {
+      id: purchase.id,
+      invoiceNumber: this.deriveInvoiceNumber(purchase.erpId),
+      orderId: purchase.erpId,
+      date: purchase.orderDate,
+      status: this.deriveInvoiceStatus(purchase.status),
+      lineItems: purchase.items,
+      subtotal,
+      tax,
+      grandTotal: subtotal + tax,
+    };
+  }
+
+  /**
+   * Maps the underlying OrderStatus onto PRD F4's invoice statuses.
+   * Until invoices are modelled separately, status is inferred from the
+   * order lifecycle.
+   */
+  private deriveInvoiceStatus(orderStatus: string): 'PAID' | 'PART_PAID' | 'UNPAID' {
+    if (orderStatus === 'DELIVERED') return 'PAID';
+    if (orderStatus === 'PROCESSING' || orderStatus === 'SHIPPED')
+      return 'PART_PAID';
+    return 'UNPAID';
+  }
 }

@@ -108,4 +108,30 @@ export class CustomerController {
   async getPayments(@CurrentUser() user: any) {
     return this.customerService.getPayments(user.id);
   }
+
+  @Get('me/invoices')
+  @ApiOperation({
+    summary: 'Invoice tab aggregate (PRD F4)',
+    description:
+      'Returns wallet balance, full invoice list with derived statuses ' +
+      '(Paid / Part Paid / Unpaid), and payment history with running ' +
+      'balance. Read-only — no Pay-Now action exists.',
+  })
+  async getInvoices(@CurrentUser() user: any) {
+    return this.customerService.getInvoices(user.id);
+  }
+
+  @Get('me/invoices/:id')
+  @ApiOperation({
+    summary: 'Invoice detail with line items (PRD F4 AC4)',
+    description:
+      'Tapping any invoice opens this detail view: line items, quantities, ' +
+      'unit prices, line totals, tax, grand total.',
+  })
+  async getInvoiceDetail(
+    @CurrentUser() user: any,
+    @Param('id') invoiceId: string,
+  ) {
+    return this.customerService.getInvoiceDetail(user.id, invoiceId);
+  }
 }
