@@ -9,6 +9,7 @@ import { ChatModule } from './modules/chat/chat.module';
 import { TicketModule } from './modules/ticket/ticket.module';
 import { ErpModule } from './modules/erp/erp.module';
 import { PushModule } from './modules/push/push.module';
+import { WaybillModule } from './modules/waybill/waybill.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { PushModule } from './modules/push/push.module';
     TicketModule,
     ErpModule,
     PushModule,
+    WaybillModule,
   ],
   controllers: [],
   providers: [],
