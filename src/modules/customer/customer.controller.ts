@@ -19,6 +19,32 @@ import {
 export class CustomerController {
   constructor(private readonly customerService: CustomerService) {}
 
+  @Get('me/home')
+  @ApiOperation({
+    summary: 'Mobile home screen aggregate (PRD F2)',
+    description:
+      'Returns the four blocks the home screen needs in one call: ' +
+      'Account Balance card, Stock Balance card, scrollable product flyers, ' +
+      'and the last 5 purchases. Stock balance is derived from purchases minus ' +
+      'completed loading-request quantities.',
+  })
+  async getHome(@CurrentUser() user: any) {
+    return this.customerService.getHome(user.id);
+  }
+
+  @Get('me/stock-balance')
+  @ApiOperation({
+    summary: 'Stock Balance per-product breakdown (PRD F2 AC4)',
+    description:
+      'Returns paid / loaded / remaining quantities per product, shown when ' +
+      'the distributor taps the Stock Balance card. Loaded qty is apportioned ' +
+      'across products on each purchase proportionally to ordered quantity ' +
+      '(mocked until ERP exposes per-product loading detail).',
+  })
+  async getStockBalance(@CurrentUser() user: any) {
+    return this.customerService.getStockBalanceBreakdown(user.id);
+  }
+
   @Get('me')
   @ApiOperation({ summary: 'Get current customer profile and balance' })
   async getProfile(@CurrentUser() user: any) {
