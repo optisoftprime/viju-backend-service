@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
@@ -18,6 +19,8 @@ import * as bcrypt from 'bcryptjs';
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger('AdminService');
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
@@ -188,24 +191,36 @@ export class AdminService {
       select: { id: true, name: true, email: true, phone: true, region: true },
     });
 
-    // PRD F18 AC4 — email the new officer their login credentials
-    await this.email.send({
-      to: dto.email,
-      subject: 'Welcome to Viju Account Officer Portal',
-      body: [
-        `Hello ${dto.name},`,
-        '',
-        'An account has been created for you on the Viju Account Officer Portal.',
-        '',
-        `Email:    ${dto.email}`,
-        `Region:   ${dto.region ?? '—'}`,
-        `Password: ${dto.password}`,
-        '',
-        'Please log in and change your password as soon as possible.',
-        '',
-        'Viju Team',
-      ].join('\n'),
-    });
+    // PRD F18 AC4 — email the new officer their login credentials.
+    // Provider impls already wrap their own sends in try/catch, but we
+    // double-wrap here as a defensive net: officer creation must succeed
+    // even if email is misconfigured or a future provider impl regresses
+    // and starts throwing. The officer record + response are the source
+    // of truth; the welcome email is a nice-to-have.
+    try {
+      await this.email.send({
+        to: dto.email,
+        subject: 'Welcome to Viju Account Officer Portal',
+        body: [
+          `Hello ${dto.name},`,
+          '',
+          'An account has been created for you on the Viju Account Officer Portal.',
+          '',
+          `Email:    ${dto.email}`,
+          `Region:   ${dto.region ?? '—'}`,
+          `Password: ${dto.password}`,
+          '',
+          'Please log in and change your password as soon as possible.',
+          '',
+          'Viju Team',
+        ].join('\n'),
+      });
+    } catch (e) {
+      this.logger.error(
+        `Welcome email failed for ${dto.email} — ${(e as Error).message}. ` +
+          'Officer record was still created successfully.',
+      );
+    }
 
     return officer;
   }
