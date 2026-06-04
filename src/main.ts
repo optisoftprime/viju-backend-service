@@ -37,16 +37,16 @@ async function bootstrap() {
       ].join('\n'),
     )
     .setVersion('1.0')
-    .addBearerAuth(
-      {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-        description:
-          'JWT issued by /auth/customer/login or /auth/staff/web-login',
-      },
-      'JWT',
-    )
+    // NOTE: do NOT pass a name here — it must match the default name used
+    // by @ApiBearerAuth() on controllers. Naming this 'JWT' (or anything)
+    // silently detaches the Authorize button from every endpoint.
+    .addBearerAuth({
+      type: 'http',
+      scheme: 'bearer',
+      bearerFormat: 'JWT',
+      description:
+        'JWT issued by /auth/customer/login or /auth/staff/login or /auth/staff/web-login',
+    })
     .addTag(
       'Authentication',
       'Customer OTP/password + staff ERP credential login + staff password reset',
