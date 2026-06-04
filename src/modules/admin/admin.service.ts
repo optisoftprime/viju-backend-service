@@ -26,8 +26,8 @@ export class AdminService {
 
   async getDashboardStats() {
     const totalCustomers = await this.prisma.customer.count();
-    const totalOfficers = await this.prisma.staff.count({
-      where: { role: 'OFFICER' },
+    const unReadMessage = await this.prisma.message.count({
+      where: { senderType: 'CUSTOMER', readAt: null },
     });
     const openTickets = await this.prisma.supportTicket.count({
       where: { status: 'OPEN' },
@@ -43,7 +43,7 @@ export class AdminService {
 
     return {
       totalCustomers,
-      totalOfficers,
+      unReadMessage,
       openTickets,
       totalOutstandingBalance,
     };
