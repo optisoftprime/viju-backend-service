@@ -11,6 +11,7 @@ import { ErpModule } from './modules/erp/erp.module';
 import { PushModule } from './modules/push/push.module';
 import { WaybillModule } from './modules/waybill/waybill.module';
 import { RegionalModule } from './modules/regional/regional.module';
+import { BroadcastModule } from './modules/broadcast/broadcast.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { RegionalModule } from './modules/regional/regional.module';
     PushModule,
     WaybillModule,
     RegionalModule,
+    BroadcastModule,
   ],
   controllers: [],
   providers: [],
