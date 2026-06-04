@@ -10,6 +10,7 @@ import { TicketModule } from './modules/ticket/ticket.module';
 import { ErpModule } from './modules/erp/erp.module';
 import { PushModule } from './modules/push/push.module';
 import { WaybillModule } from './modules/waybill/waybill.module';
+import { RegionalModule } from './modules/regional/regional.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { WaybillModule } from './modules/waybill/waybill.module';
     ErpModule,
     PushModule,
     WaybillModule,
+    RegionalModule,
   ],
   controllers: [],
   providers: [],
