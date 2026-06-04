@@ -13,6 +13,7 @@ import { WaybillModule } from './modules/waybill/waybill.module';
 import { RegionalModule } from './modules/regional/regional.module';
 import { BroadcastModule } from './modules/broadcast/broadcast.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { NotificationsApiModule } from './modules/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { AuditModule } from './modules/audit/audit.module';
     RegionalModule,
     BroadcastModule,
     AuditModule,
+    NotificationsApiModule,
   ],
   controllers: [],
   providers: [],
