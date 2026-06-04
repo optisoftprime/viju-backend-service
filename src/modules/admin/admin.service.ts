@@ -8,6 +8,9 @@ import {
   ReassignOfficerDto,
   CreateOfficerDto,
   CreateTestCustomerDto,
+  CreateProductFlyerDto,
+  UpdateProductFlyerDto,
+  ReorderProductFlyersDto,
 } from './dto/admin.dto';
 import * as bcrypt from 'bcryptjs';
 
@@ -130,6 +133,67 @@ export class AdminService {
         region: true,
       },
     });
+  }
+
+  // ─── Product Flyer (PRD F19) ────────────────────────────
+  async listProductFlyers() {
+    return this.prisma.productFlyer.findMany({
+      orderBy: { sortOrder: 'asc' },
+    });
+  }
+
+  async createProductFlyer(dto: CreateProductFlyerDto, adminId: string) {
+    const max = await this.prisma.productFlyer.aggregate({
+      _max: { sortOrder: true },
+    });
+    return this.prisma.productFlyer.create({
+      data: {
+        name: dto.name,
+        imageUrl: dto.imageUrl,
+        sortOrder: (max._max.sortOrder ?? 0) + 1,
+        createdById: adminId,
+      },
+    });
+  }
+
+  async updateProductFlyer(id: string, dto: UpdateProductFlyerDto) {
+    const existing = await this.prisma.productFlyer.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Product flyer not found');
+    return this.prisma.productFlyer.update({
+      where: { id },
+      data: {
+        name: dto.name ?? existing.name,
+        imageUrl: dto.imageUrl ?? existing.imageUrl,
+        isActive: dto.isActive ?? existing.isActive,
+      },
+    });
+  }
+
+  async deleteProductFlyer(id: string) {
+    const existing = await this.prisma.productFlyer.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Product flyer not found');
+    await this.prisma.productFlyer.delete({ where: { id } });
+  }
+
+  async reorderProductFlyers(dto: ReorderProductFlyersDto) {
+    const flyers = await this.prisma.productFlyer.findMany({
+      where: { id: { in: dto.orderedIds } },
+      select: { id: true },
+    });
+    if (flyers.length !== dto.orderedIds.length) {
+      throw new BadRequestException(
+        'One or more flyer IDs are invalid.',
+      );
+    }
+    await Promise.all(
+      dto.orderedIds.map((id, index) =>
+        this.prisma.productFlyer.update({
+          where: { id },
+          data: { sortOrder: index },
+        }),
+      ),
+    );
+    return this.listProductFlyers();
   }
 
   async deactivateOfficer(officerId: string) {

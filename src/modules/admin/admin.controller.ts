@@ -17,7 +17,11 @@ import {
   ReassignOfficerDto,
   CreateOfficerDto,
   CreateTestCustomerDto,
+  CreateProductFlyerDto,
+  UpdateProductFlyerDto,
+  ReorderProductFlyersDto,
 } from './dto/admin.dto';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
 
 @ApiTags('Admin Portal')
 @ApiBearerAuth()
@@ -71,6 +75,46 @@ export class AdminController {
   @ApiOperation({ summary: 'Create a new account officer' })
   async createOfficer(@Body() dto: CreateOfficerDto) {
     return this.adminService.createOfficer(dto);
+  }
+
+  // ─── Product Flyer (PRD F19) ──────────────────────────
+  @Get('product-flyers')
+  @ApiOperation({ summary: 'List product flyer cards in current order' })
+  async listFlyers() {
+    return this.adminService.listProductFlyers();
+  }
+
+  @Post('product-flyers')
+  @ApiOperation({ summary: 'Create a product flyer card (uploads come pre-resolved as imageUrl)' })
+  async createFlyer(
+    @Body() dto: CreateProductFlyerDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.adminService.createProductFlyer(dto, user.id);
+  }
+
+  @Patch('product-flyers/reorder')
+  @ApiOperation({
+    summary: 'Reorder flyer cards — order in payload = order shown on mobile (PRD F19 AC4)',
+  })
+  async reorderFlyers(@Body() dto: ReorderProductFlyersDto) {
+    return this.adminService.reorderProductFlyers(dto);
+  }
+
+  @Patch('product-flyers/:id')
+  @ApiOperation({ summary: 'Update / deactivate a flyer card' })
+  async updateFlyer(
+    @Param('id') id: string,
+    @Body() dto: UpdateProductFlyerDto,
+  ) {
+    return this.adminService.updateProductFlyer(id, dto);
+  }
+
+  @Delete('product-flyers/:id')
+  @ApiOperation({ summary: 'Delete a flyer card permanently' })
+  async deleteFlyer(@Param('id') id: string) {
+    await this.adminService.deleteProductFlyer(id);
+    return { message: 'Product flyer deleted' };
   }
 
   @Delete('officers/:id')
