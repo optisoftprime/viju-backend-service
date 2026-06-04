@@ -25,8 +25,7 @@ export class NotificationService {
       data: {
         customerId:
           payload.recipientType === 'CUSTOMER' ? payload.recipientId : null,
-        staffId:
-          payload.recipientType === 'STAFF' ? payload.recipientId : null,
+        staffId: payload.recipientType === 'STAFF' ? payload.recipientId : null,
         content: `${payload.title}: ${payload.body}`,
         type: payload.type,
       },
