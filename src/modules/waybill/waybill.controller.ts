@@ -1,21 +1,11 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Param,
-  Body,
-  UseGuards,
-} from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { WaybillService } from './waybill.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import {
-  AcceptTermsDto,
-  SubmitLoadingRequestDto,
-} from './dto/waybill.dto';
+import { AcceptTermsDto, SubmitLoadingRequestDto } from './dto/waybill.dto';
 
 @ApiTags('Customer Portal')
 @ApiBearerAuth()
@@ -35,15 +25,13 @@ export class WaybillController {
 
   @Post('accept-terms')
   @ApiOperation({
-    summary: 'Record T&C acceptance, return external loading form URL (PRD F5 AC4-AC6)',
+    summary:
+      'Record T&C acceptance, return external loading form URL (PRD F5 AC4-AC6)',
     description:
       'Must be called before /customers/me/waybills POST or before the FE ' +
       'opens the external Google Form. The acceptance is valid for 1 hour.',
   })
-  async acceptTerms(
-    @CurrentUser() user: any,
-    @Body() dto: AcceptTermsDto,
-  ) {
+  async acceptTerms(@CurrentUser() user: any, @Body() dto: AcceptTermsDto) {
     return this.waybillService.acceptTermsAndGetFormUrl(user.id, dto);
   }
 
@@ -57,10 +45,7 @@ export class WaybillController {
       'Returns the created request in PENDING_ASSIGNMENT status; regional ' +
       'admin is notified.',
   })
-  async submit(
-    @CurrentUser() user: any,
-    @Body() dto: SubmitLoadingRequestDto,
-  ) {
+  async submit(@CurrentUser() user: any, @Body() dto: SubmitLoadingRequestDto) {
     return this.waybillService.submitLoadingRequest(user.id, dto);
   }
 

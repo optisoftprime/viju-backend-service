@@ -173,7 +173,9 @@ export class AdminService {
   }
 
   async updateProductFlyer(id: string, dto: UpdateProductFlyerDto) {
-    const existing = await this.prisma.productFlyer.findUnique({ where: { id } });
+    const existing = await this.prisma.productFlyer.findUnique({
+      where: { id },
+    });
     if (!existing) throw new NotFoundException('Product flyer not found');
     return this.prisma.productFlyer.update({
       where: { id },
@@ -186,7 +188,9 @@ export class AdminService {
   }
 
   async deleteProductFlyer(id: string) {
-    const existing = await this.prisma.productFlyer.findUnique({ where: { id } });
+    const existing = await this.prisma.productFlyer.findUnique({
+      where: { id },
+    });
     if (!existing) throw new NotFoundException('Product flyer not found');
     await this.prisma.productFlyer.delete({ where: { id } });
   }
@@ -197,9 +201,7 @@ export class AdminService {
       select: { id: true },
     });
     if (flyers.length !== dto.orderedIds.length) {
-      throw new BadRequestException(
-        'One or more flyer IDs are invalid.',
-      );
+      throw new BadRequestException('One or more flyer IDs are invalid.');
     }
     await Promise.all(
       dto.orderedIds.map((id, index) =>

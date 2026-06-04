@@ -56,7 +56,10 @@ export class CreateProductFlyerDto {
   @IsNotEmpty()
   name: string;
 
-  @ApiProperty({ description: 'Uploaded image URL', example: 'https://cdn.viju.ng/flyers/apple.jpg' })
+  @ApiProperty({
+    description: 'Uploaded image URL',
+    example: 'https://cdn.viju.ng/flyers/apple.jpg',
+  })
   @IsString()
   @IsNotEmpty()
   imageUrl: string;
@@ -80,7 +83,8 @@ export class UpdateProductFlyerDto {
 
 export class ReorderProductFlyersDto {
   @ApiProperty({
-    description: 'Ordered list of flyer IDs, top-to-bottom as they should appear in the mobile carousel',
+    description:
+      'Ordered list of flyer IDs, top-to-bottom as they should appear in the mobile carousel',
     type: [String],
   })
   @IsString({ each: true })

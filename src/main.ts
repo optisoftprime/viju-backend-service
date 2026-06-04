@@ -49,15 +49,34 @@ async function bootstrap() {
     )
     .addTag(
       'Authentication',
-      'Customer OTP/password + staff ERP credential login',
+      'Customer OTP/password + staff ERP credential login + staff password reset',
     )
-    .addTag('Push Notifications', 'Device push token registration')
-    .addTag('Customer', 'Distributor self-service (mobile app)')
-    .addTag('Officer', 'Account officer endpoints (web portal)')
-    .addTag('Admin', 'Administrator endpoints (web portal)')
-    .addTag('Chat', 'Conversation between distributor and account officer')
-    .addTag('Support', 'Support tickets')
-    .addTag('ERP Sync', 'Inbound webhooks from Viju ERP')
+    .addTag('Push Notifications', 'Device push token registration (FCM/APNS)')
+    .addTag(
+      'Customer Portal',
+      'Distributor self-service — home, payment, invoice, waybill, profile, statements (PRD F1-F8)',
+    )
+    .addTag(
+      'Officer Portal',
+      'Account officer dashboard + per-tab distributor detail (PRD F9-F11)',
+    )
+    .addTag(
+      'Regional Admin Portal',
+      'Regional dashboard + loading queue + officer assignment + warehouse officer queue (PRD F12-F13)',
+    )
+    .addTag(
+      'Admin Portal',
+      'Org dashboard, broadcasts, product flyers, audit, officer management (PRD F14-F19)',
+    )
+    .addTag(
+      'Direct Messages',
+      "Customer-officer chat. Customer sees only 'Viju Account Officer' label (PRD F6).",
+    )
+    .addTag('Support', 'Support tickets (PRD F7, F11)')
+    .addTag(
+      'ERP Webhooks',
+      'Inbound webhooks from Viju ERP for balance/stock/purchase/payment sync',
+    )
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

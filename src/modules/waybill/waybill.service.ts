@@ -6,10 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
-import {
-  AcceptTermsDto,
-  SubmitLoadingRequestDto,
-} from './dto/waybill.dto';
+import { AcceptTermsDto, SubmitLoadingRequestDto } from './dto/waybill.dto';
 
 const TNC_RECENT_WINDOW_MS = 60 * 60 * 1000; // 1h
 
@@ -80,10 +77,7 @@ export class WaybillService {
    * surface and as the receiver for the future form webhook so the FE
    * can test the full waybill lifecycle today.
    */
-  async submitLoadingRequest(
-    customerId: string,
-    dto: SubmitLoadingRequestDto,
-  ) {
+  async submitLoadingRequest(customerId: string, dto: SubmitLoadingRequestDto) {
     const recentTerms = await this.prisma.termsAcceptance.findFirst({
       where: {
         customerId,

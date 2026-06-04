@@ -62,7 +62,9 @@ export class ChatController {
   // ─── Legacy / officer endpoints ────────────────────────
   @Get(':otherUserId')
   @Roles('CUSTOMER', 'OFFICER')
-  @ApiOperation({ summary: 'Get full message history with a specific user (legacy)' })
+  @ApiOperation({
+    summary: 'Get full message history with a specific user (legacy)',
+  })
   async getMessages(
     @CurrentUser() user: any,
     @Param('otherUserId') otherUserId: string,

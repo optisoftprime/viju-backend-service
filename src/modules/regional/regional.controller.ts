@@ -69,7 +69,8 @@ export class RegionalController {
   @Patch('loading-requests/:id/assign')
   @Roles('REGIONAL_ADMIN', 'ADMIN')
   @ApiOperation({
-    summary: 'Assign a loading request to a loading / warehouse officer (PRD F12 AC5)',
+    summary:
+      'Assign a loading request to a loading / warehouse officer (PRD F12 AC5)',
   })
   async assignRequest(
     @CurrentUser() user: StaffUser,
@@ -95,7 +96,8 @@ export class RegionalController {
   @Patch('loading-requests/:id/status')
   @Roles('LOADING_OFFICER', 'WAREHOUSE_OFFICER', 'ADMIN')
   @ApiOperation({
-    summary: 'Loading Officer advances status + uploads waybill (PRD F13 AC2-AC3)',
+    summary:
+      'Loading Officer advances status + uploads waybill (PRD F13 AC2-AC3)',
   })
   async updateStatus(
     @CurrentUser() user: StaffUser,

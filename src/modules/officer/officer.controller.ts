@@ -34,7 +34,8 @@ export class OfficerController {
 
   @Get('customers/:id')
   @ApiOperation({
-    summary: 'Legacy aggregate detail (kept for backwards compat) — prefer the per-tab endpoints',
+    summary:
+      'Legacy aggregate detail (kept for backwards compat) — prefer the per-tab endpoints',
   })
   async getCustomerDetail(
     @CurrentUser() user: any,

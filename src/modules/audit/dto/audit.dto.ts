@@ -18,7 +18,9 @@ export class InteractionAuditFilterDto {
   @IsEnum(Region)
   region?: Region;
 
-  @ApiPropertyOptional({ description: 'Keyword in message body / ticket subject' })
+  @ApiPropertyOptional({
+    description: 'Keyword in message body / ticket subject',
+  })
   @IsOptional()
   @IsString()
   keyword?: string;

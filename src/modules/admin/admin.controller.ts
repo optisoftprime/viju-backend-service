@@ -85,7 +85,10 @@ export class AdminController {
   }
 
   @Post('product-flyers')
-  @ApiOperation({ summary: 'Create a product flyer card (uploads come pre-resolved as imageUrl)' })
+  @ApiOperation({
+    summary:
+      'Create a product flyer card (uploads come pre-resolved as imageUrl)',
+  })
   async createFlyer(
     @Body() dto: CreateProductFlyerDto,
     @CurrentUser() user: any,
@@ -95,7 +98,8 @@ export class AdminController {
 
   @Patch('product-flyers/reorder')
   @ApiOperation({
-    summary: 'Reorder flyer cards — order in payload = order shown on mobile (PRD F19 AC4)',
+    summary:
+      'Reorder flyer cards — order in payload = order shown on mobile (PRD F19 AC4)',
   })
   async reorderFlyers(@Body() dto: ReorderProductFlyersDto) {
     return this.adminService.reorderProductFlyers(dto);

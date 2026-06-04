@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
-import PDFDocument = require('pdfkit');
+import PDFDocument from 'pdfkit';
 
 export interface StatementRange {
   startDate?: string;
@@ -102,10 +102,12 @@ export class StatementService {
       if (payments.length === 0) doc.text('— none —');
       doc.moveDown();
 
-      doc.fontSize(11).text(
-        `Current wallet balance: ${this.money(customer.outstandingBalance)}`,
-        { align: 'right' },
-      );
+      doc
+        .fontSize(11)
+        .text(
+          `Current wallet balance: ${this.money(customer.outstandingBalance)}`,
+          { align: 'right' },
+        );
     });
   }
 
@@ -172,9 +174,11 @@ export class StatementService {
             `paid ${paid.toString().padStart(4)}   loaded ${loaded.toString().padStart(4)}   remaining ${remaining}`,
         );
         for (const item of p.items) {
-          doc.fontSize(9).text(
-            `        - ${item.productName.padEnd(30)} qty ${item.quantity}`,
-          );
+          doc
+            .fontSize(9)
+            .text(
+              `        - ${item.productName.padEnd(30)} qty ${item.quantity}`,
+            );
         }
         doc.fontSize(10);
       }

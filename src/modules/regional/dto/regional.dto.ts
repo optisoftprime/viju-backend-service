@@ -18,7 +18,8 @@ export class UpdateLoadingStatusDto {
   status: 'LOADING_IN_PROGRESS' | 'COMPLETED';
 
   @ApiPropertyOptional({
-    description: 'Required when status is COMPLETED — uploaded waybill / loading bill PDF URL',
+    description:
+      'Required when status is COMPLETED — uploaded waybill / loading bill PDF URL',
   })
   @IsOptional()
   @IsString()

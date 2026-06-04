@@ -36,7 +36,9 @@ export class AuditController {
   }
 
   @Get('tickets/export.csv')
-  @ApiOperation({ summary: 'Export ticket search results as CSV (PRD F17 AC4)' })
+  @ApiOperation({
+    summary: 'Export ticket search results as CSV (PRD F17 AC4)',
+  })
   async exportTickets(
     @Query() filter: InteractionAuditFilterDto,
     @Res() res: Response,

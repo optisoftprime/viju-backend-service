@@ -24,7 +24,9 @@ export class SendRegionalBroadcastDto {
   @IsEnum(Region, { each: true })
   regions: Region[];
 
-  @ApiProperty({ example: 'New stock of Viju Chocolate is available from Monday' })
+  @ApiProperty({
+    example: 'New stock of Viju Chocolate is available from Monday',
+  })
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
@@ -32,11 +34,15 @@ export class SendRegionalBroadcastDto {
 }
 
 export class SendIndividualBroadcastDto {
-  @ApiProperty({ description: 'Distributor (Customer.id) to receive the broadcast' })
+  @ApiProperty({
+    description: 'Distributor (Customer.id) to receive the broadcast',
+  })
   @IsUUID()
   customerId: string;
 
-  @ApiProperty({ example: 'Delivery allowance credited for Q1 loyalty programme' })
+  @ApiProperty({
+    example: 'Delivery allowance credited for Q1 loyalty programme',
+  })
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)

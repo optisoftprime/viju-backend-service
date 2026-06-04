@@ -353,7 +353,9 @@ export class CustomerService {
    * Until invoices are modelled separately, status is inferred from the
    * order lifecycle.
    */
-  private deriveInvoiceStatus(orderStatus: string): 'PAID' | 'PART_PAID' | 'UNPAID' {
+  private deriveInvoiceStatus(
+    orderStatus: string,
+  ): 'PAID' | 'PART_PAID' | 'UNPAID' {
     if (orderStatus === 'DELIVERED') return 'PAID';
     if (orderStatus === 'PROCESSING' || orderStatus === 'SHIPPED')
       return 'PART_PAID';

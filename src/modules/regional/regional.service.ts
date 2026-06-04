@@ -86,13 +86,9 @@ export class RegionalService {
       include: { customer: { select: { id: true, name: true } } },
     });
     if (!request)
-      throw new NotFoundException(
-        'Loading request not found in your region.',
-      );
+      throw new NotFoundException('Loading request not found in your region.');
     if (request.status !== 'PENDING_ASSIGNMENT')
-      throw new BadRequestException(
-        'This request has already been assigned.',
-      );
+      throw new BadRequestException('This request has already been assigned.');
 
     const officer = await this.prisma.staff.findFirst({
       where: {
