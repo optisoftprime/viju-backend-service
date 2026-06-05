@@ -40,9 +40,20 @@ export class OfficerService {
     };
   }
 
-  async getAssignedCustomers(officerId: string) {
+  async getAssignedCustomers(user: { id: string; role: string }) {
+    // Admin sees every customer org-wide (PRD F14). Officers see only
+    // customers where they are primary OR secondary assigned (PRD F6).
+    const where =
+      user.role === 'ADMIN'
+        ? {}
+        : {
+            OR: [
+              { assignedOfficerId: user.id },
+              { officerAssignments: { some: { staffId: user.id } } },
+            ],
+          };
     const customers = await this.prisma.customer.findMany({
-      where: { assignedOfficerId: officerId },
+      where,
       select: {
         id: true,
         name: true,
