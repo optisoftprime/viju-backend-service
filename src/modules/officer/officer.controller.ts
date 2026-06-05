@@ -27,9 +27,15 @@ export class OfficerController {
   }
 
   @Get('customers')
-  @ApiOperation({ summary: 'Get list of customers assigned to the officer' })
+  @ApiOperation({
+    summary: 'Get list of customers assigned to the officer',
+    description:
+      'OFFICER role: returns customers where they are primary OR secondary ' +
+      'officer (PRD F6). ADMIN role: returns all customers across all regions ' +
+      '(PRD F14 cross-region visibility).',
+  })
   async getCustomers(@CurrentUser() user: any) {
-    return this.officerService.getAssignedCustomers(user.id);
+    return this.officerService.getAssignedCustomers(user);
   }
 
   @Get('customers/:id')
