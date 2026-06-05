@@ -94,6 +94,8 @@ async function main() {
     phone: string;
     role: StaffRole;
     region: Region | null;
+    username?: string;
+    erpCode?: string;
   }> = [
     { email: 'admin@viju.local',     name: 'Admin User',          phone: '+2348000000001', role: 'ADMIN',             region: null      },
     { email: 'officer.north@viju.local',    name: 'Aisha Bello',    phone: '+2348000000002', role: 'OFFICER',           region: 'NORTH'     },
@@ -105,13 +107,21 @@ async function main() {
     { email: 'loader.lagos@viju.local',     name: 'Ifeanyi Okonkwo',phone: '+2348000000008', role: 'LOADING_OFFICER',   region: 'LAGOS'     },
     { email: 'loader.sw@viju.local',        name: 'Bisi Adewale',   phone: '+2348000000009', role: 'LOADING_OFFICER',   region: 'SOUTH_WEST' },
     { email: 'warehouse.lagos@viju.local',  name: 'Ibrahim Musa',   phone: '+2348000000010', role: 'WAREHOUSE_OFFICER', region: 'LAGOS'     },
+    // ERP-mock web-login account — username/code provisioned via /auth/staff/web-login
+    { email: 'james.o@viju.example',        name: 'James Okonkwo',  phone: '+2348000000011', role: 'OFFICER',           region: 'LAGOS',     username: 'james.o', erpCode: 'twye79woe88' },
   ];
 
   const staffList: Staff[] = [];
   for (const s of staffSeeds) {
     const staff = await prisma.staff.upsert({
       where: { email: s.email },
-      update: { phone: s.phone, region: s.region, role: s.role },
+      update: {
+        phone: s.phone,
+        region: s.region,
+        role: s.role,
+        ...(s.username ? { username: s.username } : {}),
+        ...(s.erpCode ? { erpCode: s.erpCode } : {}),
+      },
       create: {
         name: s.name,
         email: s.email,
@@ -120,6 +130,8 @@ async function main() {
         role: s.role,
         region: s.region,
         isActive: true,
+        ...(s.username ? { username: s.username } : {}),
+        ...(s.erpCode ? { erpCode: s.erpCode } : {}),
       },
     });
     staffList.push(staff);
@@ -147,6 +159,23 @@ async function main() {
     update: { isPrimary: false },
     create: { customerId: customer1.id, staffId: secondLagosOfficer.id, isPrimary: false },
   });
+
+  // Make james.o (ERP web-login account) the secondary officer for two
+  // Lagos customers so QA testing via /auth/staff/web-login sees real
+  // populated rows on /officers/customers (PRD F6 two-officer pattern).
+  const jamesO = staffList.find((s) => s.email === 'james.o@viju.example');
+  if (jamesO) {
+    const k1 = customers.find((c) => c.erpId === 'CUST004');
+    const ikorodu = customers.find((c) => c.erpId === 'CUST006');
+    for (const target of [k1, ikorodu]) {
+      if (!target) continue;
+      await prisma.customerOfficer.upsert({
+        where: { customerId_staffId: { customerId: target.id, staffId: jamesO.id } },
+        update: { isPrimary: false },
+        create: { customerId: target.id, staffId: jamesO.id, isPrimary: false },
+      });
+    }
+  }
 
   // Assign each other customer to an officer in their region
   const officersByRegion: Record<string, Staff | undefined> = {
