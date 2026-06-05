@@ -14,6 +14,7 @@ import { RegionalModule } from './modules/regional/regional.module';
 import { BroadcastModule } from './modules/broadcast/broadcast.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { NotificationsApiModule } from './modules/notifications/notifications.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { NotificationsApiModule } from './modules/notifications/notifications.mo
     BroadcastModule,
     AuditModule,
     NotificationsApiModule,
+    UploadsModule,
   ],
   controllers: [],
   providers: [],
