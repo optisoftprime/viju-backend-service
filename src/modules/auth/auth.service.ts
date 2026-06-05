@@ -303,10 +303,7 @@ export class AuthService {
     });
   }
 
-  private async generateToken(
-    user: any,
-    entityType: 'CUSTOMER' | 'STAFF',
-  ) {
+  private async generateToken(user: any, entityType: 'CUSTOMER' | 'STAFF') {
     const role = entityType === 'CUSTOMER' ? 'CUSTOMER' : user.role;
 
     const refreshTokenRow = await this.prisma.refreshToken.create({
@@ -346,7 +343,12 @@ export class AuthService {
    * signal — we revoke the WHOLE chain and force re-login.
    */
   async refresh(refreshToken: string) {
-    let payload: { sub: string; jti: string; type: 'CUSTOMER' | 'STAFF'; kind: string };
+    let payload: {
+      sub: string;
+      jti: string;
+      type: 'CUSTOMER' | 'STAFF';
+      kind: string;
+    };
     try {
       payload = this.jwtService.verify(refreshToken);
     } catch {
@@ -388,9 +390,7 @@ export class AuthService {
       data: { revokedAt: new Date(), lastUsedAt: new Date() },
     });
     // (replacedById is set on the OLD row, pointing at the new jti)
-    const newJti = this.jwtService.decode(fresh.refresh_token) as {
-      jti?: string;
-    } | null;
+    const newJti = this.jwtService.decode(fresh.refresh_token);
     if (newJti?.jti) {
       await this.prisma.refreshToken.update({
         where: { id: row.id },
@@ -402,9 +402,7 @@ export class AuthService {
 
   async logout(refreshToken: string): Promise<{ message: string }> {
     try {
-      const payload = this.jwtService.verify(refreshToken) as {
-        jti?: string;
-      };
+      const payload = this.jwtService.verify(refreshToken);
       if (payload.jti) {
         await this.prisma.refreshToken.updateMany({
           where: { id: payload.jti, revokedAt: null },

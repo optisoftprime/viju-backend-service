@@ -62,8 +62,15 @@ export class AdminService {
       ...(filter?.search
         ? {
             OR: [
-              { name: { contains: filter.search, mode: 'insensitive' as const } },
-              { erpId: { contains: filter.search, mode: 'insensitive' as const } },
+              {
+                name: { contains: filter.search, mode: 'insensitive' as const },
+              },
+              {
+                erpId: {
+                  contains: filter.search,
+                  mode: 'insensitive' as const,
+                },
+              },
             ],
           }
         : {}),

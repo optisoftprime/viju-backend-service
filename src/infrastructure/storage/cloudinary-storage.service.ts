@@ -1,10 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { v2 as cloudinary, UploadApiResponse } from 'cloudinary';
-import {
-  StorageService,
-  UploadInput,
-  UploadResult,
-} from './storage.service';
+import { StorageService, UploadInput, UploadResult } from './storage.service';
 
 /**
  * Cloudinary-backed StorageService.
@@ -92,7 +88,18 @@ export class CloudinaryStorageService
             // Cloudinary generates a stable random one.
           },
           (err, res) => {
-            if (err || !res) return reject(err ?? new Error('No response'));
+            if (err || !res) {
+              return reject(
+                err instanceof Error
+                  ? err
+                  : new Error(
+                      err
+                        ? ((err as { message?: string }).message ??
+                            'Cloudinary upload failed')
+                        : 'No response from Cloudinary',
+                    ),
+              );
+            }
             resolve(res);
           },
         );

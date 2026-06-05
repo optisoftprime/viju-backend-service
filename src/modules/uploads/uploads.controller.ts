@@ -38,35 +38,33 @@ interface UploadedFileShape {
  *   - Flyer (F19 AC2):  image only (any reasonable size)
  *   - Profile (F8 AC4): image only
  */
-const FOLDER_RULES: Record<
-  UploadFolder,
-  { mime: string[]; maxBytes: number }
-> = {
-  [UploadFolder.PROFILE_PHOTOS]: {
-    mime: ['image/'],
-    maxBytes: 5 * 1024 * 1024,
-  },
-  [UploadFolder.CHAT_ATTACHMENTS]: {
-    mime: ['image/'],
-    maxBytes: 5 * 1024 * 1024,
-  },
-  [UploadFolder.TICKET_ATTACHMENTS]: {
-    mime: ['image/'],
-    maxBytes: 5 * 1024 * 1024,
-  },
-  [UploadFolder.WAYBILL_DOCUMENTS]: {
-    mime: ['image/', 'application/pdf'],
-    maxBytes: 10 * 1024 * 1024,
-  },
-  [UploadFolder.PRODUCT_FLYERS]: {
-    mime: ['image/'],
-    maxBytes: 10 * 1024 * 1024,
-  },
-  [UploadFolder.MISC]: {
-    mime: ['image/', 'application/pdf'],
-    maxBytes: 10 * 1024 * 1024,
-  },
-};
+const FOLDER_RULES: Record<UploadFolder, { mime: string[]; maxBytes: number }> =
+  {
+    [UploadFolder.PROFILE_PHOTOS]: {
+      mime: ['image/'],
+      maxBytes: 5 * 1024 * 1024,
+    },
+    [UploadFolder.CHAT_ATTACHMENTS]: {
+      mime: ['image/'],
+      maxBytes: 5 * 1024 * 1024,
+    },
+    [UploadFolder.TICKET_ATTACHMENTS]: {
+      mime: ['image/'],
+      maxBytes: 5 * 1024 * 1024,
+    },
+    [UploadFolder.WAYBILL_DOCUMENTS]: {
+      mime: ['image/', 'application/pdf'],
+      maxBytes: 10 * 1024 * 1024,
+    },
+    [UploadFolder.PRODUCT_FLYERS]: {
+      mime: ['image/'],
+      maxBytes: 10 * 1024 * 1024,
+    },
+    [UploadFolder.MISC]: {
+      mime: ['image/', 'application/pdf'],
+      maxBytes: 10 * 1024 * 1024,
+    },
+  };
 
 @ApiTags('File Uploads')
 @ApiBearerAuth()
@@ -118,7 +116,9 @@ export class UploadsController {
         `File too large for folder "${query.folder}". Max ${Math.round(rules.maxBytes / 1024 / 1024)} MB.`,
       );
     }
-    const mimeOk = rules.mime.some((prefix) => file.mimetype.startsWith(prefix));
+    const mimeOk = rules.mime.some((prefix) =>
+      file.mimetype.startsWith(prefix),
+    );
     if (!mimeOk) {
       throw new BadRequestException(
         `MIME type "${file.mimetype}" not allowed for folder "${query.folder}". Allowed: ${rules.mime.join(', ')}`,
