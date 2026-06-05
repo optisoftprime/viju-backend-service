@@ -25,6 +25,7 @@ import {
   ReorderProductFlyersDto,
 } from './dto/admin.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 
 @ApiTags('Admin Portal')
 @ApiBearerAuth()
@@ -46,11 +47,12 @@ export class AdminController {
       'List customers with optional region filter + name/erpId search (PRD F14 AC5)',
   })
   async getAllCustomers(
+    @Query() pagination: PaginationQueryDto,
     @Query('region')
     region?: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH',
     @Query('search') search?: string,
   ) {
-    return this.adminService.getAllCustomers({ region, search });
+    return this.adminService.getAllCustomers({ region, search }, pagination);
   }
 
   @Get('customers/export.csv')
@@ -96,8 +98,8 @@ export class AdminController {
 
   @Get('officers')
   @ApiOperation({ summary: 'List all account officers' })
-  async getOfficers() {
-    return this.adminService.getOfficers();
+  async getOfficers(@Query() pagination: PaginationQueryDto) {
+    return this.adminService.getOfficers(pagination);
   }
 
   @Post('officers')

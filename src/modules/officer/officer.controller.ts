@@ -5,6 +5,8 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
+import { Query } from '@nestjs/common';
 
 @ApiTags('Officer Portal')
 @ApiBearerAuth()
@@ -34,8 +36,11 @@ export class OfficerController {
       'officer (PRD F6). ADMIN role: returns all customers across all regions ' +
       '(PRD F14 cross-region visibility).',
   })
-  async getCustomers(@CurrentUser() user: any) {
-    return this.officerService.getAssignedCustomers(user);
+  async getCustomers(
+    @CurrentUser() user: any,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.officerService.getAssignedCustomers(user, pagination);
   }
 
   @Get('customers/:id')

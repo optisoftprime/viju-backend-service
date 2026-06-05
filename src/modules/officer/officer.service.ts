@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { paginate } from '../../common/pagination/paginate';
 
 @Injectable()
 export class OfficerService {
@@ -40,7 +41,10 @@ export class OfficerService {
     };
   }
 
-  async getAssignedCustomers(user: { id: string; role: string }) {
+  async getAssignedCustomers(
+    user: { id: string; role: string },
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
     // Admin sees every customer org-wide (PRD F14). Officers see only
     // customers where they are primary OR secondary assigned (PRD F6).
     const where =
@@ -52,35 +56,46 @@ export class OfficerService {
               { officerAssignments: { some: { staffId: user.id } } },
             ],
           };
-    const customers = await this.prisma.customer.findMany({
-      where,
-      select: {
-        id: true,
-        name: true,
-        erpId: true,
-        phone: true,
-        region: true,
-        outstandingBalance: true,
-        accountStatus: true,
-        updatedAt: true,
-        _count: {
-          select: { supportTickets: { where: { status: 'OPEN' } } },
-        },
-      },
-    });
 
-    // Last purchase date + last contact (message) per customer
-    const customerIds = customers.map((c) => c.id);
-    const lastPurchases = await this.prisma.purchase.groupBy({
-      by: ['customerId'],
-      where: { customerId: { in: customerIds } },
-      _max: { orderDate: true },
-    });
-    const lastMessages = await this.prisma.message.groupBy({
-      by: ['customerId'],
-      where: { customerId: { in: customerIds } },
-      _max: { createdAt: true },
-    });
+    const page = await paginate(
+      () => this.prisma.customer.count({ where }),
+      (skip, take) =>
+        this.prisma.customer.findMany({
+          where,
+          select: {
+            id: true,
+            name: true,
+            erpId: true,
+            phone: true,
+            region: true,
+            outstandingBalance: true,
+            accountStatus: true,
+            updatedAt: true,
+            _count: {
+              select: { supportTickets: { where: { status: 'OPEN' } } },
+            },
+          },
+          orderBy: { name: 'asc' },
+          skip,
+          take,
+        }),
+      pagination,
+    );
+
+    // Last purchase date + last contact (message) — only for the page slice
+    const customerIds = page.data.map((c) => c.id);
+    const [lastPurchases, lastMessages] = await Promise.all([
+      this.prisma.purchase.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: customerIds } },
+        _max: { orderDate: true },
+      }),
+      this.prisma.message.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: customerIds } },
+        _max: { createdAt: true },
+      }),
+    ]);
     const lastPurchaseMap = new Map(
       lastPurchases.map((r) => [r.customerId, r._max.orderDate]),
     );
@@ -88,18 +103,21 @@ export class OfficerService {
       lastMessages.map((r) => [r.customerId, r._max.createdAt]),
     );
 
-    return customers.map((c) => ({
-      id: c.id,
-      name: c.name,
-      accountNumber: c.erpId,
-      phone: c.phone,
-      region: c.region,
-      walletBalance: c.outstandingBalance,
-      accountStatus: c.accountStatus,
-      openTickets: c._count.supportTickets,
-      lastPurchaseDate: lastPurchaseMap.get(c.id) ?? null,
-      lastContactDate: lastMessageMap.get(c.id) ?? c.updatedAt,
-    }));
+    return {
+      data: page.data.map((c) => ({
+        id: c.id,
+        name: c.name,
+        accountNumber: c.erpId,
+        phone: c.phone,
+        region: c.region,
+        walletBalance: c.outstandingBalance,
+        accountStatus: c.accountStatus,
+        openTickets: c._count.supportTickets,
+        lastPurchaseDate: lastPurchaseMap.get(c.id) ?? null,
+        lastContactDate: lastMessageMap.get(c.id) ?? c.updatedAt,
+      })),
+      meta: page.meta,
+    };
   }
 
   /**

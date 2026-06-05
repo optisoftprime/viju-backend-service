@@ -16,6 +16,7 @@ import {
   ReorderProductFlyersDto,
 } from './dto/admin.dto';
 import * as bcrypt from 'bcryptjs';
+import { paginate } from '../../common/pagination/paginate';
 
 @Injectable()
 export class AdminService {
@@ -52,22 +53,68 @@ export class AdminService {
     };
   }
 
-  async getAllCustomers(filter?: {
+  private buildCustomerWhere(filter?: {
     region?: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH';
     search?: string;
   }) {
-    return this.prisma.customer.findMany({
-      where: {
-        ...(filter?.region ? { region: filter.region } : {}),
-        ...(filter?.search
-          ? {
-              OR: [
-                { name: { contains: filter.search, mode: 'insensitive' } },
-                { erpId: { contains: filter.search, mode: 'insensitive' } },
-              ],
-            }
-          : {}),
-      },
+    return {
+      ...(filter?.region ? { region: filter.region } : {}),
+      ...(filter?.search
+        ? {
+            OR: [
+              { name: { contains: filter.search, mode: 'insensitive' as const } },
+              { erpId: { contains: filter.search, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    };
+  }
+
+  async getAllCustomers(
+    filter: {
+      region?: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH';
+      search?: string;
+    } = {},
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
+    const where = this.buildCustomerWhere(filter);
+    return paginate(
+      () => this.prisma.customer.count({ where }),
+      (skip, take) =>
+        this.prisma.customer.findMany({
+          where,
+          select: {
+            id: true,
+            name: true,
+            erpId: true,
+            phone: true,
+            region: true,
+            accountStatus: true,
+            outstandingBalance: true,
+            _count: {
+              select: { supportTickets: { where: { status: 'OPEN' } } },
+            },
+            officerAssignments: {
+              select: {
+                staff: { select: { id: true, name: true, email: true } },
+              },
+            },
+          },
+          orderBy: { erpId: 'asc' },
+          skip,
+          take,
+        }),
+      pagination,
+    );
+  }
+
+  async exportCustomersCsv(filter?: {
+    region?: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH';
+    search?: string;
+  }): Promise<string> {
+    const where = this.buildCustomerWhere(filter);
+    const rows = await this.prisma.customer.findMany({
+      where,
       select: {
         id: true,
         name: true,
@@ -76,19 +123,15 @@ export class AdminService {
         region: true,
         accountStatus: true,
         outstandingBalance: true,
-        _count: { select: { supportTickets: { where: { status: 'OPEN' } } } },
+        _count: {
+          select: { supportTickets: { where: { status: 'OPEN' } } },
+        },
         officerAssignments: {
           select: { staff: { select: { id: true, name: true, email: true } } },
         },
       },
+      orderBy: { erpId: 'asc' },
     });
-  }
-
-  async exportCustomersCsv(filter?: {
-    region?: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH';
-    search?: string;
-  }): Promise<string> {
-    const rows = await this.getAllCustomers(filter);
     const header = [
       'erpId',
       'name',
@@ -159,17 +202,30 @@ export class AdminService {
     return updated;
   }
 
-  async getOfficers() {
-    return this.prisma.staff.findMany({
-      where: { role: 'OFFICER' },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        isActive: true,
-        _count: { select: { customers: true } },
-      },
-    });
+  async getOfficers(
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
+    const where = { role: 'OFFICER' as const };
+    return paginate(
+      () => this.prisma.staff.count({ where }),
+      (skip, take) =>
+        this.prisma.staff.findMany({
+          where,
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            phone: true,
+            region: true,
+            isActive: true,
+            _count: { select: { customers: true } },
+          },
+          orderBy: { name: 'asc' },
+          skip,
+          take,
+        }),
+      pagination,
+    );
   }
 
   async createOfficer(dto: CreateOfficerDto) {
