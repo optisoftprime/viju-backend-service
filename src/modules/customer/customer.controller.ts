@@ -22,6 +22,7 @@ import {
   PurchaseFilterDto,
   StatementRangeDto,
 } from './dto/customer.dto';
+import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 
 @ApiTags('Customer Portal')
 @ApiBearerAuth()
@@ -90,8 +91,9 @@ export class CustomerController {
   async getPurchases(
     @CurrentUser() user: any,
     @Query() filter: PurchaseFilterDto,
+    @Query() pagination: PaginationQueryDto,
   ) {
-    return this.customerService.getPurchases(user.id, filter);
+    return this.customerService.getPurchases(user.id, filter, pagination);
   }
 
   @Get('me/purchases/:id')
@@ -112,8 +114,11 @@ export class CustomerController {
 
   @Get('me/payments')
   @ApiOperation({ summary: 'Get customer payment history' })
-  async getPayments(@CurrentUser() user: any) {
-    return this.customerService.getPayments(user.id);
+  async getPayments(
+    @CurrentUser() user: any,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.customerService.getPayments(user.id, pagination);
   }
 
   @Get('me/invoices')

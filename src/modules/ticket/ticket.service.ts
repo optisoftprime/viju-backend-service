@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
+import { paginate } from '../../common/pagination/paginate';
 import {
   CreateTicketDto,
   ReplyTicketDto,
@@ -52,19 +53,41 @@ export class TicketService {
     return ticket;
   }
 
-  async getCustomerTickets(customerId: string) {
-    return this.prisma.supportTicket.findMany({
-      where: { customerId },
-      orderBy: { createdAt: 'desc' },
-    });
+  async getCustomerTickets(
+    customerId: string,
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
+    const where = { customerId };
+    return paginate(
+      () => this.prisma.supportTicket.count({ where }),
+      (skip, take) =>
+        this.prisma.supportTicket.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take,
+        }),
+      pagination,
+    );
   }
 
-  async getAssignedTickets(officerId: string) {
-    return this.prisma.supportTicket.findMany({
-      where: { customer: { assignedOfficerId: officerId } },
-      include: { customer: { select: { name: true, erpId: true } } },
-      orderBy: { createdAt: 'desc' },
-    });
+  async getAssignedTickets(
+    officerId: string,
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
+    const where = { customer: { assignedOfficerId: officerId } };
+    return paginate(
+      () => this.prisma.supportTicket.count({ where }),
+      (skip, take) =>
+        this.prisma.supportTicket.findMany({
+          where,
+          include: { customer: { select: { name: true, erpId: true } } },
+          orderBy: { createdAt: 'desc' },
+          skip,
+          take,
+        }),
+      pagination,
+    );
   }
 
   async getTicket(ticketId: string, user: any) {

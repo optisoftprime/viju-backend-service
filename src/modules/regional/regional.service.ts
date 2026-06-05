@@ -11,6 +11,7 @@ import {
   UpdateLoadingStatusDto,
 } from './dto/regional.dto';
 import { Region, LoadingRequestStatus } from '@prisma/client';
+import { paginate } from '../../common/pagination/paginate';
 
 @Injectable()
 export class RegionalService {
@@ -138,34 +139,56 @@ export class RegionalService {
   async listRequestsByStatus(
     region: Region,
     status: LoadingRequestStatus | 'ALL',
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
   ) {
-    return this.prisma.loadingRequest.findMany({
-      where: {
-        region,
-        ...(status !== 'ALL' ? { status } : {}),
-      },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        customer: { select: { name: true } },
-        assignedOfficer: { select: { name: true } },
-        linkedPurchase: { select: { erpId: true } },
-      },
-    });
+    const where = {
+      region,
+      ...(status !== 'ALL' ? { status } : {}),
+    };
+    return paginate(
+      () => this.prisma.loadingRequest.count({ where }),
+      (skip, take) =>
+        this.prisma.loadingRequest.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            customer: { select: { name: true } },
+            assignedOfficer: { select: { name: true } },
+            linkedPurchase: { select: { erpId: true } },
+          },
+          skip,
+          take,
+        }),
+      pagination,
+    );
   }
 
   // ─── Loading / Warehouse Officer queue (PRD F13) ────────
-  async getMyLoadingQueue(officerId: string) {
-    return this.prisma.loadingRequest.findMany({
-      where: {
-        assignedOfficerId: officerId,
-        status: { in: ['ASSIGNED', 'LOADING_IN_PROGRESS'] },
+  async getMyLoadingQueue(
+    officerId: string,
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
+    const where = {
+      assignedOfficerId: officerId,
+      status: {
+        in: ['ASSIGNED', 'LOADING_IN_PROGRESS'] as LoadingRequestStatus[],
       },
-      orderBy: { requestedLoadingDate: 'asc' },
-      include: {
-        customer: { select: { name: true } },
-        linkedPurchase: { select: { erpId: true } },
-      },
-    });
+    };
+    return paginate(
+      () => this.prisma.loadingRequest.count({ where }),
+      (skip, take) =>
+        this.prisma.loadingRequest.findMany({
+          where,
+          orderBy: { requestedLoadingDate: 'asc' },
+          include: {
+            customer: { select: { name: true } },
+            linkedPurchase: { select: { erpId: true } },
+          },
+          skip,
+          take,
+        }),
+      pagination,
+    );
   }
 
   async updateLoadingStatus(

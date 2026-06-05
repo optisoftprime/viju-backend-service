@@ -5,6 +5,7 @@ import {
   Patch,
   Param,
   Body,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -18,6 +19,7 @@ import {
   ReplyTicketDto,
   UpdateTicketStatusDto,
 } from './dto/ticket.dto';
+import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 
 @ApiTags('Support Tickets')
 @ApiBearerAuth()
@@ -36,15 +38,21 @@ export class TicketController {
   @Get('customer')
   @Roles('CUSTOMER')
   @ApiOperation({ summary: 'Get all tickets raised by the current customer' })
-  async getCustomerTickets(@CurrentUser() user: any) {
-    return this.ticketService.getCustomerTickets(user.id);
+  async getCustomerTickets(
+    @CurrentUser() user: any,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.ticketService.getCustomerTickets(user.id, pagination);
   }
 
   @Get('officer')
   @Roles('OFFICER')
   @ApiOperation({ summary: 'Get all tickets assigned to the current officer' })
-  async getOfficerTickets(@CurrentUser() user: any) {
-    return this.ticketService.getAssignedTickets(user.id);
+  async getOfficerTickets(
+    @CurrentUser() user: any,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.ticketService.getAssignedTickets(user.id, pagination);
   }
 
   @Get(':id')

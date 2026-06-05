@@ -13,6 +13,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 import {
   SendRegionalBroadcastDto,
   SendIndividualBroadcastDto,
@@ -56,8 +57,11 @@ export class BroadcastController {
 
   @Get('history')
   @ApiOperation({ summary: 'Broadcast history with filters (PRD F15 AC7)' })
-  async history(@Query() filter: BroadcastHistoryFilterDto) {
-    return this.broadcastService.listHistory(filter);
+  async history(
+    @Query() filter: BroadcastHistoryFilterDto,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.broadcastService.listHistory(filter, pagination);
   }
 
   @Get(':id')

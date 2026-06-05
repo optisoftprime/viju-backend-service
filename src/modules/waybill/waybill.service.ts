@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
 import { AcceptTermsDto, SubmitLoadingRequestDto } from './dto/waybill.dto';
+import { paginate } from '../../common/pagination/paginate';
 
 const TNC_RECENT_WINDOW_MS = 60 * 60 * 1000; // 1h
 
@@ -17,24 +18,35 @@ export class WaybillService {
     private readonly notifications: NotificationService,
   ) {}
 
-  async listForCustomer(customerId: string) {
-    return this.prisma.loadingRequest.findMany({
-      where: { customerId },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        reference: true,
-        truckPlateNumber: true,
-        driverName: true,
-        driverPhone: true,
-        requestedLoadingDate: true,
-        quantityCartons: true,
-        destination: true,
-        status: true,
-        createdAt: true,
-        linkedPurchase: { select: { erpId: true } },
-      },
-    });
+  async listForCustomer(
+    customerId: string,
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
+    const where = { customerId };
+    return paginate(
+      () => this.prisma.loadingRequest.count({ where }),
+      (skip, take) =>
+        this.prisma.loadingRequest.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            reference: true,
+            truckPlateNumber: true,
+            driverName: true,
+            driverPhone: true,
+            requestedLoadingDate: true,
+            quantityCartons: true,
+            destination: true,
+            status: true,
+            createdAt: true,
+            linkedPurchase: { select: { erpId: true } },
+          },
+          skip,
+          take,
+        }),
+      pagination,
+    );
   }
 
   async getForCustomer(customerId: string, id: string) {

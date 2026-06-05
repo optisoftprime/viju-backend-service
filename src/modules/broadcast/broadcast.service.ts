@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
+import { paginate } from '../../common/pagination/paginate';
 import {
   SendRegionalBroadcastDto,
   SendIndividualBroadcastDto,
@@ -124,29 +125,37 @@ export class BroadcastService {
     return broadcast;
   }
 
-  async listHistory(filter: BroadcastHistoryFilterDto) {
-    return this.prisma.broadcast.findMany({
-      where: {
-        ...(filter.type ? { type: filter.type } : {}),
-        ...(filter.region ? { targetRegions: { has: filter.region } } : {}),
-        ...(filter.startDate || filter.endDate
-          ? {
-              sentAt: {
-                ...(filter.startDate
-                  ? { gte: new Date(filter.startDate) }
-                  : {}),
-                ...(filter.endDate ? { lte: new Date(filter.endDate) } : {}),
-              },
-            }
-          : {}),
-      },
-      orderBy: { sentAt: 'desc' },
-      include: {
-        sentBy: { select: { name: true, email: true } },
-        targetCustomer: { select: { id: true, name: true } },
-      },
-      take: 200,
-    });
+  async listHistory(
+    filter: BroadcastHistoryFilterDto,
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
+    const where = {
+      ...(filter.type ? { type: filter.type } : {}),
+      ...(filter.region ? { targetRegions: { has: filter.region } } : {}),
+      ...(filter.startDate || filter.endDate
+        ? {
+            sentAt: {
+              ...(filter.startDate ? { gte: new Date(filter.startDate) } : {}),
+              ...(filter.endDate ? { lte: new Date(filter.endDate) } : {}),
+            },
+          }
+        : {}),
+    };
+    return paginate(
+      () => this.prisma.broadcast.count({ where }),
+      (skip, take) =>
+        this.prisma.broadcast.findMany({
+          where,
+          orderBy: { sentAt: 'desc' },
+          include: {
+            sentBy: { select: { name: true, email: true } },
+            targetCustomer: { select: { id: true, name: true } },
+          },
+          skip,
+          take,
+        }),
+      pagination,
+    );
   }
 
   async getDetail(id: string) {

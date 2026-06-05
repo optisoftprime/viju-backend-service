@@ -151,13 +151,25 @@ export class OfficerService {
     };
   }
 
-  async getCustomerOrders(officerId: string, customerId: string) {
+  async getCustomerOrders(
+    officerId: string,
+    customerId: string,
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
     await this.ensureAssignedCustomer(officerId, customerId);
-    return this.prisma.purchase.findMany({
-      where: { customerId },
-      orderBy: { orderDate: 'desc' },
-      include: { items: true },
-    });
+    const where = { customerId };
+    return paginate(
+      () => this.prisma.purchase.count({ where }),
+      (skip, take) =>
+        this.prisma.purchase.findMany({
+          where,
+          orderBy: { orderDate: 'desc' },
+          include: { items: true },
+          skip,
+          take,
+        }),
+      pagination,
+    );
   }
 
   async getCustomerInvoices(officerId: string, customerId: string) {
@@ -230,16 +242,28 @@ export class OfficerService {
     };
   }
 
-  async getCustomerWaybills(officerId: string, customerId: string) {
+  async getCustomerWaybills(
+    officerId: string,
+    customerId: string,
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
     await this.ensureAssignedCustomer(officerId, customerId);
-    return this.prisma.loadingRequest.findMany({
-      where: { customerId },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        assignedOfficer: { select: { id: true, name: true } },
-        linkedPurchase: { select: { erpId: true } },
-      },
-    });
+    const where = { customerId };
+    return paginate(
+      () => this.prisma.loadingRequest.count({ where }),
+      (skip, take) =>
+        this.prisma.loadingRequest.findMany({
+          where,
+          orderBy: { createdAt: 'desc' },
+          include: {
+            assignedOfficer: { select: { id: true, name: true } },
+            linkedPurchase: { select: { erpId: true } },
+          },
+          skip,
+          take,
+        }),
+      pagination,
+    );
   }
 
   private async ensureAssignedCustomer(officerId: string, customerId: string) {
@@ -278,7 +302,18 @@ export class OfficerService {
     return { ...customer, purchases, payments, supportTickets };
   }
 
-  async getStock() {
-    return this.prisma.stock.findMany();
+  async getStock(
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
+    return paginate(
+      () => this.prisma.stock.count(),
+      (skip, take) =>
+        this.prisma.stock.findMany({
+          orderBy: { productName: 'asc' },
+          skip,
+          take,
+        }),
+      pagination,
+    );
   }
 }

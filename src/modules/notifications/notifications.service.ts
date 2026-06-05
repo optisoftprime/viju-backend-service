@@ -1,28 +1,53 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { paginate } from '../../common/pagination/paginate';
 
 @Injectable()
 export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listForCustomer(customerId: string) {
-    const items = await this.prisma.notification.findMany({
-      where: { customerId },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
-    const unread = items.filter((n) => !n.isRead).length;
-    return { unread, items };
+  async listForCustomer(
+    customerId: string,
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
+    const where = { customerId };
+    const [unread, page] = await Promise.all([
+      this.prisma.notification.count({ where: { ...where, isRead: false } }),
+      paginate(
+        () => this.prisma.notification.count({ where }),
+        (skip, take) =>
+          this.prisma.notification.findMany({
+            where,
+            orderBy: { createdAt: 'desc' },
+            skip,
+            take,
+          }),
+        pagination,
+      ),
+    ]);
+    return { unread, ...page };
   }
 
-  async listForStaff(staffId: string) {
-    const items = await this.prisma.notification.findMany({
-      where: { staffId },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-    });
-    const unread = items.filter((n) => !n.isRead).length;
-    return { unread, items };
+  async listForStaff(
+    staffId: string,
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
+    const where = { staffId };
+    const [unread, page] = await Promise.all([
+      this.prisma.notification.count({ where: { ...where, isRead: false } }),
+      paginate(
+        () => this.prisma.notification.count({ where }),
+        (skip, take) =>
+          this.prisma.notification.findMany({
+            where,
+            orderBy: { createdAt: 'desc' },
+            skip,
+            take,
+          }),
+        pagination,
+      ),
+    ]);
+    return { unread, ...page };
   }
 
   async markRead(userType: 'CUSTOMER' | 'STAFF', userId: string, id: string) {

@@ -69,8 +69,13 @@ export class OfficerController {
   async getCustomerOrders(
     @CurrentUser() user: any,
     @Param('id') customerId: string,
+    @Query() pagination: PaginationQueryDto,
   ) {
-    return this.officerService.getCustomerOrders(user.id, customerId);
+    return this.officerService.getCustomerOrders(
+      user.id,
+      customerId,
+      pagination,
+    );
   }
 
   @Get('customers/:id/invoices')
@@ -96,13 +101,18 @@ export class OfficerController {
   async getCustomerWaybills(
     @CurrentUser() user: any,
     @Param('id') customerId: string,
+    @Query() pagination: PaginationQueryDto,
   ) {
-    return this.officerService.getCustomerWaybills(user.id, customerId);
+    return this.officerService.getCustomerWaybills(
+      user.id,
+      customerId,
+      pagination,
+    );
   }
 
   @Get('stock')
   @ApiOperation({ summary: 'Get current stock levels from the ERP' })
-  async getStock() {
-    return this.officerService.getStock();
+  async getStock(@Query() pagination: PaginationQueryDto) {
+    return this.officerService.getStock(pagination);
   }
 }

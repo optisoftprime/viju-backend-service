@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { InteractionAuditFilterDto } from './dto/audit.dto';
+import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 
 @ApiTags('Admin Portal')
 @ApiBearerAuth()
@@ -23,16 +24,22 @@ export class AuditController {
       'name, officer name, region, date range, keyword. Returns up to 500 ' +
       'most recent matches.',
   })
-  async searchChats(@Query() filter: InteractionAuditFilterDto) {
-    return this.auditService.searchChats(filter);
+  async searchChats(
+    @Query() filter: InteractionAuditFilterDto,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.auditService.searchChats(filter, pagination);
   }
 
   @Get('tickets')
   @ApiOperation({
     summary: 'Search all support tickets with full thread (PRD F17)',
   })
-  async searchTickets(@Query() filter: InteractionAuditFilterDto) {
-    return this.auditService.searchTickets(filter);
+  async searchTickets(
+    @Query() filter: InteractionAuditFilterDto,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.auditService.searchTickets(filter, pagination);
   }
 
   @Get('tickets/export.csv')

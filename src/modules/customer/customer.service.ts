@@ -6,6 +6,7 @@ import {
   PurchaseFilterDto,
 } from './dto/customer.dto';
 import * as bcrypt from 'bcryptjs';
+import { paginate } from '../../common/pagination/paginate';
 
 @Injectable()
 export class CustomerService {
@@ -190,7 +191,11 @@ export class CustomerService {
     });
   }
 
-  async getPurchases(customerId: string, filter: PurchaseFilterDto) {
+  async getPurchases(
+    customerId: string,
+    filter: PurchaseFilterDto,
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
     const where: any = { customerId };
 
     if (filter.search) {
@@ -212,11 +217,18 @@ export class CustomerService {
       if (filter.endDate) where.orderDate.lte = new Date(filter.endDate);
     }
 
-    return this.prisma.purchase.findMany({
-      where,
-      orderBy: { orderDate: 'desc' },
-      include: { items: true },
-    });
+    return paginate(
+      () => this.prisma.purchase.count({ where }),
+      (skip, take) =>
+        this.prisma.purchase.findMany({
+          where,
+          orderBy: { orderDate: 'desc' },
+          include: { items: true },
+          skip,
+          take,
+        }),
+      pagination,
+    );
   }
 
   async getPurchaseDetail(customerId: string, purchaseId: string) {
@@ -259,11 +271,22 @@ export class CustomerService {
     return `INV-${tail}`;
   }
 
-  async getPayments(customerId: string) {
-    return this.prisma.payment.findMany({
-      where: { customerId },
-      orderBy: { date: 'desc' },
-    });
+  async getPayments(
+    customerId: string,
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
+    const where = { customerId };
+    return paginate(
+      () => this.prisma.payment.count({ where }),
+      (skip, take) =>
+        this.prisma.payment.findMany({
+          where,
+          orderBy: { date: 'desc' },
+          skip,
+          take,
+        }),
+      pagination,
+    );
   }
 
   async getInvoices(customerId: string) {

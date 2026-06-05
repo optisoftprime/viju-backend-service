@@ -1,8 +1,9 @@
-import { Controller, Get, Patch, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 
 interface AuthUser {
   id: string;
@@ -23,11 +24,14 @@ export class NotificationsController {
       'Works for any authenticated user (customer or staff). Returns the ' +
       '100 most recent notifications and an unread count for the badge.',
   })
-  async list(@CurrentUser() user: AuthUser) {
+  async list(
+    @CurrentUser() user: AuthUser,
+    @Query() pagination: PaginationQueryDto,
+  ) {
     const isCustomer = user.role === 'CUSTOMER';
     return isCustomer
-      ? this.notificationsService.listForCustomer(user.id)
-      : this.notificationsService.listForStaff(user.id);
+      ? this.notificationsService.listForCustomer(user.id, pagination)
+      : this.notificationsService.listForStaff(user.id, pagination);
   }
 
   @Patch('me/read-all')

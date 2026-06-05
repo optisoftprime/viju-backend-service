@@ -1,4 +1,12 @@
-import { Controller, Get, Post, Param, Body, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { WaybillService } from './waybill.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -6,6 +14,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { AcceptTermsDto, SubmitLoadingRequestDto } from './dto/waybill.dto';
+import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 
 @ApiTags('Customer Portal')
 @ApiBearerAuth()
@@ -19,8 +28,11 @@ export class WaybillController {
   @ApiOperation({
     summary: 'List the distributor’s loading requests / waybills (PRD F5 AC1)',
   })
-  async list(@CurrentUser() user: any) {
-    return this.waybillService.listForCustomer(user.id);
+  async list(
+    @CurrentUser() user: any,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.waybillService.listForCustomer(user.id, pagination);
   }
 
   @Post('accept-terms')

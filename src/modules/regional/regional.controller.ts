@@ -19,6 +19,7 @@ import {
   UpdateLoadingStatusDto,
 } from './dto/regional.dto';
 import { Region, LoadingRequestStatus } from '@prisma/client';
+import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 
 interface StaffUser {
   id: string;
@@ -59,11 +60,16 @@ export class RegionalController {
   })
   async listRequests(
     @CurrentUser() user: StaffUser,
+    @Query() pagination: PaginationQueryDto,
     @Query('status') status: LoadingRequestStatus | 'ALL' = 'ALL',
     @Query('region') queryRegion?: Region,
   ) {
     const region = this.resolveRegion(user, queryRegion);
-    return this.regionalService.listRequestsByStatus(region, status);
+    return this.regionalService.listRequestsByStatus(
+      region,
+      status,
+      pagination,
+    );
   }
 
   @Patch('loading-requests/:id/assign')
@@ -89,8 +95,11 @@ export class RegionalController {
       'Returns only requests assigned to the current officer in ASSIGNED ' +
       'or LOADING_IN_PROGRESS state.',
   })
-  async getMyQueue(@CurrentUser() user: StaffUser) {
-    return this.regionalService.getMyLoadingQueue(user.id);
+  async getMyQueue(
+    @CurrentUser() user: StaffUser,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.regionalService.getMyLoadingQueue(user.id, pagination);
   }
 
   @Patch('loading-requests/:id/status')
