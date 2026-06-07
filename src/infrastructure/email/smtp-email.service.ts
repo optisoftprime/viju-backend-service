@@ -28,10 +28,12 @@ export class SmtpEmailService extends EmailService implements OnModuleInit {
 
   onModuleInit() {
     try {
-      const host = process.env.SMTP_HOST;
-      const port = Number(process.env.SMTP_PORT ?? '587');
-      const user = process.env.SMTP_USER;
-      const pass = process.env.SMTP_PASS;
+      const host = process.env.SMTP_HOST ?? process.env.SPRING_MAIL_HOST;
+      const port = Number(
+        process.env.SMTP_PORT ?? process.env.SPRING_MAIL_PORT ?? '587',
+      );
+      const user = process.env.SMTP_USER ?? process.env.SPRING_MAIL_USERNAME;
+      const pass = process.env.SMTP_PASS ?? process.env.SPRING_MAIL_PASSWORD;
       const from = process.env.EMAIL_FROM ?? user;
       if (!host || !user || !pass || !from) {
         this.logger.warn(
@@ -40,11 +42,30 @@ export class SmtpEmailService extends EmailService implements OnModuleInit {
         );
         return;
       }
+      // Optional timeouts (ms). Spring-style env names accepted as
+      // aliases so existing infra env files Just Work.
+      const connectionTimeout = Number(
+        process.env.SMTP_CONNECTION_TIMEOUT ??
+          process.env.SPRING_MAIL_PROPERTIES_MAIL_SMTP_CONNECTIONTIMEOUT ??
+          '10000',
+      );
+      const socketTimeout = Number(
+        process.env.SMTP_SOCKET_TIMEOUT ??
+          process.env.SPRING_MAIL_PROPERTIES_MAIL_SMTP_TIMEOUT ??
+          '10000',
+      );
+      const greetingTimeout = Number(
+        process.env.SMTP_GREETING_TIMEOUT ?? '10000',
+      );
+
       this.transporter = nodemailer.createTransport({
         host,
         port,
         secure: process.env.SMTP_SECURE === 'true' || port === 465,
         auth: { user, pass },
+        connectionTimeout,
+        socketTimeout,
+        greetingTimeout,
       });
       const fromName = process.env.EMAIL_FROM_NAME;
       this.from = fromName ? `${fromName} <${from}>` : from;
