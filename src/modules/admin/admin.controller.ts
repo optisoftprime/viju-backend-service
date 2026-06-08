@@ -29,8 +29,8 @@ import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 
 @ApiTags('Admin Portal')
 @ApiBearerAuth()
-// @UseGuards(JwtAuthGuard, RolesGuard)
-// @Roles('ADMIN')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles('ADMIN')
 @Controller('admin')
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
