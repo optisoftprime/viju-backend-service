@@ -29,27 +29,88 @@ export class AdminService {
   ) {}
 
   async getDashboardStats() {
-    const totalCustomers = await this.prisma.customer.count();
-    const unReadMessage = await this.prisma.message.count({
-      where: { senderType: 'CUSTOMER', readAt: null },
-    });
-    const openTickets = await this.prisma.supportTicket.count({
-      where: { status: 'OPEN' },
-    });
+    const REGIONS = ['LAGOS', 'SOUTH_WEST', 'SOUTH_EAST', 'NORTH'] as const;
 
-    const customers = await this.prisma.customer.findMany({
-      select: { outstandingBalance: true },
-    });
+    const [
+      totalCustomers,
+      unReadMessage,
+      openTickets,
+      activeOfficers,
+      customers,
+      perRegionCustomers,
+      perRegionTicketsByCustomer,
+      perRegionOfficers,
+    ] = await Promise.all([
+      this.prisma.customer.count(),
+      this.prisma.message.count({
+        where: { senderType: 'CUSTOMER', readAt: null },
+      }),
+      this.prisma.supportTicket.count({ where: { status: 'OPEN' } }),
+      this.prisma.staff.count({ where: { role: 'OFFICER', isActive: true } }),
+      this.prisma.customer.findMany({
+        select: { id: true, region: true, outstandingBalance: true },
+      }),
+      this.prisma.customer.groupBy({
+        by: ['region'],
+        _count: { _all: true },
+      }),
+      this.prisma.supportTicket.groupBy({
+        by: ['customerId'],
+        where: { status: 'OPEN' },
+        _count: { _all: true },
+      }),
+      this.prisma.staff.groupBy({
+        by: ['region'],
+        where: { role: 'OFFICER', isActive: true, region: { not: null } },
+        _count: { _all: true },
+      }),
+    ]);
+
     const totalOutstandingBalance = customers.reduce(
       (sum, c) => sum + (c.outstandingBalance || 0),
       0,
     );
 
+    const customerCountByRegion = new Map(
+      perRegionCustomers.map((r) => [r.region, r._count._all]),
+    );
+    const officerCountByRegion = new Map(
+      perRegionOfficers.map((r) => [r.region as string, r._count._all]),
+    );
+    const walletByRegion = new Map<string, number>();
+    const customerRegionLookup = new Map<string, string>();
+    for (const c of customers) {
+      walletByRegion.set(
+        c.region,
+        (walletByRegion.get(c.region) ?? 0) + (c.outstandingBalance || 0),
+      );
+      customerRegionLookup.set(c.id, c.region);
+    }
+    const ticketsByRegion = new Map<string, number>();
+    for (const t of perRegionTicketsByCustomer) {
+      const region = customerRegionLookup.get(t.customerId);
+      if (!region) continue;
+      ticketsByRegion.set(
+        region,
+        (ticketsByRegion.get(region) ?? 0) + t._count._all,
+      );
+    }
+
+    const byRegion = REGIONS.map((region) => ({
+      region,
+      distributors: customerCountByRegion.get(region) ?? 0,
+      walletBalance: walletByRegion.get(region) ?? 0,
+      openTickets: ticketsByRegion.get(region) ?? 0,
+      activeOfficers: officerCountByRegion.get(region) ?? 0,
+    }));
+
     return {
       totalCustomers,
-      unReadMessage,
-      openTickets,
       totalOutstandingBalance,
+      activeOfficers,
+      openTickets,
+      unReadMessage,
+      byRegion,
     };
   }
 
