@@ -6,6 +6,7 @@ import { UnauthorizedException, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { SmsService } from '../../infrastructure/sms/sms.service';
 import { ErpService } from '../../infrastructure/erp/erp.types';
+import { EmailService } from '../../infrastructure/email/email.types';
 
 jest.mock('bcryptjs', () => ({
   compare: jest.fn(),
@@ -63,6 +64,7 @@ describe('AuthService', () => {
         { provide: JwtService, useValue: mockJwt },
         { provide: SmsService, useValue: mockSms },
         { provide: ErpService, useValue: mockErp },
+        { provide: EmailService, useValue: { send: jest.fn() } },
       ],
     }).compile();
 

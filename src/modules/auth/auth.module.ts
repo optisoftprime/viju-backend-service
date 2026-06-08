@@ -7,12 +7,14 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { SmsModule } from '../../infrastructure/sms/sms.module';
 import { ErpModule } from '../../infrastructure/erp/erp.module';
+import { EmailModule } from '../../infrastructure/email/email.module';
 
 @Module({
   imports: [
     PassportModule,
     SmsModule,
     ErpModule,
+    EmailModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

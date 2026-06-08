@@ -19,6 +19,7 @@ import {
 import * as bcrypt from 'bcryptjs';
 import { SmsService } from '../../infrastructure/sms/sms.service';
 import { ErpService } from '../../infrastructure/erp/erp.types';
+import { EmailService } from '../../infrastructure/email/email.types';
 import { StaffRole } from '@prisma/client';
 import { isDevMode } from '../../common/utils/env';
 
@@ -32,6 +33,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly sms: SmsService,
     private readonly erp: ErpService,
+    private readonly email: EmailService,
   ) {}
 
   async requestOtp(dto: RequestOtpDto) {
@@ -239,13 +241,32 @@ export class AuthService {
     });
 
     const isEmail = dto.identifier.includes('@');
-    if (isEmail) {
-      console.log(`[email mock] reset code ${code} -> ${dto.identifier}`);
-    } else {
-      await this.sms.send({
-        to: dto.identifier,
-        body: `Your Viju password reset code is ${code}. Expires in 10 minutes.`,
-      });
+    try {
+      if (isEmail) {
+        await this.email.send({
+          to: dto.identifier,
+          subject: 'Your Viju password reset code',
+          body: [
+            `Hello,`,
+            '',
+            `Your Viju Account Officer Portal password reset code is: ${code}`,
+            '',
+            'This code expires in 10 minutes. If you did not request a reset,',
+            'you can ignore this email.',
+            '',
+            'Viju Team',
+          ].join('\n'),
+        });
+      } else {
+        await this.sms.send({
+          to: dto.identifier,
+          body: `Your Viju password reset code is ${code}. Expires in 10 minutes.`,
+        });
+      }
+    } catch {
+      // Provider failures are already logged inside the impl; never
+      // leak the failure to the caller because that would also leak
+      // whether the identifier exists.
     }
 
     return {
