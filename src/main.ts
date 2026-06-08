@@ -3,6 +3,8 @@ import { AppModule } from './app.module';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { isDevMode } from './common/utils/env';
+import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
+import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -21,6 +23,12 @@ async function bootstrap() {
       forbidNonWhitelisted: true,
     }),
   );
+
+  // Order matters: AllExceptionsFilter is the last-resort catch-all, so
+  // register it FIRST and the more-specific Prisma filter SECOND. Nest
+  // walks filters in reverse registration order, picking the most
+  // specific match.
+  app.useGlobalFilters(new AllExceptionsFilter(), new PrismaExceptionFilter());
 
   const config = new DocumentBuilder()
     .setTitle('Viju Customer Portal API')
