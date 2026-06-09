@@ -1,5 +1,10 @@
 import { Controller, Get, Param, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiOkResponse,
+} from '@nestjs/swagger';
 import { OfficerService } from './officer.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -7,6 +12,17 @@ import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 import { Query } from '@nestjs/common';
+import {
+  OfficerDashboardSummaryDto,
+  PaginatedAssignedCustomersResponseDto,
+  CustomerDetailDto,
+  CustomerOverviewDto,
+  PaginatedCustomerOrdersResponseDto,
+  CustomerInvoicesDto,
+  CustomerStockDto,
+  PaginatedCustomerWaybillsResponseDto,
+  PaginatedStockResponseDto,
+} from './dto/officer-response.dto';
 
 @ApiTags('Officer Portal')
 @ApiBearerAuth()
@@ -24,6 +40,7 @@ export class OfficerController {
       'balances, open tickets, unread messages — all scoped to the ' +
       'officer’s portfolio.',
   })
+  @ApiOkResponse({ type: OfficerDashboardSummaryDto })
   async getDashboard(@CurrentUser() user: any) {
     return this.officerService.getDashboardSummary(user.id);
   }
@@ -36,6 +53,7 @@ export class OfficerController {
       'officer (PRD F6). ADMIN role: returns all customers across all regions ' +
       '(PRD F14 cross-region visibility).',
   })
+  @ApiOkResponse({ type: PaginatedAssignedCustomersResponseDto })
   async getCustomers(
     @CurrentUser() user: any,
     @Query() pagination: PaginationQueryDto,
@@ -48,6 +66,7 @@ export class OfficerController {
     summary:
       'Legacy aggregate detail (kept for backwards compat) — prefer the per-tab endpoints',
   })
+  @ApiOkResponse({ type: CustomerDetailDto })
   async getCustomerDetail(
     @CurrentUser() user: any,
     @Param('id') customerId: string,
@@ -57,6 +76,7 @@ export class OfficerController {
 
   @Get('customers/:id/overview')
   @ApiOperation({ summary: 'Distributor Overview tab (PRD F10)' })
+  @ApiOkResponse({ type: CustomerOverviewDto })
   async getCustomerOverview(
     @CurrentUser() user: any,
     @Param('id') customerId: string,
@@ -66,6 +86,7 @@ export class OfficerController {
 
   @Get('customers/:id/orders')
   @ApiOperation({ summary: 'Distributor Orders tab (PRD F10)' })
+  @ApiOkResponse({ type: PaginatedCustomerOrdersResponseDto })
   async getCustomerOrders(
     @CurrentUser() user: any,
     @Param('id') customerId: string,
@@ -80,6 +101,7 @@ export class OfficerController {
 
   @Get('customers/:id/invoices')
   @ApiOperation({ summary: 'Distributor Invoices tab (PRD F10)' })
+  @ApiOkResponse({ type: CustomerInvoicesDto })
   async getCustomerInvoices(
     @CurrentUser() user: any,
     @Param('id') customerId: string,
@@ -89,6 +111,7 @@ export class OfficerController {
 
   @Get('customers/:id/stock')
   @ApiOperation({ summary: 'Distributor Stock tab (PRD F10)' })
+  @ApiOkResponse({ type: CustomerStockDto })
   async getCustomerStock(
     @CurrentUser() user: any,
     @Param('id') customerId: string,
@@ -98,6 +121,7 @@ export class OfficerController {
 
   @Get('customers/:id/waybills')
   @ApiOperation({ summary: 'Distributor Waybills tab (PRD F10)' })
+  @ApiOkResponse({ type: PaginatedCustomerWaybillsResponseDto })
   async getCustomerWaybills(
     @CurrentUser() user: any,
     @Param('id') customerId: string,
@@ -112,6 +136,7 @@ export class OfficerController {
 
   @Get('stock')
   @ApiOperation({ summary: 'Get current stock levels from the ERP' })
+  @ApiOkResponse({ type: PaginatedStockResponseDto })
   async getStock(@Query() pagination: PaginationQueryDto) {
     return this.officerService.getStock(pagination);
   }
