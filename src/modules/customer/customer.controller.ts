@@ -7,7 +7,13 @@ import {
   Query,
   Param,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiProduces,
+} from '@nestjs/swagger';
 import { CustomerService } from './customer.service';
 import { StatementService } from './statement.service';
 import { Res } from '@nestjs/common';
@@ -23,6 +29,17 @@ import {
   StatementRangeDto,
 } from './dto/customer.dto';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
+import { MessageResponseDto } from '../../common/dto/message-response.dto';
+import {
+  HomeResponseDto,
+  StockBalanceBreakdownDto,
+  CustomerProfileDto,
+  PaginatedPurchasesResponseDto,
+  PurchaseDetailDto,
+  PaginatedPaymentsResponseDto,
+  InvoicesResponseDto,
+  InvoiceDetailDto,
+} from './dto/customer-response.dto';
 
 @ApiTags('Customer Portal')
 @ApiBearerAuth()
@@ -44,6 +61,7 @@ export class CustomerController {
       'and the last 5 purchases. Stock balance is derived from purchases minus ' +
       'completed loading-request quantities.',
   })
+  @ApiOkResponse({ type: HomeResponseDto })
   async getHome(@CurrentUser() user: any) {
     return this.customerService.getHome(user.id);
   }
@@ -57,18 +75,21 @@ export class CustomerController {
       'across products on each purchase proportionally to ordered quantity ' +
       '(mocked until ERP exposes per-product loading detail).',
   })
+  @ApiOkResponse({ type: StockBalanceBreakdownDto })
   async getStockBalance(@CurrentUser() user: any) {
     return this.customerService.getStockBalanceBreakdown(user.id);
   }
 
   @Get('me')
   @ApiOperation({ summary: 'Get current customer profile and balance' })
+  @ApiOkResponse({ type: CustomerProfileDto })
   async getProfile(@CurrentUser() user: any) {
     return this.customerService.getProfile(user.id);
   }
 
   @Patch('me/photo')
   @ApiOperation({ summary: 'Update customer profile photo' })
+  @ApiOkResponse({ type: CustomerProfileDto })
   async updatePhoto(
     @CurrentUser() user: any,
     @Body() dto: UpdateProfilePhotoDto,
@@ -78,6 +99,7 @@ export class CustomerController {
 
   @Patch('me/password')
   @ApiOperation({ summary: 'Change customer password' })
+  @ApiOkResponse({ type: MessageResponseDto })
   async changePassword(
     @CurrentUser() user: any,
     @Body() dto: ChangePasswordDto,
@@ -88,6 +110,7 @@ export class CustomerController {
 
   @Get('me/purchases')
   @ApiOperation({ summary: 'Get customer purchase history' })
+  @ApiOkResponse({ type: PaginatedPurchasesResponseDto })
   async getPurchases(
     @CurrentUser() user: any,
     @Query() filter: PurchaseFilterDto,
@@ -105,6 +128,7 @@ export class CustomerController {
       'Invoice number is generated from the order ERP id until ERP supplies ' +
       'the real link.',
   })
+  @ApiOkResponse({ type: PurchaseDetailDto })
   async getPurchaseDetail(
     @CurrentUser() user: any,
     @Param('id') purchaseId: string,
@@ -114,6 +138,7 @@ export class CustomerController {
 
   @Get('me/payments')
   @ApiOperation({ summary: 'Get customer payment history' })
+  @ApiOkResponse({ type: PaginatedPaymentsResponseDto })
   async getPayments(
     @CurrentUser() user: any,
     @Query() pagination: PaginationQueryDto,
@@ -129,6 +154,7 @@ export class CustomerController {
       '(Paid / Part Paid / Unpaid), and payment history with running ' +
       'balance. Read-only — no Pay-Now action exists.',
   })
+  @ApiOkResponse({ type: InvoicesResponseDto })
   async getInvoices(@CurrentUser() user: any) {
     return this.customerService.getInvoices(user.id);
   }
@@ -140,6 +166,11 @@ export class CustomerController {
       'Returns a binary PDF (Content-Type: application/pdf) containing ' +
       'invoices, payments, and running wallet balance for the date range. ' +
       'Omit dates to get the full lifetime statement.',
+  })
+  @ApiProduces('application/pdf')
+  @ApiOkResponse({
+    description: 'Binary PDF account statement',
+    schema: { type: 'string', format: 'binary' },
   })
   async getAccountStatement(
     @CurrentUser() user: any,
@@ -161,6 +192,11 @@ export class CustomerController {
   @Get('me/stock-statement.pdf')
   @ApiOperation({
     summary: 'Generate Stock Statement PDF (PRD F8 AC7)',
+  })
+  @ApiProduces('application/pdf')
+  @ApiOkResponse({
+    description: 'Binary PDF stock statement',
+    schema: { type: 'string', format: 'binary' },
   })
   async getStockStatement(
     @CurrentUser() user: any,
@@ -186,6 +222,7 @@ export class CustomerController {
       'Tapping any invoice opens this detail view: line items, quantities, ' +
       'unit prices, line totals, tax, grand total.',
   })
+  @ApiOkResponse({ type: InvoiceDetailDto })
   async getInvoiceDetail(
     @CurrentUser() user: any,
     @Param('id') invoiceId: string,
