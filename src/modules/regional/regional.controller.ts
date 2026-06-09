@@ -8,7 +8,12 @@ import {
   ForbiddenException,
   Query,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiOkResponse,
+} from '@nestjs/swagger';
 import { RegionalService } from './regional.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -20,6 +25,12 @@ import {
 } from './dto/regional.dto';
 import { Region, LoadingRequestStatus } from '@prisma/client';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
+import {
+  RegionalDashboardResponseDto,
+  PaginatedLoadingRequestsResponseDto,
+  PaginatedLoadingQueueResponseDto,
+  LoadingRequestDto,
+} from './dto/regional-response.dto';
 
 interface StaffUser {
   id: string;
@@ -43,6 +54,10 @@ export class RegionalController {
       'regional admin’s assigned region. ADMIN can pass ?region= to ' +
       'inspect any region.',
   })
+  @ApiOkResponse({
+    description: 'Regional summary cards and pending loading-request queue.',
+    type: RegionalDashboardResponseDto,
+  })
   async getDashboard(
     @CurrentUser() user: StaffUser,
     @Query('region') queryRegion?: Region,
@@ -57,6 +72,10 @@ export class RegionalController {
     summary: 'All loading requests in the region by status',
     description:
       'Use ?status=PENDING_ASSIGNMENT | ASSIGNED | LOADING_IN_PROGRESS | COMPLETED | ALL',
+  })
+  @ApiOkResponse({
+    description: 'Paginated loading requests in the region.',
+    type: PaginatedLoadingRequestsResponseDto,
   })
   async listRequests(
     @CurrentUser() user: StaffUser,
@@ -78,6 +97,10 @@ export class RegionalController {
     summary:
       'Assign a loading request to a loading / warehouse officer (PRD F12 AC5)',
   })
+  @ApiOkResponse({
+    description: 'The updated loading request (now ASSIGNED).',
+    type: LoadingRequestDto,
+  })
   async assignRequest(
     @CurrentUser() user: StaffUser,
     @Param('id') id: string,
@@ -95,6 +118,10 @@ export class RegionalController {
       'Returns only requests assigned to the current officer in ASSIGNED ' +
       'or LOADING_IN_PROGRESS state.',
   })
+  @ApiOkResponse({
+    description: 'Paginated queue of requests assigned to the current officer.',
+    type: PaginatedLoadingQueueResponseDto,
+  })
   async getMyQueue(
     @CurrentUser() user: StaffUser,
     @Query() pagination: PaginationQueryDto,
@@ -107,6 +134,10 @@ export class RegionalController {
   @ApiOperation({
     summary:
       'Loading Officer advances status + uploads waybill (PRD F13 AC2-AC3)',
+  })
+  @ApiOkResponse({
+    description: 'The updated loading request with its new status.',
+    type: LoadingRequestDto,
   })
   async updateStatus(
     @CurrentUser() user: StaffUser,

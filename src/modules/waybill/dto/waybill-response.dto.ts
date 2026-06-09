@@ -1,0 +1,210 @@
+import { ApiProperty } from '@nestjs/swagger';
+import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
+
+const REGION_VALUES = ['LAGOS', 'SOUTH_WEST', 'SOUTH_EAST', 'NORTH'] as const;
+type Region = (typeof REGION_VALUES)[number];
+
+const LOADING_REQUEST_STATUS_VALUES = [
+  'PENDING_ASSIGNMENT',
+  'ASSIGNED',
+  'LOADING_IN_PROGRESS',
+  'COMPLETED',
+  'CANCELLED',
+] as const;
+type LoadingRequestStatus = (typeof LOADING_REQUEST_STATUS_VALUES)[number];
+
+// ─── List item (GET /customers/me/waybills) ───────────────────
+// Backed by loadingRequest.findMany with an explicit `select`.
+
+export class WaybillListLinkedPurchaseDto {
+  @ApiProperty({ example: 'VJ-2026-675' })
+  erpId: string;
+}
+
+export class WaybillListItemDto {
+  @ApiProperty({ example: 'waybill-uuid-1' })
+  id: string;
+
+  @ApiProperty({ example: 'WB-123456' })
+  reference: string;
+
+  @ApiProperty({ example: 'LAG-234-XY' })
+  truckPlateNumber: string;
+
+  @ApiProperty({ example: 'Jimoh Ibrahim' })
+  driverName: string;
+
+  @ApiProperty({ example: '+2348012345678' })
+  driverPhone: string;
+
+  @ApiProperty({ example: '2026-06-15T00:00:00.000Z', format: 'date-time' })
+  requestedLoadingDate: Date;
+
+  @ApiProperty({ example: 320, nullable: true })
+  quantityCartons: number | null;
+
+  @ApiProperty({ example: 'Yaba Warehouse', nullable: true })
+  destination: string | null;
+
+  @ApiProperty({
+    enum: LOADING_REQUEST_STATUS_VALUES,
+    example: 'PENDING_ASSIGNMENT',
+  })
+  status: LoadingRequestStatus;
+
+  @ApiProperty({ example: '2026-06-09T08:16:56.533Z', format: 'date-time' })
+  createdAt: Date;
+
+  @ApiProperty({ type: WaybillListLinkedPurchaseDto, nullable: true })
+  linkedPurchase: WaybillListLinkedPurchaseDto | null;
+}
+
+export class PaginatedWaybillsResponseDto {
+  @ApiProperty({ type: [WaybillListItemDto] })
+  data: WaybillListItemDto[];
+
+  @ApiProperty({ type: PaginationMetaDto })
+  meta: PaginationMetaDto;
+}
+
+// ─── Accept T&C (POST /customers/me/waybills/accept-terms) ─────
+
+export class AcceptTermsResponseDto {
+  @ApiProperty({ example: 'https://forms.example.com/viju-loading' })
+  formUrl: string;
+
+  @ApiProperty({ example: '2026-06-09T08:16:56.533Z', format: 'date-time' })
+  acceptedAt: Date;
+
+  @ApiProperty({
+    example:
+      'Open this URL in a browser / in-app web view. Form submission triggers the regional admin assignment flow.',
+  })
+  note: string;
+}
+
+// ─── Submit (POST /customers/me/waybills) ──────────────────────
+// Backed by loadingRequest.create — full model record, no relations.
+
+export class WaybillDto {
+  @ApiProperty({ example: 'waybill-uuid-1' })
+  id: string;
+
+  @ApiProperty({ example: 'WB-123456' })
+  reference: string;
+
+  @ApiProperty({ example: 'customer-uuid-1' })
+  customerId: string;
+
+  @ApiProperty({ enum: REGION_VALUES, example: 'LAGOS' })
+  region: Region;
+
+  @ApiProperty({ example: 'purchase-uuid-1', nullable: true })
+  linkedPurchaseId: string | null;
+
+  @ApiProperty({ example: 'LAG-234-XY' })
+  truckPlateNumber: string;
+
+  @ApiProperty({ example: 'Jimoh Ibrahim' })
+  driverName: string;
+
+  @ApiProperty({ example: '+2348012345678' })
+  driverPhone: string;
+
+  @ApiProperty({ example: '2026-06-15T00:00:00.000Z', format: 'date-time' })
+  requestedLoadingDate: Date;
+
+  @ApiProperty({ example: 320, nullable: true })
+  quantityCartons: number | null;
+
+  @ApiProperty({ example: 'Yaba Warehouse', nullable: true })
+  destination: string | null;
+
+  @ApiProperty({ example: '2026-06-09T08:16:56.533Z', format: 'date-time' })
+  termsAcceptedAt: Date;
+
+  @ApiProperty({
+    example: 'https://forms.example.com/viju-loading',
+    nullable: true,
+  })
+  externalFormUrl: string | null;
+
+  @ApiProperty({
+    enum: LOADING_REQUEST_STATUS_VALUES,
+    example: 'PENDING_ASSIGNMENT',
+  })
+  status: LoadingRequestStatus;
+
+  @ApiProperty({ example: 'officer-uuid-1', nullable: true })
+  assignedOfficerId: string | null;
+
+  @ApiProperty({
+    example: '2026-06-09T08:16:56.533Z',
+    format: 'date-time',
+    nullable: true,
+  })
+  assignedAt: Date | null;
+
+  @ApiProperty({ example: 'admin-uuid-1', nullable: true })
+  assignedById: string | null;
+
+  @ApiProperty({
+    example: '2026-06-09T08:16:56.533Z',
+    format: 'date-time',
+    nullable: true,
+  })
+  loadingStartedAt: Date | null;
+
+  @ApiProperty({
+    example: '2026-06-09T08:16:56.533Z',
+    format: 'date-time',
+    nullable: true,
+  })
+  completedAt: Date | null;
+
+  @ApiProperty({
+    example: 'https://cdn.viju.example/waybills/WB-123456.pdf',
+    nullable: true,
+  })
+  waybillDocumentUrl: string | null;
+
+  @ApiProperty({ example: 'Customer requested early pickup', nullable: true })
+  notes: string | null;
+
+  @ApiProperty({ example: '2026-06-09T08:16:56.533Z', format: 'date-time' })
+  createdAt: Date;
+
+  @ApiProperty({ example: '2026-06-09T08:16:56.533Z', format: 'date-time' })
+  updatedAt: Date;
+}
+
+// ─── Detail (GET /customers/me/waybills/:id) ───────────────────
+// Full model record + linkedPurchase {id, erpId} + masked assignedOfficer.
+
+export class WaybillDetailLinkedPurchaseDto {
+  @ApiProperty({ example: 'purchase-uuid-1' })
+  id: string;
+
+  @ApiProperty({ example: 'VJ-2026-675' })
+  erpId: string;
+}
+
+export class WaybillAssignedOfficerDto {
+  @ApiProperty({
+    example: 'Viju Loading Officer',
+    description: 'Generic label — customers never see the officer’s real name',
+  })
+  displayName: string;
+}
+
+export class WaybillDetailDto extends WaybillDto {
+  @ApiProperty({ type: WaybillDetailLinkedPurchaseDto, nullable: true })
+  linkedPurchase: WaybillDetailLinkedPurchaseDto | null;
+
+  @ApiProperty({
+    type: WaybillAssignedOfficerDto,
+    nullable: true,
+    description: 'Present (masked) once a loading officer is assigned',
+  })
+  assignedOfficer: WaybillAssignedOfficerDto | null;
+}
