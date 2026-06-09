@@ -30,6 +30,9 @@ export class PushService {
         staffId: args.recipientType === 'STAFF' ? args.recipientId : null,
         lastUsedAt: new Date(),
       },
+      // Don't echo the device token back — the caller already holds it,
+      // and reflecting it only widens its exposure surface.
+      omit: { token: true },
     });
   }
 

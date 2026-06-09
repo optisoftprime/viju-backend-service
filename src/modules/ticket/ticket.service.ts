@@ -95,7 +95,10 @@ export class TicketService {
       where: { id: ticketId },
       include: {
         replies: { orderBy: { createdAt: 'asc' } },
-        customer: true,
+        // Never surface the customer's auth secrets in the ticket thread.
+        customer: {
+          omit: { password: true, failedLoginAttempts: true, lockedUntil: true },
+        },
       },
     });
 

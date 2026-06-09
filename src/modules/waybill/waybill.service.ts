@@ -54,11 +54,17 @@ export class WaybillService {
       where: { id, customerId },
       include: {
         linkedPurchase: { select: { id: true, erpId: true } },
-        assignedOfficer: { select: { id: true, name: true } },
       },
     });
     if (!wb) throw new NotFoundException('Waybill not found');
-    return wb;
+    // PRD F6: customers never see an officer's real name — surface a generic
+    // label, never the assigned loading officer's identity.
+    return {
+      ...wb,
+      assignedOfficer: wb.assignedOfficerId
+        ? { displayName: 'Viju Loading Officer' }
+        : null,
+    };
   }
 
   /**

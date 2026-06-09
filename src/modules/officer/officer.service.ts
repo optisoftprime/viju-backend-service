@@ -275,6 +275,9 @@ export class OfficerService {
           { officerAssignments: { some: { staffId: officerId } } },
         ],
       },
+      // Never surface auth secrets: getCustomerDetail spreads this record
+      // straight into its response.
+      omit: { password: true, failedLoginAttempts: true, lockedUntil: true },
     });
     if (!customer)
       throw new NotFoundException('Customer not found or not assigned to you');

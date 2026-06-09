@@ -177,10 +177,13 @@ export class CustomerService {
   }
 
   async updatePhoto(customerId: string, dto: UpdateProfilePhotoDto) {
-    return this.prisma.customer.update({
+    await this.prisma.customer.update({
       where: { id: customerId },
       data: { profilePhotoUrl: dto.photoUrl },
     });
+    // Return the safe profile shape — never echo the raw record (it carries
+    // the password hash and other internal fields).
+    return this.getProfile(customerId);
   }
 
   async changePassword(customerId: string, dto: ChangePasswordDto) {
