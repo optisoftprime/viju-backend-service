@@ -11,7 +11,12 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -45,6 +50,18 @@ export class AdminController {
   @ApiOperation({
     summary:
       'List customers with optional region filter + name/erpId search (PRD F14 AC5)',
+  })
+  @ApiQuery({
+    name: 'region',
+    required: false,
+    enum: ['LAGOS', 'SOUTH_WEST', 'SOUTH_EAST', 'NORTH'],
+    description: 'Optional region filter',
+  })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    type: String,
+    description: 'Optional name / erpId search term',
   })
   async getAllCustomers(
     @Query() pagination: PaginationQueryDto,
