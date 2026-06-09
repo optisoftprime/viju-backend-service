@@ -359,7 +359,12 @@ export class AdminService {
       );
     }
 
-    const erpId = dto.erpId ?? `MOCK-${Date.now()}`;
+    // Treat empty / whitespace / Swagger's placeholder "string" as missing
+    // so a usable MOCK- ID is generated. PRD F8 sync will overwrite these
+    // once ERP customer-sync lands.
+    const provided = dto.erpId?.trim();
+    const erpId =
+      provided && provided !== 'string' ? provided : `MOCK-${Date.now()}`;
     return this.prisma.customer.create({
       data: {
         erpId,
