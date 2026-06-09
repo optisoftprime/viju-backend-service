@@ -55,6 +55,15 @@ async function bootstrap() {
       description:
         'JWT issued by /auth/customer/login or /auth/staff/login or /auth/staff/web-login',
     })
+    .addApiKey(
+      {
+        type: 'apiKey',
+        in: 'header',
+        name: 'x-api-key',
+        description: 'Shared secret (ERP_API_KEY) for ERP→app sync webhooks',
+      },
+      'x-api-key',
+    )
     .addTag(
       'Authentication',
       'Customer OTP/password + staff ERP credential login + staff password reset',
