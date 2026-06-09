@@ -1,9 +1,19 @@
 import { Body, Controller, Delete, Post, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PushService } from './push.service';
 import { RegisterPushTokenDto, UnregisterPushTokenDto } from './dto/push.dto';
+import {
+  PushTokenResponseDto,
+  UnregisterPushTokenResponseDto,
+} from './dto/push-response.dto';
 
 interface AuthUser {
   id: string;
@@ -23,6 +33,7 @@ export class PushController {
     description:
       'Idempotent: re-registering the same token updates platform and reactivates if previously unregistered.',
   })
+  @ApiCreatedResponse({ type: PushTokenResponseDto })
   register(@CurrentUser() user: AuthUser, @Body() dto: RegisterPushTokenDto) {
     return this.pushService.register({
       token: dto.token,
@@ -34,6 +45,7 @@ export class PushController {
 
   @Delete()
   @ApiOperation({ summary: 'Soft-unregister a push token (e.g. on logout)' })
+  @ApiOkResponse({ type: UnregisterPushTokenResponseDto })
   unregister(@Body() dto: UnregisterPushTokenDto) {
     return this.pushService.unregister(dto.token);
   }

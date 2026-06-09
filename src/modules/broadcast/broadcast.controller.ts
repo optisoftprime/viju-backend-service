@@ -7,7 +7,13 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiCreatedResponse,
+} from '@nestjs/swagger';
 import { BroadcastService } from './broadcast.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -19,6 +25,11 @@ import {
   SendIndividualBroadcastDto,
   BroadcastHistoryFilterDto,
 } from './dto/broadcast.dto';
+import {
+  BroadcastDto,
+  BroadcastDetailDto,
+  PaginatedBroadcastHistoryResponseDto,
+} from './dto/broadcast-response.dto';
 
 @ApiTags('Admin Portal')
 @ApiBearerAuth()
@@ -31,6 +42,10 @@ export class BroadcastController {
   @Post('regional')
   @ApiOperation({
     summary: 'Send a regional broadcast (PRD F15 AC2)',
+  })
+  @ApiCreatedResponse({
+    description: 'The created regional broadcast record.',
+    type: BroadcastDto,
   })
   async sendRegional(
     @CurrentUser() user: any,
@@ -48,6 +63,10 @@ export class BroadcastController {
       'IMMEDIATELY (not next ERP sync). A Payment row with reference ' +
       '"Delivery Allowance" is created in the same transaction.',
   })
+  @ApiCreatedResponse({
+    description: 'The created individual broadcast record.',
+    type: BroadcastDto,
+  })
   async sendIndividual(
     @CurrentUser() user: any,
     @Body() dto: SendIndividualBroadcastDto,
@@ -57,6 +76,10 @@ export class BroadcastController {
 
   @Get('history')
   @ApiOperation({ summary: 'Broadcast history with filters (PRD F15 AC7)' })
+  @ApiOkResponse({
+    description: 'Paginated broadcast history (newest first).',
+    type: PaginatedBroadcastHistoryResponseDto,
+  })
   async history(
     @Query() filter: BroadcastHistoryFilterDto,
     @Query() pagination: PaginationQueryDto,
@@ -66,6 +89,11 @@ export class BroadcastController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Broadcast detail' })
+  @ApiOkResponse({
+    description:
+      'Full broadcast detail incl. sender, target customer and allowance payment.',
+    type: BroadcastDetailDto,
+  })
   async detail(@Param('id') id: string) {
     return this.broadcastService.getDetail(id);
   }

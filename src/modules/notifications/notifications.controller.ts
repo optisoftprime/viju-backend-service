@@ -6,11 +6,21 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiOkResponse,
+} from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
+import {
+  NotificationDto,
+  PaginatedNotificationsResponseDto,
+  MarkAllReadResponseDto,
+} from './dto/notifications-response.dto';
 
 interface AuthUser {
   id: string;
@@ -31,6 +41,7 @@ export class NotificationsController {
       'Works for any authenticated user (customer or staff). Returns the ' +
       '100 most recent notifications and an unread count for the badge.',
   })
+  @ApiOkResponse({ type: PaginatedNotificationsResponseDto })
   async list(
     @CurrentUser() user: AuthUser,
     @Query() pagination: PaginationQueryDto,
@@ -43,6 +54,7 @@ export class NotificationsController {
 
   @Patch('me/read-all')
   @ApiOperation({ summary: 'Mark all my notifications as read' })
+  @ApiOkResponse({ type: MarkAllReadResponseDto })
   async readAll(@CurrentUser() user: AuthUser) {
     return this.notificationsService.markAllRead(
       user.role === 'CUSTOMER' ? 'CUSTOMER' : 'STAFF',
@@ -52,6 +64,7 @@ export class NotificationsController {
 
   @Patch(':id/read')
   @ApiOperation({ summary: 'Mark a single notification as read' })
+  @ApiOkResponse({ type: NotificationDto })
   async read(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.notificationsService.markRead(
       user.role === 'CUSTOMER' ? 'CUSTOMER' : 'STAFF',

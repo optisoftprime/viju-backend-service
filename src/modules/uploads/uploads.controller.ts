@@ -14,10 +14,12 @@ import {
   ApiBearerAuth,
   ApiConsumes,
   ApiBody,
+  ApiCreatedResponse,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { StorageService } from '../../infrastructure/storage/storage.service';
 import { UploadFileDto, UploadFolder } from './dto/upload.dto';
+import { UploadResponseDto } from './dto/uploads-response.dto';
 
 interface UploadedFileShape {
   originalname: string;
@@ -85,6 +87,10 @@ export class UploadsController {
       'flow keeps moving.',
   })
   @ApiConsumes('multipart/form-data')
+  @ApiCreatedResponse({
+    description: 'File stored successfully; returns the public URL + storage key.',
+    type: UploadResponseDto,
+  })
   @ApiBody({
     schema: {
       type: 'object',
