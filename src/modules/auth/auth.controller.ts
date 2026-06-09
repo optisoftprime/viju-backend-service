@@ -1,5 +1,5 @@
 import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiOkResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import {
   RequestOtpDto,
@@ -14,6 +14,13 @@ import {
   RefreshTokenDto,
   LogoutDto,
 } from './dto/auth.dto';
+import {
+  AuthTokenResponseDto,
+  RequestOtpResponseDto,
+  StaffPasswordResetRequestResponseDto,
+  StaffPasswordResetVerifyOtpResponseDto,
+} from './dto/auth-response.dto';
+import { MessageResponseDto } from '../../common/dto/message-response.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -23,6 +30,7 @@ export class AuthController {
   @Post('customer/request-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Request SMS OTP for customer registration/login' })
+  @ApiOkResponse({ type: RequestOtpResponseDto })
   async requestOtp(@Body() dto: RequestOtpDto) {
     return this.authService.requestOtp(dto);
   }
@@ -30,6 +38,7 @@ export class AuthController {
   @Post('customer/verify-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Verify OTP and set password' })
+  @ApiOkResponse({ type: AuthTokenResponseDto })
   async verifyOtp(@Body() dto: VerifyOtpDto) {
     return this.authService.verifyOtp(dto);
   }
@@ -37,6 +46,7 @@ export class AuthController {
   @Post('customer/login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Customer login via phone and password' })
+  @ApiOkResponse({ type: AuthTokenResponseDto })
   async customerLogin(@Body() dto: CustomerLoginDto) {
     return this.authService.customerLogin(dto);
   }
@@ -48,6 +58,7 @@ export class AuthController {
     description:
       'Retained for transition. New web portal uses /auth/staff/web-login.',
   })
+  @ApiOkResponse({ type: AuthTokenResponseDto })
   async staffLogin(@Body() dto: StaffLoginDto) {
     return this.authService.staffLogin(dto);
   }
@@ -59,6 +70,7 @@ export class AuthController {
     description:
       'Officers, regional admins and administrators sign in to the web portal using credentials issued by the ERP. The platform validates against ERP, upserts a local Staff row, and returns a JWT.',
   })
+  @ApiOkResponse({ type: AuthTokenResponseDto })
   async staffWebLogin(@Body() dto: StaffWebLoginDto) {
     return this.authService.staffWebLogin(dto);
   }
@@ -70,6 +82,7 @@ export class AuthController {
     description:
       'Send a 6-digit OTP to the officer/admin via SMS (phone) or email. Always returns success message regardless of whether the account exists, to avoid leaking valid identifiers.',
   })
+  @ApiOkResponse({ type: StaffPasswordResetRequestResponseDto })
   async requestStaffPasswordReset(@Body() dto: StaffPasswordResetRequestDto) {
     return this.authService.requestStaffPasswordReset(dto);
   }
@@ -83,6 +96,7 @@ export class AuthController {
       'the previous one is marked revoked. Reusing an already-revoked refresh ' +
       'token revokes the entire chain and forces re-login (theft defence).',
   })
+  @ApiOkResponse({ type: AuthTokenResponseDto })
   async refresh(@Body() dto: RefreshTokenDto) {
     return this.authService.refresh(dto.refresh_token);
   }
@@ -96,6 +110,7 @@ export class AuthController {
       'valid until their own short expiry; the refresh token is revoked so ' +
       'no further access tokens can be minted from it.',
   })
+  @ApiOkResponse({ type: MessageResponseDto })
   async logout(@Body() dto: LogoutDto) {
     return this.authService.logout(dto.refresh_token);
   }
@@ -110,6 +125,7 @@ export class AuthController {
       'and returns a reset_token (TTL 10 min) that the next step must present. ' +
       'Does NOT set the password — that is Step 3.',
   })
+  @ApiOkResponse({ type: StaffPasswordResetVerifyOtpResponseDto })
   async verifyStaffPasswordResetOtp(
     @Body() dto: StaffPasswordResetVerifyOtpDto,
   ) {
@@ -126,6 +142,7 @@ export class AuthController {
       'plus the new password. Once succeeded, all OTPs for the identifier ' +
       'are wiped so the token cannot be replayed.',
   })
+  @ApiOkResponse({ type: MessageResponseDto })
   async resetStaffPasswordWithToken(
     @Body() dto: StaffPasswordResetWithTokenDto,
   ) {
@@ -142,6 +159,7 @@ export class AuthController {
       'This combined endpoint stays available so existing FE clients keep working.',
     deprecated: true,
   })
+  @ApiOkResponse({ type: MessageResponseDto })
   async confirmStaffPasswordReset(@Body() dto: StaffPasswordResetConfirmDto) {
     return this.authService.confirmStaffPasswordReset(dto);
   }
