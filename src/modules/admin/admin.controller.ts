@@ -16,6 +16,8 @@ import {
   ApiOperation,
   ApiBearerAuth,
   ApiQuery,
+  ApiOkResponse,
+  ApiProduces,
 } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -31,6 +33,15 @@ import {
 } from './dto/admin.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
+import { PaginatedCustomersResponseDto } from './dto/customer-response.dto';
+import { MessageResponseDto } from '../../common/dto/message-response.dto';
+import {
+  DashboardStatsDto,
+  TestCustomerDto,
+  PaginatedOfficersResponseDto,
+  CreatedOfficerDto,
+  ProductFlyerDto,
+} from './dto/admin-response.dto';
 
 @ApiTags('Admin Portal')
 @ApiBearerAuth()
@@ -42,6 +53,7 @@ export class AdminController {
 
   @Get('dashboard')
   @ApiOperation({ summary: 'Get aggregate organization dashboard stats' })
+  @ApiOkResponse({ type: DashboardStatsDto })
   async getDashboard() {
     return this.adminService.getDashboardStats();
   }
@@ -63,6 +75,10 @@ export class AdminController {
     type: String,
     description: 'Optional name / erpId search term',
   })
+  @ApiOkResponse({
+    description: 'Paginated list of customers',
+    type: PaginatedCustomersResponseDto,
+  })
   async getAllCustomers(
     @Query() pagination: PaginationQueryDto,
     @Query('region')
@@ -75,6 +91,11 @@ export class AdminController {
   @Get('customers/export.csv')
   @ApiOperation({
     summary: 'Export filtered customer list as CSV (PRD F14 AC6)',
+  })
+  @ApiProduces('text/csv')
+  @ApiOkResponse({
+    description: 'CSV file of filtered customers',
+    schema: { type: 'string', format: 'binary' },
   })
   async exportCustomers(
     @Query('region')
@@ -93,6 +114,7 @@ export class AdminController {
 
   @Patch('customers/:id/reassign')
   @ApiOperation({ summary: 'Reassign customer to a new officer' })
+  @ApiOkResponse({ type: MessageResponseDto })
   async reassignOfficer(
     @Param('id') id: string,
     @Body() dto: ReassignOfficerDto,
@@ -109,18 +131,21 @@ export class AdminController {
       'Lets FE/QA seed any phone number for OTP flow testing without waiting on ERP. ' +
       'Replace or remove once /erp/sync/customers is wired up.',
   })
+  @ApiOkResponse({ type: TestCustomerDto })
   async createTestCustomer(@Body() dto: CreateTestCustomerDto) {
     return this.adminService.createTestCustomer(dto);
   }
 
   @Get('officers')
   @ApiOperation({ summary: 'List all account officers' })
+  @ApiOkResponse({ type: PaginatedOfficersResponseDto })
   async getOfficers(@Query() pagination: PaginationQueryDto) {
     return this.adminService.getOfficers(pagination);
   }
 
   @Post('officers')
   @ApiOperation({ summary: 'Create a new account officer' })
+  @ApiOkResponse({ type: CreatedOfficerDto })
   async createOfficer(@Body() dto: CreateOfficerDto) {
     return this.adminService.createOfficer(dto);
   }
@@ -128,6 +153,7 @@ export class AdminController {
   // ─── Product Flyer (PRD F19) ──────────────────────────
   @Get('product-flyers')
   @ApiOperation({ summary: 'List product flyer cards in current order' })
+  @ApiOkResponse({ type: [ProductFlyerDto] })
   async listFlyers() {
     return this.adminService.listProductFlyers();
   }
@@ -137,6 +163,7 @@ export class AdminController {
     summary:
       'Create a product flyer card (uploads come pre-resolved as imageUrl)',
   })
+  @ApiOkResponse({ type: ProductFlyerDto })
   async createFlyer(
     @Body() dto: CreateProductFlyerDto,
     @CurrentUser() user: any,
@@ -149,12 +176,14 @@ export class AdminController {
     summary:
       'Reorder flyer cards — order in payload = order shown on mobile (PRD F19 AC4)',
   })
+  @ApiOkResponse({ type: [ProductFlyerDto] })
   async reorderFlyers(@Body() dto: ReorderProductFlyersDto) {
     return this.adminService.reorderProductFlyers(dto);
   }
 
   @Patch('product-flyers/:id')
   @ApiOperation({ summary: 'Update / deactivate a flyer card' })
+  @ApiOkResponse({ type: ProductFlyerDto })
   async updateFlyer(
     @Param('id') id: string,
     @Body() dto: UpdateProductFlyerDto,
@@ -164,6 +193,7 @@ export class AdminController {
 
   @Delete('product-flyers/:id')
   @ApiOperation({ summary: 'Delete a flyer card permanently' })
+  @ApiOkResponse({ type: MessageResponseDto })
   async deleteFlyer(@Param('id') id: string) {
     await this.adminService.deleteProductFlyer(id);
     return { message: 'Product flyer deleted' };
@@ -171,6 +201,7 @@ export class AdminController {
 
   @Delete('officers/:id')
   @ApiOperation({ summary: 'Deactivate an officer account' })
+  @ApiOkResponse({ type: MessageResponseDto })
   async deactivateOfficer(@Param('id') id: string) {
     await this.adminService.deactivateOfficer(id);
     return { message: 'Officer deactivated successfully' };
