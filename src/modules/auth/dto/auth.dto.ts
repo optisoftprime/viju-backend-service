@@ -121,3 +121,38 @@ export class StaffPasswordResetConfirmDto {
   @MinLength(8)
   newPassword: string;
 }
+
+export class StaffPasswordResetVerifyOtpDto {
+  @ApiProperty({
+    description: 'Identifier used in the request step (phone or email)',
+    example: 'james.o@viju.example',
+  })
+  @IsString()
+  @IsNotEmpty()
+  identifier: string;
+
+  @ApiProperty({
+    description: '6-digit OTP delivered via SMS or email',
+    example: '109360',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(6)
+  code: string;
+}
+
+export class StaffPasswordResetWithTokenDto {
+  @ApiProperty({
+    description:
+      'Short-lived reset_token returned by /staff/password-reset/verify-otp',
+  })
+  @IsString()
+  @IsNotEmpty()
+  reset_token: string;
+
+  @ApiProperty({ description: 'New password (min 8 chars)' })
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(8)
+  newPassword: string;
+}

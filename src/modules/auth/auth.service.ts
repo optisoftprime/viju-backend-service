@@ -15,6 +15,8 @@ import {
   StaffWebLoginDto,
   StaffPasswordResetRequestDto,
   StaffPasswordResetConfirmDto,
+  StaffPasswordResetVerifyOtpDto,
+  StaffPasswordResetWithTokenDto,
 } from './dto/auth.dto';
 import * as bcrypt from 'bcryptjs';
 import { SmsService } from '../../infrastructure/sms/sms.service';
@@ -311,6 +313,105 @@ export class AuthService {
 
     await this.prisma.otpVerification.deleteMany({
       where: { phone: dto.identifier },
+    });
+
+    return { message: 'Password updated. You can now log in.' };
+  }
+
+  /**
+   * Step 2 of the 3-step reset flow (Screen 2 "Verify"):
+   * Checks the OTP only and issues a short-lived reset_token. The OTP
+   * row stays in the table (not deleted) so the rate-limit / lockout
+   * state remains useful; the token is what the next call relies on.
+   */
+  async verifyStaffPasswordResetOtp(dto: StaffPasswordResetVerifyOtpDto) {
+    const otp = await this.prisma.otpVerification.findFirst({
+      where: { phone: dto.identifier },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!otp) throw new BadRequestException('No reset request found.');
+    if (otp.expiresAt < new Date())
+      throw new BadRequestException('Reset code expired.');
+    if (otp.lockedUntil && otp.lockedUntil > new Date())
+      throw new ForbiddenException('Too many attempts. Try again later.');
+
+    if (otp.code !== dto.code) {
+      await this.prisma.otpVerification.update({
+        where: { id: otp.id },
+        data: {
+          attempts: otp.attempts + 1,
+          lockedUntil:
+            otp.attempts + 1 >= 3
+              ? new Date(Date.now() + 30 * 60 * 1000)
+              : null,
+        },
+      });
+      throw new UnauthorizedException('Invalid code.');
+    }
+
+    const staff = await this.findStaffByIdentifier(dto.identifier);
+    if (!staff) throw new NotFoundException('Account not found.');
+
+    // Reset the attempts counter now that the code is correct so the
+    // user doesn't lose their slot if they take a moment to type a
+    // password.
+    await this.prisma.otpVerification.update({
+      where: { id: otp.id },
+      data: { attempts: 0 },
+    });
+
+    // Short-lived reset token. Marker `type: 'PASSWORD_RESET'` prevents
+    // any other JWT (login, refresh) from being accepted at the reset
+    // endpoint by mistake.
+    const reset_token = this.jwtService.sign(
+      { sub: staff.id, type: 'PASSWORD_RESET', identifier: dto.identifier },
+      { expiresIn: '10m' },
+    );
+
+    return {
+      message: 'OTP verified. Proceed to set a new password.',
+      reset_token,
+      expires_in: 600,
+    };
+  }
+
+  /**
+   * Step 3 of the 3-step reset flow (Screen 3 "Verify"):
+   * Validates the reset_token from step 2 and writes the new password.
+   * Once consumed, all OTP rows for the identifier are wiped so the
+   * reset_token can't be reused.
+   */
+  async resetStaffPasswordWithToken(dto: StaffPasswordResetWithTokenDto) {
+    let payload: { sub: string; type: string; identifier: string };
+    try {
+      payload = this.jwtService.verify(dto.reset_token);
+    } catch {
+      throw new UnauthorizedException(
+        'Reset token is invalid or has expired. Start the flow again.',
+      );
+    }
+
+    if (payload.type !== 'PASSWORD_RESET') {
+      throw new UnauthorizedException(
+        'This token is not valid for password reset.',
+      );
+    }
+
+    const staff = await this.prisma.staff.findUnique({
+      where: { id: payload.sub },
+    });
+    if (!staff) throw new NotFoundException('Account not found.');
+
+    const hashed = await bcrypt.hash(dto.newPassword, 10);
+    await this.prisma.staff.update({
+      where: { id: staff.id },
+      data: { password: hashed, failedLoginAttempts: 0, lockedUntil: null },
+    });
+
+    // Wipe OTP rows so the same code (and the reset_token's window) can't
+    // be replayed.
+    await this.prisma.otpVerification.deleteMany({
+      where: { phone: payload.identifier },
     });
 
     return { message: 'Password updated. You can now log in.' };

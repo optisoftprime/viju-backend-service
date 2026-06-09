@@ -9,6 +9,8 @@ import {
   StaffWebLoginDto,
   StaffPasswordResetRequestDto,
   StaffPasswordResetConfirmDto,
+  StaffPasswordResetVerifyOtpDto,
+  StaffPasswordResetWithTokenDto,
   RefreshTokenDto,
   LogoutDto,
 } from './dto/auth.dto';
@@ -98,10 +100,47 @@ export class AuthController {
     return this.authService.logout(dto.refresh_token);
   }
 
+  @Post('staff/password-reset/verify-otp')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Staff password reset Step 2: verify OTP only, returns short-lived reset_token',
+    description:
+      'Use after /staff/password-reset/request. Validates the 6-digit code ' +
+      'and returns a reset_token (TTL 10 min) that the next step must present. ' +
+      'Does NOT set the password — that is Step 3.',
+  })
+  async verifyStaffPasswordResetOtp(
+    @Body() dto: StaffPasswordResetVerifyOtpDto,
+  ) {
+    return this.authService.verifyStaffPasswordResetOtp(dto);
+  }
+
+  @Post('staff/password-reset/reset')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Staff password reset Step 3: set new password using the reset_token',
+    description:
+      'Present the reset_token returned by /staff/password-reset/verify-otp ' +
+      'plus the new password. Once succeeded, all OTPs for the identifier ' +
+      'are wiped so the token cannot be replayed.',
+  })
+  async resetStaffPasswordWithToken(
+    @Body() dto: StaffPasswordResetWithTokenDto,
+  ) {
+    return this.authService.resetStaffPasswordWithToken(dto);
+  }
+
   @Post('staff/password-reset/confirm')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Staff password reset - submit OTP and set new password',
+    summary:
+      '[Legacy] Staff password reset - combined OTP + new password (kept for backwards compat)',
+    description:
+      'Prefer the split verify-otp + reset endpoints for the 3-screen UX. ' +
+      'This combined endpoint stays available so existing FE clients keep working.',
+    deprecated: true,
   })
   async confirmStaffPasswordReset(@Body() dto: StaffPasswordResetConfirmDto) {
     return this.authService.confirmStaffPasswordReset(dto);
