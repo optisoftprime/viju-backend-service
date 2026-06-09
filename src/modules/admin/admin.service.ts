@@ -96,13 +96,16 @@ export class AdminService {
       );
     }
 
-    const byRegion = REGIONS.map((region) => ({
-      region,
-      distributors: customerCountByRegion.get(region) ?? 0,
-      walletBalance: walletByRegion.get(region) ?? 0,
-      openTickets: ticketsByRegion.get(region) ?? 0,
-      activeOfficers: officerCountByRegion.get(region) ?? 0,
-    }));
+    const byRegion = REGIONS.map((region) => {
+      const distCount = customerCountByRegion.get(region) ?? 0;
+      return {
+        region: { name: region, dist: distCount },
+        distributors: distCount,
+        walletBalance: walletByRegion.get(region) ?? 0,
+        openTickets: ticketsByRegion.get(region) ?? 0,
+        activeOfficers: officerCountByRegion.get(region) ?? 0,
+      };
+    });
 
     return {
       totalCustomers,
