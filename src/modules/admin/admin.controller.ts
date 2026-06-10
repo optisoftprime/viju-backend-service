@@ -61,7 +61,7 @@ export class AdminController {
   @Get('customers')
   @ApiOperation({
     summary:
-      'List customers with optional region filter + name/erpId search (PRD F14 AC5)',
+      'List customers with optional region filter + name/erpId search',
   })
   @ApiOkResponse({
     description: 'Paginated list of customers',
@@ -76,7 +76,7 @@ export class AdminController {
 
   @Get('customers/export.csv')
   @ApiOperation({
-    summary: 'Export filtered customer list as CSV (PRD F14 AC6)',
+    summary: 'Export filtered customer list as CSV',
   })
   @ApiProduces('text/csv')
   @ApiOkResponse({
@@ -113,7 +113,7 @@ export class AdminController {
   @ApiOperation({
     summary: 'Create a test customer (mocks ERP customer sync)',
     description:
-      'Stand-in for the ERP customer sync (PRD F8) until that integration lands. ' +
+      'Stand-in for the ERP customer sync until that integration lands. ' +
       'Lets FE/QA seed any phone number for OTP flow testing without waiting on ERP. ' +
       'Replace or remove once /erp/sync/customers is wired up.',
   })
@@ -136,7 +136,7 @@ export class AdminController {
     return this.adminService.createOfficer(dto);
   }
 
-  // ─── Product Flyer (PRD F19) ──────────────────────────
+  // ─── Product Flyer ──────────────────────────
   @Get('product-flyers')
   @ApiOperation({ summary: 'List product flyer cards in current order' })
   @ApiOkResponse({ type: [ProductFlyerDto] })
@@ -160,7 +160,7 @@ export class AdminController {
   @Patch('product-flyers/reorder')
   @ApiOperation({
     summary:
-      'Reorder flyer cards — order in payload = order shown on mobile (PRD F19 AC4)',
+      'Reorder flyer cards — order in payload = order shown on mobile',
   })
   @ApiOkResponse({ type: [ProductFlyerDto] })
   async reorderFlyers(@Body() dto: ReorderProductFlyersDto) {

@@ -28,7 +28,7 @@ export class AuditController {
 
   @Get('chats')
   @ApiOperation({
-    summary: 'Search all customer/officer chat interactions (PRD F17)',
+    summary: 'Search all customer/officer chat interactions',
     description:
       'READ-ONLY. Admin cannot reply via this endpoint. Filter by customer ' +
       'name, officer name, region, date range, keyword. Returns up to 500 ' +
@@ -47,7 +47,7 @@ export class AuditController {
 
   @Get('tickets')
   @ApiOperation({
-    summary: 'Search all support tickets with full thread (PRD F17)',
+    summary: 'Search all support tickets with full thread',
   })
   @ApiOkResponse({
     description:
@@ -63,7 +63,7 @@ export class AuditController {
 
   @Get('tickets/export.csv')
   @ApiOperation({
-    summary: 'Export ticket search results as CSV (PRD F17 AC4)',
+    summary: 'Export ticket search results as CSV',
   })
   @ApiProduces('text/csv')
   @ApiOkResponse({

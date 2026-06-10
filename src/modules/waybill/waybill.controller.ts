@@ -38,7 +38,7 @@ export class WaybillController {
 
   @Get()
   @ApiOperation({
-    summary: 'List the distributor’s loading requests / waybills (PRD F5 AC1)',
+    summary: 'List the distributor’s loading requests / waybills',
   })
   @ApiOkResponse({ type: PaginatedWaybillsResponseDto })
   async list(
@@ -51,7 +51,7 @@ export class WaybillController {
   @Post('accept-terms')
   @ApiOperation({
     summary:
-      'Record T&C acceptance, return external loading form URL (PRD F5 AC4-AC6)',
+      'Record T&C acceptance, return external loading form URL',
     description:
       'Must be called before /customers/me/waybills POST or before the FE ' +
       'opens the external Google Form. The acceptance is valid for 1 hour.',
@@ -63,9 +63,9 @@ export class WaybillController {
 
   @Post()
   @ApiOperation({
-    summary: 'Submit a loading request (PRD F5 AC8)',
+    summary: 'Submit a loading request',
     description:
-      'Direct in-app submission. PRD §7 keeps the in-app form out of scope; ' +
+      'Direct in-app submission. The in-app form is out of scope; ' +
       'this endpoint is the dev surface and the future webhook target from ' +
       'the external form. Requires a T&C acceptance within the last hour. ' +
       'Returns the created request in PENDING_ASSIGNMENT status; regional ' +
@@ -78,7 +78,7 @@ export class WaybillController {
 
   @Get(':id')
   @ApiOperation({
-    summary: 'Waybill detail (PRD F5 AC2)',
+    summary: 'Waybill detail',
   })
   @ApiOkResponse({ type: WaybillDetailDto })
   async detail(@CurrentUser() user: any, @Param('id') id: string) {

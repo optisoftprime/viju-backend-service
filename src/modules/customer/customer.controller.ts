@@ -54,7 +54,7 @@ export class CustomerController {
 
   @Get('me/home')
   @ApiOperation({
-    summary: 'Mobile home screen aggregate (PRD F2)',
+    summary: 'Mobile home screen aggregate',
     description:
       'Returns the four blocks the home screen needs in one call: ' +
       'Account Balance card, Stock Balance card, scrollable product flyers, ' +
@@ -68,7 +68,7 @@ export class CustomerController {
 
   @Get('me/stock-balance')
   @ApiOperation({
-    summary: 'Stock Balance per-product breakdown (PRD F2 AC4)',
+    summary: 'Stock Balance per-product breakdown',
     description:
       'Returns paid / loaded / remaining quantities per product, shown when ' +
       'the distributor taps the Stock Balance card. Loaded qty is apportioned ' +
@@ -121,7 +121,7 @@ export class CustomerController {
 
   @Get('me/purchases/:id')
   @ApiOperation({
-    summary: 'Order detail with line items + linked invoice (PRD F3 AC2)',
+    summary: 'Order detail with line items + linked invoice',
     description:
       'Tapping any order on the Payment tab opens this detail view: ' +
       'individual product lines, status, and the derived invoice number. ' +
@@ -148,7 +148,7 @@ export class CustomerController {
 
   @Get('me/invoices')
   @ApiOperation({
-    summary: 'Invoice tab aggregate (PRD F4)',
+    summary: 'Invoice tab aggregate',
     description:
       'Returns wallet balance, full invoice list with derived statuses ' +
       '(Paid / Part Paid / Unpaid), and payment history with running ' +
@@ -161,7 +161,7 @@ export class CustomerController {
 
   @Get('me/account-statement.pdf')
   @ApiOperation({
-    summary: 'Generate Account Statement PDF (PRD F8 AC6)',
+    summary: 'Generate Account Statement PDF',
     description:
       'Returns a binary PDF (Content-Type: application/pdf) containing ' +
       'invoices, payments, and running wallet balance for the date range. ' +
@@ -191,7 +191,7 @@ export class CustomerController {
 
   @Get('me/stock-statement.pdf')
   @ApiOperation({
-    summary: 'Generate Stock Statement PDF (PRD F8 AC7)',
+    summary: 'Generate Stock Statement PDF',
   })
   @ApiProduces('application/pdf')
   @ApiOkResponse({
@@ -217,7 +217,7 @@ export class CustomerController {
 
   @Get('me/invoices/:id')
   @ApiOperation({
-    summary: 'Invoice detail with line items (PRD F4 AC4)',
+    summary: 'Invoice detail with line items',
     description:
       'Tapping any invoice opens this detail view: line items, quantities, ' +
       'unit prices, line totals, tax, grand total.',

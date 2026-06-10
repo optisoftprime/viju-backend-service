@@ -34,16 +34,16 @@ import {
 export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 
-  // ─── Customer-facing endpoints (PRD F6) ────────────────
+  // ─── Customer-facing endpoints ────────────────
   @Get('me')
   @Roles('CUSTOMER')
   @ApiOperation({
-    summary: 'Customer chat thread with the Viju Account Officer (PRD F6)',
+    summary: 'Customer chat thread with the Viju Account Officer',
     description:
       'Returns all messages on this account in chronological order. Each ' +
       'message carries senderLabel: "Viju Account Officer" (either of the ' +
       'two assigned officers) or "You" — individual officer names are not ' +
-      'exposed to the customer per PRD F6 AC1.',
+      'exposed to the customer.',
   })
   @ApiOkResponse({
     type: [CustomerThreadMessageDto],

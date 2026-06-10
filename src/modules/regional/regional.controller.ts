@@ -48,7 +48,7 @@ export class RegionalController {
   @Get('dashboard')
   @Roles('REGIONAL_ADMIN', 'ADMIN')
   @ApiOperation({
-    summary: 'Regional Admin dashboard (PRD F12)',
+    summary: 'Regional Admin dashboard',
     description:
       'Summary cards + pending loading-request queue, scoped to the ' +
       'regional admin’s assigned region. ADMIN can pass ?region= to ' +
@@ -95,7 +95,7 @@ export class RegionalController {
   @Roles('REGIONAL_ADMIN', 'ADMIN')
   @ApiOperation({
     summary:
-      'Assign a loading request to a loading / warehouse officer (PRD F12 AC5)',
+      'Assign a loading request to a loading / warehouse officer',
   })
   @ApiOkResponse({
     description: 'The updated loading request (now ASSIGNED).',
@@ -113,7 +113,7 @@ export class RegionalController {
   @Get('my-loading-queue')
   @Roles('LOADING_OFFICER', 'WAREHOUSE_OFFICER', 'ADMIN')
   @ApiOperation({
-    summary: 'Loading / Warehouse Officer queue (PRD F13)',
+    summary: 'Loading / Warehouse Officer queue',
     description:
       'Returns only requests assigned to the current officer in ASSIGNED ' +
       'or LOADING_IN_PROGRESS state.',
@@ -133,7 +133,7 @@ export class RegionalController {
   @Roles('LOADING_OFFICER', 'WAREHOUSE_OFFICER', 'ADMIN')
   @ApiOperation({
     summary:
-      'Loading Officer advances status + uploads waybill (PRD F13 AC2-AC3)',
+      'Loading Officer advances status + uploads waybill',
   })
   @ApiOkResponse({
     description: 'The updated loading request with its new status.',

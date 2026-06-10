@@ -36,7 +36,7 @@ export class NotificationsController {
 
   @Get('me')
   @ApiOperation({
-    summary: 'List my notifications (PRD §6, both mobile + web bell)',
+    summary: 'List my notifications (both mobile + web bell)',
     description:
       'Works for any authenticated user (customer or staff). Returns the ' +
       '100 most recent notifications and an unread count for the badge.',

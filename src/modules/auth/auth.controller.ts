@@ -66,7 +66,7 @@ export class AuthController {
   @Post('staff/web-login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Staff web-portal login via ERP username + code (PRD F11/F14)',
+    summary: 'Staff web-portal login via ERP username + code',
     description:
       'Officers, regional admins and administrators sign in to the web portal using credentials issued by the ERP. The platform validates against ERP, upserts a local Staff row, and returns a JWT.',
   })
@@ -78,7 +78,7 @@ export class AuthController {
   @Post('staff/password-reset/request')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Staff password reset - request OTP (PRD F18 #7)',
+    summary: 'Staff password reset - request OTP',
     description:
       'Send a 6-digit OTP to the officer/admin via SMS (phone) or email. Always returns success message regardless of whether the account exists, to avoid leaking valid identifiers.',
   })

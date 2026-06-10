@@ -34,7 +34,7 @@ export class OfficerController {
 
   @Get('dashboard')
   @ApiOperation({
-    summary: 'Officer dashboard summary cards (PRD F9)',
+    summary: 'Officer dashboard summary cards',
     description:
       'Returns the four top-of-page cards: total distributors, overdue ' +
       'balances, open tickets, unread messages — all scoped to the ' +
@@ -50,8 +50,8 @@ export class OfficerController {
     summary: 'Get list of customers assigned to the officer',
     description:
       'OFFICER role: returns customers where they are primary OR secondary ' +
-      'officer (PRD F6). ADMIN role: returns all customers across all regions ' +
-      '(PRD F14 cross-region visibility).',
+      'officer. ADMIN role: returns all customers across all regions ' +
+      '(cross-region visibility).',
   })
   @ApiOkResponse({ type: PaginatedAssignedCustomersResponseDto })
   async getCustomers(
@@ -75,7 +75,7 @@ export class OfficerController {
   }
 
   @Get('customers/:id/overview')
-  @ApiOperation({ summary: 'Distributor Overview tab (PRD F10)' })
+  @ApiOperation({ summary: 'Distributor Overview tab' })
   @ApiOkResponse({ type: CustomerOverviewDto })
   async getCustomerOverview(
     @CurrentUser() user: any,
@@ -85,7 +85,7 @@ export class OfficerController {
   }
 
   @Get('customers/:id/orders')
-  @ApiOperation({ summary: 'Distributor Orders tab (PRD F10)' })
+  @ApiOperation({ summary: 'Distributor Orders tab' })
   @ApiOkResponse({ type: PaginatedCustomerOrdersResponseDto })
   async getCustomerOrders(
     @CurrentUser() user: any,
@@ -100,7 +100,7 @@ export class OfficerController {
   }
 
   @Get('customers/:id/invoices')
-  @ApiOperation({ summary: 'Distributor Invoices tab (PRD F10)' })
+  @ApiOperation({ summary: 'Distributor Invoices tab' })
   @ApiOkResponse({ type: CustomerInvoicesDto })
   async getCustomerInvoices(
     @CurrentUser() user: any,
@@ -110,7 +110,7 @@ export class OfficerController {
   }
 
   @Get('customers/:id/stock')
-  @ApiOperation({ summary: 'Distributor Stock tab (PRD F10)' })
+  @ApiOperation({ summary: 'Distributor Stock tab' })
   @ApiOkResponse({ type: CustomerStockDto })
   async getCustomerStock(
     @CurrentUser() user: any,
@@ -120,7 +120,7 @@ export class OfficerController {
   }
 
   @Get('customers/:id/waybills')
-  @ApiOperation({ summary: 'Distributor Waybills tab (PRD F10)' })
+  @ApiOperation({ summary: 'Distributor Waybills tab' })
   @ApiOkResponse({ type: PaginatedCustomerWaybillsResponseDto })
   async getCustomerWaybills(
     @CurrentUser() user: any,

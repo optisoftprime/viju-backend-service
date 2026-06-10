@@ -41,7 +41,7 @@ export class BroadcastController {
 
   @Post('regional')
   @ApiOperation({
-    summary: 'Send a regional broadcast (PRD F15 AC2)',
+    summary: 'Send a regional broadcast',
   })
   @ApiCreatedResponse({
     description: 'The created regional broadcast record.',
@@ -57,7 +57,7 @@ export class BroadcastController {
   @Post('individual')
   @ApiOperation({
     summary:
-      'Send an individual broadcast — with optional delivery allowance (PRD F15 AC3-AC5)',
+      'Send an individual broadcast — with optional delivery allowance',
     description:
       'If deliveryAllowance > 0, the amount is credited to the wallet ' +
       'IMMEDIATELY (not next ERP sync). A Payment row with reference ' +
@@ -75,7 +75,7 @@ export class BroadcastController {
   }
 
   @Get('history')
-  @ApiOperation({ summary: 'Broadcast history with filters (PRD F15 AC7)' })
+  @ApiOperation({ summary: 'Broadcast history with filters' })
   @ApiOkResponse({
     description: 'Paginated broadcast history (newest first).',
     type: PaginatedBroadcastHistoryResponseDto,
