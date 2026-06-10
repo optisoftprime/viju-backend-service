@@ -19,7 +19,6 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 import {
   SendRegionalBroadcastDto,
   SendIndividualBroadcastDto,
@@ -80,11 +79,8 @@ export class BroadcastController {
     description: 'Paginated broadcast history (newest first).',
     type: PaginatedBroadcastHistoryResponseDto,
   })
-  async history(
-    @Query() filter: BroadcastHistoryFilterDto,
-    @Query() pagination: PaginationQueryDto,
-  ) {
-    return this.broadcastService.listHistory(filter, pagination);
+  async history(@Query() query: BroadcastHistoryFilterDto) {
+    return this.broadcastService.listHistory(query, query);
   }
 
   @Get(':id')

@@ -67,11 +67,8 @@ export class AdminController {
     description: 'Paginated list of customers',
     type: PaginatedCustomersResponseDto,
   })
-  async getAllCustomers(
-    @Query() filter: CustomerFilterDto,
-    @Query() pagination: PaginationQueryDto,
-  ) {
-    return this.adminService.getAllCustomers(filter, pagination);
+  async getAllCustomers(@Query() query: CustomerFilterDto) {
+    return this.adminService.getAllCustomers(query, query);
   }
 
   @Get('customers/export.csv')

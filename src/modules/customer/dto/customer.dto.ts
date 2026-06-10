@@ -6,6 +6,7 @@ import {
   IsDateString,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { PaginationQueryDto } from '../../../common/pagination/pagination.dto';
 
 export class UpdateProfilePhotoDto {
   @ApiProperty({ description: 'URL or base64 of the uploaded photo' })
@@ -34,7 +35,7 @@ export class StatementRangeDto {
   endDate?: string;
 }
 
-export class PurchaseFilterDto {
+export class PurchaseFilterDto extends PaginationQueryDto {
   @ApiPropertyOptional({
     description: 'Search term for product name or order ID',
   })

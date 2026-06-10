@@ -12,6 +12,7 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Region, BroadcastType } from '@prisma/client';
+import { PaginationQueryDto } from '../../../common/pagination/pagination.dto';
 
 export class SendRegionalBroadcastDto {
   @ApiProperty({
@@ -60,7 +61,7 @@ export class SendIndividualBroadcastDto {
   deliveryAllowance?: number;
 }
 
-export class BroadcastHistoryFilterDto {
+export class BroadcastHistoryFilterDto extends PaginationQueryDto {
   @ApiPropertyOptional({ enum: BroadcastType })
   @IsOptional()
   @IsEnum(BroadcastType)

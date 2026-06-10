@@ -113,10 +113,9 @@ export class CustomerController {
   @ApiOkResponse({ type: PaginatedPurchasesResponseDto })
   async getPurchases(
     @CurrentUser() user: any,
-    @Query() filter: PurchaseFilterDto,
-    @Query() pagination: PaginationQueryDto,
+    @Query() query: PurchaseFilterDto,
   ) {
-    return this.customerService.getPurchases(user.id, filter, pagination);
+    return this.customerService.getPurchases(user.id, query, query);
   }
 
   @Get('me/purchases/:id')

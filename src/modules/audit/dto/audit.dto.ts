@@ -1,8 +1,9 @@
 import { IsOptional, IsString, IsEnum, IsDateString } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Region } from '@prisma/client';
+import { PaginationQueryDto } from '../../../common/pagination/pagination.dto';
 
-export class InteractionAuditFilterDto {
+export class InteractionAuditFilterDto extends PaginationQueryDto {
   @ApiPropertyOptional({ description: 'Distributor name (partial match)' })
   @IsOptional()
   @IsString()

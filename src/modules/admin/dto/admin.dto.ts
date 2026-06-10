@@ -8,13 +8,15 @@ import {
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Region } from '@prisma/client';
+import { PaginationQueryDto } from '../../../common/pagination/pagination.dto';
 
 /**
- * Optional filters for GET /admin/customers (PRD F14 AC5). Both fields are
- * optional — Swagger marks them so automatically from @ApiPropertyOptional,
- * and class-validator rejects an unknown region value.
+ * Query params for GET /admin/customers: optional region/search filter plus
+ * pagination. Extends PaginationQueryDto so a single @Query() DTO covers every
+ * query param — required under the global `forbidNonWhitelisted` pipe, which
+ * rejects any property not declared on the bound DTO.
  */
-export class CustomerFilterDto {
+export class CustomerFilterDto extends PaginationQueryDto {
   @ApiPropertyOptional({ enum: Region, description: 'Optional region filter' })
   @IsOptional()
   @IsEnum(Region)

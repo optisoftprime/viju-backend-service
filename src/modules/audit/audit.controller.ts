@@ -16,7 +16,6 @@ import {
   PaginatedAuditChatResponseDto,
   PaginatedAuditTicketResponseDto,
 } from './dto/audit-response.dto';
-import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 
 @ApiTags('Admin Portal')
 @ApiBearerAuth()
@@ -38,11 +37,8 @@ export class AuditController {
     description: 'Paginated list of matching chat messages.',
     type: PaginatedAuditChatResponseDto,
   })
-  async searchChats(
-    @Query() filter: InteractionAuditFilterDto,
-    @Query() pagination: PaginationQueryDto,
-  ) {
-    return this.auditService.searchChats(filter, pagination);
+  async searchChats(@Query() query: InteractionAuditFilterDto) {
+    return this.auditService.searchChats(query, query);
   }
 
   @Get('tickets')
@@ -54,11 +50,8 @@ export class AuditController {
       'Paginated list of matching support tickets, each with its full reply thread.',
     type: PaginatedAuditTicketResponseDto,
   })
-  async searchTickets(
-    @Query() filter: InteractionAuditFilterDto,
-    @Query() pagination: PaginationQueryDto,
-  ) {
-    return this.auditService.searchTickets(filter, pagination);
+  async searchTickets(@Query() query: InteractionAuditFilterDto) {
+    return this.auditService.searchTickets(query, query);
   }
 
   @Get('tickets/export.csv')
