@@ -6,8 +6,25 @@ import {
   IsEnum,
   IsOptional,
 } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Region } from '@prisma/client';
+
+/**
+ * Optional filters for GET /admin/customers (PRD F14 AC5). Both fields are
+ * optional — Swagger marks them so automatically from @ApiPropertyOptional,
+ * and class-validator rejects an unknown region value.
+ */
+export class CustomerFilterDto {
+  @ApiPropertyOptional({ enum: Region, description: 'Optional region filter' })
+  @IsOptional()
+  @IsEnum(Region)
+  region?: Region;
+
+  @ApiPropertyOptional({ description: 'Optional name / erpId search term' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+}
 
 export class ReassignOfficerDto {
   @ApiProperty({ description: 'The user ID of the new Account Officer' })

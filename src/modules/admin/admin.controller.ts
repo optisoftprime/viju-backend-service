@@ -15,7 +15,6 @@ import {
   ApiTags,
   ApiOperation,
   ApiBearerAuth,
-  ApiQuery,
   ApiOkResponse,
   ApiProduces,
 } from '@nestjs/swagger';
@@ -30,6 +29,7 @@ import {
   CreateProductFlyerDto,
   UpdateProductFlyerDto,
   ReorderProductFlyersDto,
+  CustomerFilterDto,
 } from './dto/admin.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
@@ -63,29 +63,15 @@ export class AdminController {
     summary:
       'List customers with optional region filter + name/erpId search (PRD F14 AC5)',
   })
-  @ApiQuery({
-    name: 'region',
-    required: false,
-    enum: ['LAGOS', 'SOUTH_WEST', 'SOUTH_EAST', 'NORTH'],
-    description: 'Optional region filter',
-  })
-  @ApiQuery({
-    name: 'search',
-    required: false,
-    type: String,
-    description: 'Optional name / erpId search term',
-  })
   @ApiOkResponse({
     description: 'Paginated list of customers',
     type: PaginatedCustomersResponseDto,
   })
   async getAllCustomers(
+    @Query() filter: CustomerFilterDto,
     @Query() pagination: PaginationQueryDto,
-    @Query('region')
-    region?: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH',
-    @Query('search') search?: string,
   ) {
-    return this.adminService.getAllCustomers({ region, search }, pagination);
+    return this.adminService.getAllCustomers(filter, pagination);
   }
 
   @Get('customers/export.csv')
