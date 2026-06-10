@@ -105,6 +105,8 @@ async function bootstrap() {
     },
   });
 
+  console.log('checks')
+
   const port = process.env.PORT || 3000;
   await app.listen(port);
 
