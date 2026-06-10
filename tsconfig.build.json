@@ -1,4 +1,12 @@
 {
   "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Decorator support is required by NestJS + class-validator. Pin it here
+    // (not only in the base config) so `nest build` is self-contained and a
+    // stale/incomplete base tsconfig can never drop these — without them TS 5
+    // uses native decorators and class-validator decorators fail with TS1240.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
+  },
   "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
 }
