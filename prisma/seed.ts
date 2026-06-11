@@ -33,10 +33,14 @@ async function main() {
   await prisma.supportTicket.deleteMany({});
   await prisma.message.deleteMany({});
   await prisma.loadingRequest.deleteMany({});
+  await prisma.termsAcceptance.deleteMany({});
   await prisma.purchaseItem.deleteMany({});
+  // Broadcast references Payment (allowancePaymentId) + Staff, so it must be
+  // cleared before Payment/Staff to avoid FK violations on re-run.
+  await prisma.broadcast.deleteMany({});
   await prisma.purchase.deleteMany({});
   await prisma.payment.deleteMany({});
-  await prisma.broadcast.deleteMany({});
+  await prisma.productFlyer.deleteMany({});
   await prisma.customerOfficer.deleteMany({});
   await prisma.customer.updateMany({ data: { assignedOfficerId: null } });
   await prisma.staff.deleteMany({});
@@ -226,7 +230,9 @@ async function main() {
   }
 
   // ─── 10 Purchases for customer1 (with PurchaseItems) ───
-  const orderStatuses = ['DELIVERED', 'DELIVERED', 'DELIVERED', 'PROCESSING', 'DELIVERED', 'DELIVERED', 'PROCESSING', 'DELIVERED', 'PENDING', 'DELIVERED'] as const;
+  // Cover every OrderStatus so derived invoice statuses also vary:
+  // DELIVERED -> PAID, PROCESSING/SHIPPED -> PART_PAID, PENDING/CANCELLED -> UNPAID.
+  const orderStatuses = ['DELIVERED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'DELIVERED', 'SHIPPED', 'PROCESSING', 'PENDING', 'DELIVERED'] as const;
   const purchases: Purchase[] = [];
   for (let i = 0; i < 10; i++) {
     const product1 = stockProducts[i % stockProducts.length];
@@ -338,13 +344,14 @@ async function main() {
   }
 
   // ─── 10 Loading requests ───────────────────────────────
+  // Cover every LoadingRequestStatus, including CANCELLED.
   const loadingStatuses: LoadingRequestStatus[] = [
     'COMPLETED',
     'COMPLETED',
     'LOADING_IN_PROGRESS',
     'PENDING_ASSIGNMENT',
     'COMPLETED',
-    'LOADING_IN_PROGRESS',
+    'CANCELLED',
     'LOADING_IN_PROGRESS',
     'COMPLETED',
     'PENDING_ASSIGNMENT',
@@ -404,6 +411,87 @@ async function main() {
       },
     });
   }
+
+  // ─── Product flyers (PRD F19) — home carousel + admin manager ──
+  // Active flyers render on the mobile home screen in sortOrder; the
+  // inactive one exercises the deactivate/reorder admin paths.
+  const flyerSeeds = [
+    { name: 'Viju Chivita 1L — June Promo',     imageUrl: 'https://cdn.viju.example/flyers/chivita-1l.jpg', sortOrder: 0, isActive: true },
+    { name: 'Viju Milk 1L — Bulk Discount',     imageUrl: 'https://cdn.viju.example/flyers/milk-1l.jpg',    sortOrder: 1, isActive: true },
+    { name: 'Viju Yoghurt 200ml — New Stock',   imageUrl: 'https://cdn.viju.example/flyers/yoghurt.jpg',    sortOrder: 2, isActive: true },
+    { name: 'Premium Groundnut Oil 5L',         imageUrl: 'https://cdn.viju.example/flyers/oil-5l.jpg',     sortOrder: 3, isActive: true },
+    { name: 'Easter Campaign (archived)',       imageUrl: 'https://cdn.viju.example/flyers/easter.jpg',     sortOrder: 4, isActive: false },
+  ];
+  for (const f of flyerSeeds) {
+    await prisma.productFlyer.create({ data: { ...f, createdById: adminUser.id } });
+  }
+
+  // ─── Broadcasts (PRD F15) — regional + individual w/ allowance ──
+  const regionalAdminLagos = staffList.find(
+    (s) => s.role === 'REGIONAL_ADMIN' && s.region === 'LAGOS',
+  )!;
+  await prisma.broadcast.create({
+    data: {
+      reference: 'BRD-2026-001',
+      type: 'REGIONAL',
+      message:
+        'Reminder: Loading bay closes 5pm on public holidays. Plan your pickups.',
+      targetRegions: ['LAGOS', 'SOUTH_WEST'],
+      sentById: adminUser.id,
+      deliveredCount: 42,
+    },
+  });
+  // An individual broadcast can carry a delivery allowance, modelled as a
+  // Payment the broadcast links to (Broadcast.allowancePaymentId).
+  const allowancePayment = await prisma.payment.create({
+    data: {
+      erpId: 'PAY-ALW-001',
+      customerId: customer1.id,
+      date: new Date(2026, 4, 2),
+      amount: 50000,
+      reference: 'Delivery Allowance',
+      runningBalance: customer1.outstandingBalance,
+    },
+  });
+  await prisma.broadcast.create({
+    data: {
+      reference: 'BRD-2026-002',
+      type: 'INDIVIDUAL',
+      message: 'Your ₦50,000 delivery allowance has been approved this month.',
+      targetRegions: [],
+      targetCustomerId: customer1.id,
+      deliveryAllowance: 50000,
+      allowancePaymentId: allowancePayment.id,
+      sentById: regionalAdminLagos.id,
+      deliveredCount: 1,
+    },
+  });
+
+  // ─── Staff notifications (web portal bell) ─────────────
+  const staffNotifications = [
+    { staffId: lagosOfficer.id,        content: 'New support ticket raised by a customer in your region.', isRead: true },
+    { staffId: lagosOfficer.id,        content: 'Customer John Doe sent you a new message.',               isRead: false },
+    { staffId: regionalAdminLagos.id,  content: 'A loading request is awaiting assignment in LAGOS.',       isRead: false },
+  ];
+  for (const n of staffNotifications) {
+    await prisma.notification.create({
+      data: { staffId: n.staffId, content: n.content, isRead: n.isRead, type: 'STAFF_ALERT' },
+    });
+  }
+
+  // ─── Push tokens — cover every DevicePlatform ──────────
+  await prisma.pushToken.createMany({
+    data: [
+      { token: 'seed-ios-customer1',     platform: 'IOS',     customerId: customer1.id, lastUsedAt: new Date() },
+      { token: 'seed-android-customer1', platform: 'ANDROID', customerId: customer1.id, lastUsedAt: new Date() },
+      { token: 'seed-web-officer',       platform: 'WEB',     staffId: lagosOfficer.id, lastUsedAt: new Date() },
+    ],
+  });
+
+  // ─── Recent T&C acceptance — lets customer1 submit a loading request ──
+  await prisma.termsAcceptance.create({
+    data: { customerId: customer1.id, termsVersion: 'v1.0', acceptedAt: new Date() },
+  });
 
   // ─── Light data for the OTHER 9 customers ──────────────
   // Each gets one purchase + one ticket + one chat message so the
@@ -474,9 +562,6 @@ async function main() {
       },
     });
   }
-
-  // Suppress 'unused' warning for adminUser (kept for future audit-log seeds)
-  void adminUser;
 
   console.log('✅ Seed complete.\n');
   console.log('📋 CUSTOMER LOGINS (password: ' + CUSTOMER_PASSWORD + ')');
