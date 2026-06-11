@@ -15,6 +15,11 @@ COPY tsconfig.json tsconfig.build.json nest-cli.json ./
 COPY src ./src/
 RUN npm run build
 
+# Compile the Prisma seed to plain JS (dist/seed.js) while dev deps + the TS
+# compiler are still present, so the pruned prod image can seed with `node`
+# (no ts-node needed). Gated at runtime by RUN_SEED in docker-entrypoint.sh.
+RUN npx tsc -p prisma/tsconfig.seed.json
+
 # Prune dev dependencies after build
 RUN npm prune --omit=dev
 

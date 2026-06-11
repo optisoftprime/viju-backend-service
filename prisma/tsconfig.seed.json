@@ -1,0 +1,14 @@
+{
+  "comment": "Compiles prisma/seed.ts to dist/seed.js so the seed can run in the pruned production image (which has no ts-node). Used by the Dockerfile build stage.",
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "ES2021",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "rootDir": ".",
+    "outDir": "../dist",
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": ["seed.ts"]
+}

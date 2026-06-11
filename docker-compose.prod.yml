@@ -5,4 +5,7 @@ services:
       - '${PORT:-3000}:${PORT:-3000}'
     env_file:
       - .env
+    environment:
+      # Never auto-seed production — the seed wipes transactional data.
+      RUN_SEED: 'false'
     restart: unless-stopped
