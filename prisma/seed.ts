@@ -214,6 +214,16 @@ async function main() {
     { name: 'Viju Wheat Drink 400ml',     qty: 700  },
     { name: 'Premium Groundnut Oil 5L',   qty: 450  },
     { name: 'Tomato Paste 400g x 12',     qty: 600  },
+    { name: 'Viju Apple Drink 1L',        qty: 1400 },
+    { name: 'Viju Orange Drink 1L',       qty: 1300 },
+    { name: 'Viju Cocktail Drink 400ml',  qty: 1600 },
+    { name: 'Viju Soya Milk 330ml',       qty: 800  },
+    { name: 'Viju Yoghurt 500ml',         qty: 520  },
+    { name: 'Viju Chivita Active 1L',     qty: 1750 },
+    { name: 'Viju Water 75cl (12 pack)',  qty: 4000 },
+    { name: 'Viju Malt 330ml',            qty: 2100 },
+    { name: 'Premium Groundnut Oil 25L',  qty: 180  },
+    { name: 'Tomato Paste 70g x 50',      qty: 950  },
   ];
 
   for (let i = 0; i < stockProducts.length; i++) {
@@ -229,12 +239,17 @@ async function main() {
     });
   }
 
-  // ─── 10 Purchases for customer1 (with PurchaseItems) ───
+  // ─── Purchases for customer1 (with PurchaseItems) ──────
   // Cover every OrderStatus so derived invoice statuses also vary:
   // DELIVERED -> PAID, PROCESSING/SHIPPED -> PART_PAID, PENDING/CANCELLED -> UNPAID.
-  const orderStatuses = ['DELIVERED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'DELIVERED', 'SHIPPED', 'PROCESSING', 'PENDING', 'DELIVERED'] as const;
+  const orderStatuses = [
+    'DELIVERED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED',
+    'DELIVERED', 'SHIPPED', 'PROCESSING', 'PENDING', 'DELIVERED',
+    'DELIVERED', 'SHIPPED', 'PENDING', 'DELIVERED', 'PROCESSING',
+    'CANCELLED', 'DELIVERED', 'SHIPPED', 'DELIVERED', 'PROCESSING',
+  ] as const;
   const purchases: Purchase[] = [];
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < orderStatuses.length; i++) {
     const product1 = stockProducts[i % stockProducts.length];
     const product2 = stockProducts[(i + 3) % stockProducts.length];
     const qty1 = 20 + i * 5;
@@ -343,7 +358,7 @@ async function main() {
     });
   }
 
-  // ─── 10 Loading requests ───────────────────────────────
+  // ─── Loading requests / waybills ───────────────────────
   // Cover every LoadingRequestStatus, including CANCELLED.
   const loadingStatuses: LoadingRequestStatus[] = [
     'COMPLETED',
@@ -356,9 +371,15 @@ async function main() {
     'COMPLETED',
     'PENDING_ASSIGNMENT',
     'ASSIGNED',
+    'COMPLETED',
+    'LOADING_IN_PROGRESS',
+    'ASSIGNED',
+    'CANCELLED',
+    'COMPLETED',
+    'PENDING_ASSIGNMENT',
   ];
 
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < loadingStatuses.length; i++) {
     const status = loadingStatuses[i];
     const isAssigned = status !== 'PENDING_ASSIGNMENT';
     const isCompleted = status === 'COMPLETED';
@@ -420,7 +441,12 @@ async function main() {
     { name: 'Viju Milk 1L — Bulk Discount',     imageUrl: 'https://cdn.viju.example/flyers/milk-1l.jpg',    sortOrder: 1, isActive: true },
     { name: 'Viju Yoghurt 200ml — New Stock',   imageUrl: 'https://cdn.viju.example/flyers/yoghurt.jpg',    sortOrder: 2, isActive: true },
     { name: 'Premium Groundnut Oil 5L',         imageUrl: 'https://cdn.viju.example/flyers/oil-5l.jpg',     sortOrder: 3, isActive: true },
-    { name: 'Easter Campaign (archived)',       imageUrl: 'https://cdn.viju.example/flyers/easter.jpg',     sortOrder: 4, isActive: false },
+    { name: 'Viju Cocktail 400ml — Combo Deal', imageUrl: 'https://cdn.viju.example/flyers/cocktail.jpg',   sortOrder: 4, isActive: true },
+    { name: 'Viju Water 75cl — Wholesale',      imageUrl: 'https://cdn.viju.example/flyers/water.jpg',      sortOrder: 5, isActive: true },
+    { name: 'Viju Malt 330ml — Launch Offer',   imageUrl: 'https://cdn.viju.example/flyers/malt.jpg',       sortOrder: 6, isActive: true },
+    { name: 'Tomato Paste — Trade Pack',        imageUrl: 'https://cdn.viju.example/flyers/tomato.jpg',     sortOrder: 7, isActive: true },
+    { name: 'Easter Campaign (archived)',       imageUrl: 'https://cdn.viju.example/flyers/easter.jpg',     sortOrder: 8, isActive: false },
+    { name: 'Christmas Campaign (archived)',    imageUrl: 'https://cdn.viju.example/flyers/xmas.jpg',       sortOrder: 9, isActive: false },
   ];
   for (const f of flyerSeeds) {
     await prisma.productFlyer.create({ data: { ...f, createdById: adminUser.id } });
@@ -568,7 +594,7 @@ async function main() {
   for (const c of customerSeeds) {
     const tag =
       c.phone === MAIN_TEST_PHONE
-        ? '← MAIN test: 10x of every entity'
+        ? '← MAIN test: rich data across all statuses'
         : c.accountStatus === 'ON_HOLD'
           ? '(on hold)'
           : '';
