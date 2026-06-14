@@ -69,8 +69,8 @@ const FOLDER_RULES: Record<UploadFolder, { mime: string[]; maxBytes: number }> =
   };
 
 @ApiTags('File Uploads')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
+// @ApiBearerAuth()
+// @UseGuards(JwtAuthGuard)
 @Controller('uploads')
 export class UploadsController {
   constructor(private readonly storage: StorageService) {}
