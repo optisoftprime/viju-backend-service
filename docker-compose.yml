@@ -21,11 +21,6 @@ services:
       - '${PORT:-3000}:3000'
     env_file:
       - .env.docker
-    environment:
-      # Dev/demo: reseed the DB on each boot so the app always has rich,
-      # all-statuses data. WARNING: the seed wipes transactional tables.
-      # Set RUN_SEED=false in the environment to disable.
-      RUN_SEED: ${RUN_SEED:-true}
     depends_on:
       postgres:
         condition: service_healthy
