@@ -38,14 +38,21 @@ export class CustomerService {
         },
       },
     });
-    const stockBalanceCartons = purchases.reduce((sum, p) => {
+    // Aggregate paid vs loaded across all orders so the home Stock Balance
+    // card can show "<loaded> of <total>" + a progress bar. Loaded is capped
+    // at paid per order so the bar never exceeds 100%.
+    let totalPaidCartons = 0;
+    let totalLoadedCartons = 0;
+    for (const p of purchases) {
       const paidQty = p.items.reduce((a, i) => a + i.quantity, 0);
       const loadedQty = p.loadingRequests.reduce(
         (a, r) => a + (r.quantityCartons ?? 0),
         0,
       );
-      return sum + Math.max(0, paidQty - loadedQty);
-    }, 0);
+      totalPaidCartons += paidQty;
+      totalLoadedCartons += Math.min(loadedQty, paidQty);
+    }
+    const remainingCartons = Math.max(0, totalPaidCartons - totalLoadedCartons);
 
     const recentPurchases = await this.prisma.purchase.findMany({
       where: { customerId },
@@ -68,13 +75,16 @@ export class CustomerService {
     });
 
     return {
+      customerName: customer.name,
       accountBalance: {
         amount: customer.outstandingBalance,
         lastUpdated: customer.updatedAt,
         isLow: customer.outstandingBalance < 0,
       },
       stockBalance: {
-        totalCartons: stockBalanceCartons,
+        totalCartons: totalPaidCartons,
+        loadedCartons: totalLoadedCartons,
+        remainingCartons,
         lastUpdated: customer.updatedAt,
       },
       productFlyers,

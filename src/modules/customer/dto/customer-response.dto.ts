@@ -49,8 +49,23 @@ export class HomeAccountBalanceDto {
 }
 
 export class HomeStockBalanceDto {
-  @ApiProperty({ example: 120, description: 'Total remaining cartons' })
+  @ApiProperty({
+    example: 700,
+    description: 'Total cartons paid for (the "of 700" in "280 of 700")',
+  })
   totalCartons: number;
+
+  @ApiProperty({
+    example: 280,
+    description: 'Cartons already loaded/collected (progress = loaded / total)',
+  })
+  loadedCartons: number;
+
+  @ApiProperty({
+    example: 420,
+    description: 'Cartons paid for but not yet loaded (total - loaded)',
+  })
+  remainingCartons: number;
 
   @ApiProperty({ example: '2026-06-09T08:16:56.533Z', format: 'date-time' })
   lastUpdated: Date;
@@ -88,6 +103,12 @@ export class HomeRecentPurchaseDto {
 }
 
 export class HomeResponseDto {
+  @ApiProperty({
+    example: 'John Doe',
+    description: 'Customer / enterprise name, for the home screen greeting',
+  })
+  customerName: string;
+
   @ApiProperty({ type: HomeAccountBalanceDto })
   accountBalance: HomeAccountBalanceDto;
 
