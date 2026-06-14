@@ -1,4 +1,6 @@
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
 import { AppModule } from './app.module';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
@@ -7,7 +9,7 @@ import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter'
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   app.enableCors({
     origin: true,
@@ -15,6 +17,13 @@ async function bootstrap() {
   });
 
   app.setGlobalPrefix('api/v1');
+
+  // Serve locally-stored uploads as publicly accessible files at /uploads/*
+  // (outside the api/v1 prefix). No-op when STORAGE_PROVIDER=cloudinary, which
+  // returns its own public secure_url.
+  app.useStaticAssets(join(process.cwd(), process.env.UPLOAD_DIR || 'uploads'), {
+    prefix: '/uploads/',
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
