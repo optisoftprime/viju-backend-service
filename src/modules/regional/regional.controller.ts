@@ -22,8 +22,9 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import {
   AssignLoadingOfficerDto,
   UpdateLoadingStatusDto,
+  ListLoadingRequestsQueryDto,
 } from './dto/regional.dto';
-import { Region, LoadingRequestStatus } from '@prisma/client';
+import { Region } from '@prisma/client';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 import {
   RegionalDashboardResponseDto,
@@ -79,15 +80,13 @@ export class RegionalController {
   })
   async listRequests(
     @CurrentUser() user: StaffUser,
-    @Query() pagination: PaginationQueryDto,
-    @Query('status') status: LoadingRequestStatus | 'ALL' = 'ALL',
-    @Query('region') queryRegion?: Region,
+    @Query() query: ListLoadingRequestsQueryDto,
   ) {
-    const region = this.resolveRegion(user, queryRegion);
+    const region = this.resolveRegion(user, query.region);
     return this.regionalService.listRequestsByStatus(
       region,
-      status,
-      pagination,
+      query.status ?? 'ALL',
+      query,
     );
   }
 
