@@ -41,6 +41,8 @@ import {
   PaginatedOfficersResponseDto,
   CreatedOfficerDto,
   ProductFlyerDto,
+  OfficerDetailDto,
+  BulkReassignResponseDto,
 } from './dto/admin-response.dto';
 
 @ApiTags('Admin Portal')
@@ -133,6 +135,29 @@ export class AdminController {
   @ApiOkResponse({ type: CreatedOfficerDto })
   async createOfficer(@Body() dto: CreateOfficerDto) {
     return this.adminService.createOfficer(dto);
+  }
+
+  @Get('officers/:id')
+  @ApiOperation({
+    summary:
+      'Officer detail — profile, region, role, distributors, open tickets, last login',
+  })
+  @ApiOkResponse({ type: OfficerDetailDto })
+  async getOfficer(@Param('id') id: string) {
+    return this.adminService.getOfficerDetail(id);
+  }
+
+  @Patch('officers/:id/reassign-customers')
+  @ApiOperation({
+    summary:
+      'Reassign ALL of an officer’s customers to another officer (do this before deactivating)',
+  })
+  @ApiOkResponse({ type: BulkReassignResponseDto })
+  async reassignAllCustomers(
+    @Param('id') id: string,
+    @Body() dto: ReassignOfficerDto,
+  ) {
+    return this.adminService.reassignAllCustomers(id, dto.newOfficerId);
   }
 
   // ─── Product Flyer ──────────────────────────

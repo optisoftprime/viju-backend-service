@@ -212,6 +212,11 @@ export class AuthService {
       throw new ForbiddenException('Account deactivated. Contact admin.');
     }
 
+    await this.prisma.staff.update({
+      where: { id: staff.id },
+      data: { lastLoginAt: new Date() },
+    });
+
     return this.generateToken(staff, 'STAFF');
   }
 
@@ -225,6 +230,11 @@ export class AuthService {
 
     const isMatch = await bcrypt.compare(dto.password, staff.password);
     if (!isMatch) throw new UnauthorizedException('Incorrect credentials.');
+
+    await this.prisma.staff.update({
+      where: { id: staff.id },
+      data: { lastLoginAt: new Date() },
+    });
 
     return this.generateToken(staff, 'STAFF');
   }

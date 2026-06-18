@@ -4,6 +4,67 @@ import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
 const REGION_VALUES = ['LAGOS', 'SOUTH_WEST', 'SOUTH_EAST', 'NORTH'] as const;
 type Region = (typeof REGION_VALUES)[number];
 
+const STAFF_ROLE_VALUES = [
+  'ADMIN',
+  'OFFICER',
+  'REGIONAL_ADMIN',
+  'LOADING_OFFICER',
+  'WAREHOUSE_OFFICER',
+] as const;
+type StaffRole = (typeof STAFF_ROLE_VALUES)[number];
+
+// ─── Officer detail (GET /admin/officers/:id) ──────────────
+
+export class OfficerDetailDto {
+  @ApiProperty({ example: 'officer-uuid-1' })
+  id: string;
+
+  @ApiProperty({ example: 'James Okonkwo' })
+  name: string;
+
+  @ApiProperty({ example: 'james@gmail.com' })
+  email: string;
+
+  @ApiProperty({ example: '09009876543' })
+  phone: string;
+
+  @ApiProperty({ enum: REGION_VALUES, example: 'LAGOS', nullable: true })
+  region: Region | null;
+
+  @ApiProperty({ enum: STAFF_ROLE_VALUES, example: 'OFFICER' })
+  role: StaffRole;
+
+  @ApiProperty({ example: true })
+  isActive: boolean;
+
+  @ApiProperty({
+    example: '2026-06-18T09:13:00.000Z',
+    format: 'date-time',
+    nullable: true,
+    description: 'Most recent successful login; null if never logged in',
+  })
+  lastLoginAt: Date | null;
+
+  @ApiProperty({ example: 15, description: 'Distributors assigned to officer' })
+  distributors: number;
+
+  @ApiProperty({ example: 2, description: 'Open tickets across their customers' })
+  openTickets: number;
+}
+
+// ─── Bulk reassign (PATCH /admin/officers/:id/reassign-customers) ──
+
+export class BulkReassignResponseDto {
+  @ApiProperty({ example: 15, description: 'Number of customers moved' })
+  reassigned: number;
+
+  @ApiProperty({ example: 'officer-uuid-1' })
+  fromOfficerId: string;
+
+  @ApiProperty({ example: 'officer-uuid-2' })
+  toOfficerId: string;
+}
+
 // ─── Dashboard (GET /admin/dashboard) ──────────────────────
 
 export class DashboardRegionNameDto {

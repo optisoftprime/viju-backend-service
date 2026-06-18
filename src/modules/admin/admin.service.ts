@@ -327,6 +327,38 @@ export class AdminService {
     );
   }
 
+  async getOfficerDetail(officerId: string) {
+    const officer = await this.prisma.staff.findUnique({
+      where: { id: officerId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        region: true,
+        role: true,
+        isActive: true,
+        lastLoginAt: true,
+      },
+    });
+    if (!officer) throw new NotFoundException('Officer not found');
+
+    const assigned = await this.prisma.customer.findMany({
+      where: { assignedOfficerId: officerId },
+      select: { id: true },
+    });
+    const customerIds = assigned.map((c) => c.id);
+    const openTickets = await this.prisma.supportTicket.count({
+      where: { customerId: { in: customerIds }, status: 'OPEN' },
+    });
+
+    return {
+      ...officer,
+      distributors: customerIds.length,
+      openTickets,
+    };
+  }
+
   async createOfficer(dto: CreateOfficerDto) {
     const existing = await this.prisma.staff.findFirst({
       where: { email: dto.email },
@@ -476,6 +508,48 @@ export class AdminService {
       ),
     );
     return this.listProductFlyers();
+  }
+
+  /**
+   * Move every customer currently assigned to one officer over to another in
+   * a single call — the prerequisite for deactivating an officer who still has
+   * distributors. Target must be an active officer in the same region.
+   */
+  async reassignAllCustomers(officerId: string, newOfficerId: string) {
+    if (officerId === newOfficerId) {
+      throw new BadRequestException(
+        'Source and target officer must be different.',
+      );
+    }
+    const source = await this.prisma.staff.findUnique({
+      where: { id: officerId },
+    });
+    if (!source) throw new NotFoundException('Officer not found');
+
+    const target = await this.prisma.staff.findFirst({
+      where: {
+        id: newOfficerId,
+        role: 'OFFICER',
+        isActive: true,
+        ...(source.region ? { region: source.region } : {}),
+      },
+    });
+    if (!target) {
+      throw new BadRequestException(
+        'Target officer must be active and in the same region.',
+      );
+    }
+
+    const result = await this.prisma.customer.updateMany({
+      where: { assignedOfficerId: officerId },
+      data: { assignedOfficerId: newOfficerId },
+    });
+
+    return {
+      reassigned: result.count,
+      fromOfficerId: officerId,
+      toOfficerId: newOfficerId,
+    };
   }
 
   async deactivateOfficer(officerId: string) {
