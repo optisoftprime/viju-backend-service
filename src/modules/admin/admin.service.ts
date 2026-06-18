@@ -274,9 +274,37 @@ export class AdminService {
   }
 
   async getOfficers(
+    filter: {
+      region?: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH';
+      search?: string;
+    } = {},
     pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
   ) {
-    const where = { role: 'OFFICER' as const };
+    const where = {
+      role: 'OFFICER' as const,
+      ...(filter.region ? { region: filter.region } : {}),
+      ...(filter.search
+        ? {
+            OR: [
+              {
+                name: { contains: filter.search, mode: 'insensitive' as const },
+              },
+              {
+                email: {
+                  contains: filter.search,
+                  mode: 'insensitive' as const,
+                },
+              },
+              {
+                phone: {
+                  contains: filter.search,
+                  mode: 'insensitive' as const,
+                },
+              },
+            ],
+          }
+        : {}),
+    };
     return paginate(
       () => this.prisma.staff.count({ where }),
       (skip, take) =>

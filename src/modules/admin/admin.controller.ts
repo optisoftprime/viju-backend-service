@@ -30,9 +30,9 @@ import {
   UpdateProductFlyerDto,
   ReorderProductFlyersDto,
   CustomerFilterDto,
+  OfficerFilterDto,
 } from './dto/admin.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 import { PaginatedCustomersResponseDto } from './dto/customer-response.dto';
 import { MessageResponseDto } from '../../common/dto/message-response.dto';
 import {
@@ -120,10 +120,12 @@ export class AdminController {
   }
 
   @Get('officers')
-  @ApiOperation({ summary: 'List all account officers' })
+  @ApiOperation({
+    summary: 'List all account officers (optional region filter + search)',
+  })
   @ApiOkResponse({ type: PaginatedOfficersResponseDto })
-  async getOfficers(@Query() pagination: PaginationQueryDto) {
-    return this.adminService.getOfficers(pagination);
+  async getOfficers(@Query() query: OfficerFilterDto) {
+    return this.adminService.getOfficers(query, query);
   }
 
   @Post('officers')

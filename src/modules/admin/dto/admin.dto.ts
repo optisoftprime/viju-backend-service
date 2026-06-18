@@ -28,6 +28,23 @@ export class CustomerFilterDto extends PaginationQueryDto {
   search?: string;
 }
 
+/**
+ * Query params for GET /admin/officers: optional region/search filter plus
+ * pagination. Single @Query() DTO so every param is whitelisted under the
+ * global `forbidNonWhitelisted` pipe.
+ */
+export class OfficerFilterDto extends PaginationQueryDto {
+  @ApiPropertyOptional({ enum: Region, description: 'Optional region filter' })
+  @IsOptional()
+  @IsEnum(Region)
+  region?: Region;
+
+  @ApiPropertyOptional({ description: 'Optional name / email / phone search' })
+  @IsOptional()
+  @IsString()
+  search?: string;
+}
+
 export class ReassignOfficerDto {
   @ApiProperty({ description: 'The user ID of the new Account Officer' })
   @IsString()
