@@ -289,27 +289,7 @@ export class CustomerInvoicesDto {
 // ---------------------------------------------------------------------------
 // GET /officers/customers/:id/stock  -> OfficerService.getCustomerStock
 // ---------------------------------------------------------------------------
-export class StockItemDto {
-  @ApiProperty({ example: 'stock-uuid-1' })
-  id: string;
-
-  @ApiProperty({ example: 'ERP-STK-001' })
-  erpId: string;
-
-  @ApiProperty({ example: 'Premium Cooking Oil 5L' })
-  productName: string;
-
-  @ApiProperty({ example: 1200 })
-  quantity: number;
-
-  @ApiProperty({ example: '2026-06-09T08:16:56.533Z', format: 'date-time' })
-  updatedAt: Date;
-}
-
-export class AwaitingLoadingItemDto {
-  @ApiProperty({ example: 'Premium Cooking Oil 5L' })
-  productName: string;
-
+export class AwaitingLoadingDto {
   @ApiProperty({
     example: 50,
     description: 'Total quantity reserved across the customer purchases',
@@ -329,15 +309,36 @@ export class AwaitingLoadingItemDto {
   remaining: number;
 }
 
+export class StockItemDto {
+  @ApiProperty({ example: 'stock-uuid-1' })
+  id: string;
+
+  @ApiProperty({ example: 'ERP-STK-001' })
+  erpId: string;
+
+  @ApiProperty({ example: 'Premium Cooking Oil 5L' })
+  productName: string;
+
+  @ApiProperty({ example: 1200 })
+  quantity: number;
+
+  @ApiProperty({ example: '2026-06-09T08:16:56.533Z', format: 'date-time' })
+  updatedAt: Date;
+
+  @ApiProperty({
+    type: AwaitingLoadingDto,
+    description: "This customer's loading status for this product",
+  })
+  awaitingLoading: AwaitingLoadingDto;
+}
+
 export class CustomerStockDto {
   @ApiProperty({
     type: [StockItemDto],
-    description: 'Full ERP stock catalogue (prisma.stock.findMany)',
+    description:
+      'ERP stock catalogue, each record with this customer’s awaitingLoading',
   })
   catalogue: StockItemDto[];
-
-  @ApiProperty({ type: [AwaitingLoadingItemDto] })
-  awaitingLoading: AwaitingLoadingItemDto[];
 }
 
 // ---------------------------------------------------------------------------

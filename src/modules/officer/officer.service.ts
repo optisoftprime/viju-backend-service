@@ -233,12 +233,22 @@ export class OfficerService {
       }
     }
     const stockCatalogue = await this.prisma.stock.findMany();
+    // Attach this customer's loading status to each catalogue record, matched
+    // by product name. Products the customer hasn't purchased show zeros.
     return {
-      catalogue: stockCatalogue,
-      awaitingLoading: Array.from(productMap.values()).map((p) => ({
-        ...p,
-        remaining: Math.max(0, p.reserved - p.loaded),
-      })),
+      catalogue: stockCatalogue.map((s) => {
+        const m = productMap.get(s.productName);
+        const reserved = m?.reserved ?? 0;
+        const loaded = m?.loaded ?? 0;
+        return {
+          ...s,
+          awaitingLoading: {
+            reserved,
+            loaded,
+            remaining: Math.max(0, reserved - loaded),
+          },
+        };
+      }),
     };
   }
 
