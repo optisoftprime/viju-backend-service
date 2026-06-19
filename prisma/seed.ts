@@ -497,17 +497,20 @@ async function main() {
   // ─── Product flyers (PRD F19) — home carousel + admin manager ──
   // Active flyers render on the mobile home screen in sortOrder; the
   // inactive one exercises the deactivate/reorder admin paths.
+  // Real, publicly-loading placeholder images (stable per seed slug) so the
+  // mobile home carousel renders actual pictures in dev/demo.
+  const flyerImg = (slug: string) => `https://picsum.photos/seed/viju-${slug}/800/450`;
   const flyerSeeds = [
-    { name: 'Viju Chivita 1L — June Promo',     imageUrl: 'https://cdn.viju.example/flyers/chivita-1l.jpg', sortOrder: 0, isActive: true },
-    { name: 'Viju Milk 1L — Bulk Discount',     imageUrl: 'https://cdn.viju.example/flyers/milk-1l.jpg',    sortOrder: 1, isActive: true },
-    { name: 'Viju Yoghurt 200ml — New Stock',   imageUrl: 'https://cdn.viju.example/flyers/yoghurt.jpg',    sortOrder: 2, isActive: true },
-    { name: 'Premium Groundnut Oil 5L',         imageUrl: 'https://cdn.viju.example/flyers/oil-5l.jpg',     sortOrder: 3, isActive: true },
-    { name: 'Viju Cocktail 400ml — Combo Deal', imageUrl: 'https://cdn.viju.example/flyers/cocktail.jpg',   sortOrder: 4, isActive: true },
-    { name: 'Viju Water 75cl — Wholesale',      imageUrl: 'https://cdn.viju.example/flyers/water.jpg',      sortOrder: 5, isActive: true },
-    { name: 'Viju Malt 330ml — Launch Offer',   imageUrl: 'https://cdn.viju.example/flyers/malt.jpg',       sortOrder: 6, isActive: true },
-    { name: 'Tomato Paste — Trade Pack',        imageUrl: 'https://cdn.viju.example/flyers/tomato.jpg',     sortOrder: 7, isActive: true },
-    { name: 'Easter Campaign (archived)',       imageUrl: 'https://cdn.viju.example/flyers/easter.jpg',     sortOrder: 8, isActive: false },
-    { name: 'Christmas Campaign (archived)',    imageUrl: 'https://cdn.viju.example/flyers/xmas.jpg',       sortOrder: 9, isActive: false },
+    { name: 'Viju Chivita 1L — June Promo',     imageUrl: flyerImg('chivita-1l'), sortOrder: 0, isActive: true },
+    { name: 'Viju Milk 1L — Bulk Discount',     imageUrl: flyerImg('milk-1l'),    sortOrder: 1, isActive: true },
+    { name: 'Viju Yoghurt 200ml — New Stock',   imageUrl: flyerImg('yoghurt'),    sortOrder: 2, isActive: true },
+    { name: 'Premium Groundnut Oil 5L',         imageUrl: flyerImg('oil-5l'),     sortOrder: 3, isActive: true },
+    { name: 'Viju Cocktail 400ml — Combo Deal', imageUrl: flyerImg('cocktail'),   sortOrder: 4, isActive: true },
+    { name: 'Viju Water 75cl — Wholesale',      imageUrl: flyerImg('water'),      sortOrder: 5, isActive: true },
+    { name: 'Viju Malt 330ml — Launch Offer',   imageUrl: flyerImg('malt'),       sortOrder: 6, isActive: true },
+    { name: 'Tomato Paste — Trade Pack',        imageUrl: flyerImg('tomato'),     sortOrder: 7, isActive: true },
+    { name: 'Easter Campaign (archived)',       imageUrl: flyerImg('easter'),     sortOrder: 8, isActive: false },
+    { name: 'Christmas Campaign (archived)',    imageUrl: flyerImg('xmas'),       sortOrder: 9, isActive: false },
   ];
   for (const f of flyerSeeds) {
     await prisma.productFlyer.create({ data: { ...f, createdById: adminUser.id } });
