@@ -409,6 +409,67 @@ async function main() {
     });
   }
 
+  // ─── Waybills for the OTHER customers ──────────────────
+  // So GET /officers/customers/:id/waybills is populated for every customer
+  // an officer manages, not just customer1. Customers in regions with a
+  // loading officer get the full status spread; the rest get pending rows.
+  const loadersByRegion: Record<string, Staff | undefined> = {
+    LAGOS: lagosLoader,
+    SOUTH_WEST: staffList.find((s) => s.email === 'loader.sw@viju.local'),
+  };
+  const regionalByRegion: Record<string, Staff | undefined> = {
+    LAGOS: staffList.find(
+      (s) => s.role === 'REGIONAL_ADMIN' && s.region === 'LAGOS',
+    ),
+    NORTH: staffList.find(
+      (s) => s.role === 'REGIONAL_ADMIN' && s.region === 'NORTH',
+    ),
+  };
+  let wbSeq = 20000;
+  for (const c of customers.slice(1)) {
+    const loader = loadersByRegion[c.region];
+    const regional = regionalByRegion[c.region];
+    const customerStatuses: LoadingRequestStatus[] = loader
+      ? ['PENDING_ASSIGNMENT', 'ASSIGNED', 'LOADING_IN_PROGRESS', 'COMPLETED']
+      : ['PENDING_ASSIGNMENT', 'PENDING_ASSIGNMENT'];
+    for (let j = 0; j < customerStatuses.length; j++) {
+      const status = customerStatuses[j];
+      const isAssigned = status !== 'PENDING_ASSIGNMENT';
+      const isCompleted = status === 'COMPLETED';
+      wbSeq += 1;
+      await prisma.loadingRequest.create({
+        data: {
+          reference: `WB-${wbSeq}`,
+          customerId: c.id,
+          region: c.region,
+          truckPlateNumber: `TRK-${wbSeq}-NG`,
+          driverName: ['Jimoh Ibrahim', 'John Dare', 'Tunde Dare', 'Musa Aliyu'][
+            j % 4
+          ],
+          driverPhone: `+23480${81000000 + wbSeq}`,
+          requestedLoadingDate: new Date(2026, 4, 1 + j),
+          quantityCartons: 80 + j * 15,
+          destination: ['Yaba Warehouse', 'Ikeja Depot', 'Apapa Warehouse'][
+            j % 3
+          ],
+          termsAcceptedAt: new Date(2026, 3, 30),
+          status,
+          assignedOfficerId: isAssigned ? (loader?.id ?? null) : null,
+          assignedAt: isAssigned ? new Date(2026, 4, 1 + j, 10) : null,
+          assignedById: isAssigned ? (regional?.id ?? null) : null,
+          loadingStartedAt:
+            isCompleted || status === 'LOADING_IN_PROGRESS'
+              ? new Date(2026, 4, 1 + j, 9)
+              : null,
+          completedAt: isCompleted ? new Date(2026, 4, 1 + j, 12) : null,
+          waybillDocumentUrl: isCompleted
+            ? `https://example.com/waybills/WB-${wbSeq}.pdf`
+            : null,
+        },
+      });
+    }
+  }
+
   // ─── 10 Notifications for customer1 ────────────────────
   const notifications = [
     'Your loading request WB-19045 has been completed.',
