@@ -379,6 +379,11 @@ async function main() {
     'PENDING_ASSIGNMENT',
   ];
 
+  // Completed waybills get a real, viewable document URL (a Cloudinary-hosted
+  // asset) instead of the old example.com placeholder.
+  const WAYBILL_DOC_URL =
+    'https://res.cloudinary.com/dx87iv1qi/image/upload/v1782143013/viju/product-flyers/mat2kk5lbp9fo0y2imky.jpg';
+
   for (let i = 0; i < loadingStatuses.length; i++) {
     const status = loadingStatuses[i];
     const isAssigned = status !== 'PENDING_ASSIGNMENT';
@@ -404,7 +409,7 @@ async function main() {
         assignedById: isAssigned ? staffList.find((s) => s.role === 'REGIONAL_ADMIN' && s.region === 'LAGOS')?.id : null,
         loadingStartedAt: isCompleted || status === 'LOADING_IN_PROGRESS' ? new Date(2026, 3, 15 + i, 9) : null,
         completedAt: isCompleted ? new Date(2026, 3, 15 + i, 12) : null,
-        waybillDocumentUrl: isCompleted ? `https://example.com/waybills/WB-${19045 + i}.pdf` : null,
+        waybillDocumentUrl: isCompleted ? WAYBILL_DOC_URL : null,
       },
     });
   }
@@ -462,9 +467,7 @@ async function main() {
               ? new Date(2026, 4, 1 + j, 9)
               : null,
           completedAt: isCompleted ? new Date(2026, 4, 1 + j, 12) : null,
-          waybillDocumentUrl: isCompleted
-            ? `https://example.com/waybills/WB-${wbSeq}.pdf`
-            : null,
+          waybillDocumentUrl: isCompleted ? WAYBILL_DOC_URL : null,
         },
       });
     }
