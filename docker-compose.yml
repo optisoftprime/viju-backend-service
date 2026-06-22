@@ -1,30 +1,12 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: optisoft
-      POSTGRES_DB: vijudb
-    ports:
-      - '5432:5432'
-    volumes:
-      - pg_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres']
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
+  # No Postgres service here on purpose: the app connects to the existing
+  # host Postgres via the DATABASE_URL in .env.docker (134.209.64.28:5432).
+  # Running a compose Postgres would collide on host port 5432 and create a
+  # second, empty database.
   app:
     build: .
     ports:
       - '${PORT:-3000}:3000'
     env_file:
       - .env.docker
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: unless-stopped
-
-volumes:
-  pg_data:
