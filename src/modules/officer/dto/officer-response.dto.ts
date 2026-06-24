@@ -289,56 +289,83 @@ export class CustomerInvoicesDto {
 // ---------------------------------------------------------------------------
 // GET /officers/customers/:id/stock  -> OfficerService.getCustomerStock
 // ---------------------------------------------------------------------------
-export class AwaitingLoadingDto {
-  @ApiProperty({
-    example: 50,
-    description: 'Total quantity reserved across the customer purchases',
-  })
-  reserved: number;
+const STOCK_STATUS_VALUES = [
+  'AVAILABLE',
+  'LOW_STOCK',
+  'OUT_OF_STOCK',
+] as const;
+type StockStatus = (typeof STOCK_STATUS_VALUES)[number];
+
+// One row per product — matches the Figma Stock-tab columns.
+export class CustomerStockItemDto {
+  @ApiProperty({ example: 'stock-uuid-1' })
+  id: string;
+
+  @ApiProperty({ example: 'STK-001' })
+  erpId: string;
+
+  @ApiProperty({ example: 'Viju Apple Drink 400ml', description: 'Product' })
+  productName: string;
+
+  @ApiProperty({ example: 2500, description: 'Stock Balance (ERP stock level)' })
+  stockBalance: number;
 
   @ApiProperty({
-    example: 20,
-    description: 'Quantity already loaded (from COMPLETED loading requests)',
+    example: 300,
+    description: 'Reserved Stock — total reserved across this customer’s orders',
+  })
+  reservedStock: number;
+
+  @ApiProperty({
+    example: 180,
+    description: 'Cartons already loaded (from COMPLETED loading requests)',
   })
   loaded: number;
 
   @ApiProperty({
-    example: 30,
-    description: 'max(0, reserved - loaded): cartons still awaiting loading',
+    example: 120,
+    description: 'Awaiting Loading — max(0, reserved - loaded)',
   })
-  remaining: number;
-}
-
-export class StockItemDto {
-  @ApiProperty({ example: 'stock-uuid-1' })
-  id: string;
-
-  @ApiProperty({ example: 'ERP-STK-001' })
-  erpId: string;
-
-  @ApiProperty({ example: 'Premium Cooking Oil 5L' })
-  productName: string;
-
-  @ApiProperty({ example: 1200 })
-  quantity: number;
-
-  @ApiProperty({ example: '2026-06-09T08:16:56.533Z', format: 'date-time' })
-  updatedAt: Date;
+  awaitingLoading: number;
 
   @ApiProperty({
-    type: AwaitingLoadingDto,
-    description: "This customer's loading status for this product",
+    example: '2026-04-15T10:45:00.000Z',
+    format: 'date-time',
+    description: 'Last Stock Update',
   })
-  awaitingLoading: AwaitingLoadingDto;
+  lastStockUpdate: Date;
+
+  @ApiProperty({ enum: STOCK_STATUS_VALUES, example: 'AVAILABLE' })
+  status: StockStatus;
 }
 
 export class CustomerStockDto {
   @ApiProperty({
-    type: [StockItemDto],
-    description:
-      'ERP stock catalogue, each record with this customer’s awaitingLoading',
+    type: [CustomerStockItemDto],
+    description: 'Per-product stock rows for the customer Stock tab',
   })
-  catalogue: StockItemDto[];
+  catalogue: CustomerStockItemDto[];
+}
+
+// GET /officers/stock — general ERP stock (no customer context).
+export class StockLevelDto {
+  @ApiProperty({ example: 'stock-uuid-1' })
+  id: string;
+
+  @ApiProperty({ example: 'STK-001' })
+  erpId: string;
+
+  @ApiProperty({ example: 'Viju Apple Drink 400ml' })
+  productName: string;
+
+  @ApiProperty({ example: 2500, description: 'Stock Balance (ERP stock level)' })
+  stockBalance: number;
+
+  @ApiProperty({ example: '2026-04-15T10:45:00.000Z', format: 'date-time' })
+  lastStockUpdate: Date;
+
+  @ApiProperty({ enum: STOCK_STATUS_VALUES, example: 'AVAILABLE' })
+  status: StockStatus;
 }
 
 // ---------------------------------------------------------------------------
@@ -501,8 +528,8 @@ export class PaginatedCustomerWaybillsResponseDto {
 // GET /officers/stock  -> OfficerService.getStock
 // ---------------------------------------------------------------------------
 export class PaginatedStockResponseDto {
-  @ApiProperty({ type: [StockItemDto] })
-  data: StockItemDto[];
+  @ApiProperty({ type: [StockLevelDto] })
+  data: StockLevelDto[];
 
   @ApiProperty({ type: PaginationMetaDto })
   meta: PaginationMetaDto;

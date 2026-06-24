@@ -2,6 +2,17 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { paginate } from '../../common/pagination/paginate';
 
+export type StockStatus = 'AVAILABLE' | 'LOW_STOCK' | 'OUT_OF_STOCK';
+
+// Below this carton count a product reads as Low Stock (0 = Out of Stock).
+const LOW_STOCK_THRESHOLD = 500;
+
+function stockStatus(quantity: number): StockStatus {
+  if (quantity <= 0) return 'OUT_OF_STOCK';
+  if (quantity <= LOW_STOCK_THRESHOLD) return 'LOW_STOCK';
+  return 'AVAILABLE';
+}
+
 @Injectable()
 export class OfficerService {
   constructor(private readonly prisma: PrismaService) {}
@@ -232,21 +243,26 @@ export class OfficerService {
         productMap.set(item.productName, existing);
       }
     }
-    const stockCatalogue = await this.prisma.stock.findMany();
-    // Attach this customer's loading status to each catalogue record, matched
-    // by product name. Products the customer hasn't purchased show zeros.
+    const stockCatalogue = await this.prisma.stock.findMany({
+      orderBy: { productName: 'asc' },
+    });
+    // One row per product, shaped for the Figma Stock tab columns:
+    // Product | Stock Balance | Reserved Stock | Awaiting Loading | Last Stock Update | Status
     return {
       catalogue: stockCatalogue.map((s) => {
         const m = productMap.get(s.productName);
         const reserved = m?.reserved ?? 0;
         const loaded = m?.loaded ?? 0;
         return {
-          ...s,
-          awaitingLoading: {
-            reserved,
-            loaded,
-            remaining: Math.max(0, reserved - loaded),
-          },
+          id: s.id,
+          erpId: s.erpId,
+          productName: s.productName,
+          stockBalance: s.quantity,
+          reservedStock: reserved,
+          loaded,
+          awaitingLoading: Math.max(0, reserved - loaded),
+          lastStockUpdate: s.updatedAt,
+          status: stockStatus(s.quantity),
         };
       }),
     };
@@ -320,12 +336,23 @@ export class OfficerService {
   ) {
     return paginate(
       () => this.prisma.stock.count(),
-      (skip, take) =>
-        this.prisma.stock.findMany({
+      async (skip, take) => {
+        const rows = await this.prisma.stock.findMany({
           orderBy: { productName: 'asc' },
           skip,
           take,
-        }),
+        });
+        // General ERP stock has no customer context, so no reserved/awaiting —
+        // but include the derived status to match the Figma stock columns.
+        return rows.map((s) => ({
+          id: s.id,
+          erpId: s.erpId,
+          productName: s.productName,
+          stockBalance: s.quantity,
+          lastStockUpdate: s.updatedAt,
+          status: stockStatus(s.quantity),
+        }));
+      },
       pagination,
     );
   }
