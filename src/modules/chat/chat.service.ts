@@ -14,12 +14,31 @@ export class ChatService {
     private readonly notifications: NotificationService,
   ) {}
 
+  /**
+   * True if the officer manages the customer — as primary (assignedOfficerId)
+   * OR secondary (CustomerOfficer). Mirrors OfficerService.ensureAssignedCustomer
+   * and GET /officers/customers, so chat access matches the assigned list.
+   */
+  private async isAssignedPair(
+    customerId: string,
+    officerId: string,
+  ): Promise<boolean> {
+    const match = await this.prisma.customer.findFirst({
+      where: {
+        id: customerId,
+        OR: [
+          { assignedOfficerId: officerId },
+          { officerAssignments: { some: { staffId: officerId } } },
+        ],
+      },
+      select: { id: true },
+    });
+    return !!match;
+  }
+
   async getMessages(user: any, otherUserId: string) {
     if (user.role === 'CUSTOMER') {
-      const customer = await this.prisma.customer.findUnique({
-        where: { id: user.id },
-      });
-      if (customer?.assignedOfficerId !== otherUserId) {
+      if (!(await this.isAssignedPair(user.id, otherUserId))) {
         throw new ForbiddenException(
           'You can only chat with your assigned account officer.',
         );
@@ -29,10 +48,7 @@ export class ChatService {
         orderBy: { createdAt: 'asc' },
       });
     } else if (user.role === 'OFFICER') {
-      const customer = await this.prisma.customer.findUnique({
-        where: { id: otherUserId },
-      });
-      if (customer?.assignedOfficerId !== user.id) {
+      if (!(await this.isAssignedPair(otherUserId, user.id))) {
         throw new ForbiddenException(
           'You can only chat with customers assigned to you.',
         );
@@ -50,10 +66,7 @@ export class ChatService {
     let senderType = '';
 
     if (user.role === 'CUSTOMER') {
-      const customer = await this.prisma.customer.findUnique({
-        where: { id: user.id },
-      });
-      if (customer?.assignedOfficerId !== receiverId) {
+      if (!(await this.isAssignedPair(user.id, receiverId))) {
         throw new ForbiddenException(
           'You can only send messages to your assigned account officer.',
         );
@@ -62,10 +75,7 @@ export class ChatService {
       staffId = receiverId;
       senderType = 'CUSTOMER';
     } else if (user.role === 'OFFICER') {
-      const customer = await this.prisma.customer.findUnique({
-        where: { id: receiverId },
-      });
-      if (customer?.assignedOfficerId !== user.id) {
+      if (!(await this.isAssignedPair(receiverId, user.id))) {
         throw new ForbiddenException(
           'You can only send messages to your assigned customers.',
         );
