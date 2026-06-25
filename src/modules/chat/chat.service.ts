@@ -90,8 +90,8 @@ export class ChatService {
         customerId,
         staffId,
         senderType,
-        content: dto.content,
-        attachmentUrl: dto.attachmentUrl,
+        content: dto.content?.trim() || null,
+        attachmentUrl: dto.attachmentUrl || null,
       },
     });
 
@@ -197,8 +197,8 @@ export class ChatService {
         customerId,
         staffId: primary.staffId,
         senderType: 'CUSTOMER',
-        content: dto.content,
-        attachmentUrl: dto.attachmentUrl,
+        content: dto.content?.trim() || null,
+        attachmentUrl: dto.attachmentUrl || null,
       },
     });
 
