@@ -333,6 +333,39 @@ async function main() {
     });
   }
 
+  // ─── Tickets for james.o's secondary customers (CUST004, CUST006) ──
+  // So the ERP web-login officer (james.o) has tickets in /tickets/officer.
+  const jamesCustomers = [
+    customers.find((c) => c.erpId === 'CUST004'),
+    customers.find((c) => c.erpId === 'CUST006'),
+  ].filter((c): c is Customer => !!c);
+  const jamesTicketStatuses = ['OPEN', 'IN_PROGRESS', 'RESOLVED'] as const;
+  let tkSeq = 60;
+  for (const c of jamesCustomers) {
+    for (let j = 0; j < jamesTicketStatuses.length; j++) {
+      tkSeq += 1;
+      const subject = subjects[tkSeq % subjects.length];
+      const ticket = await prisma.supportTicket.create({
+        data: {
+          ticketId: `TK-${tkSeq.toString().padStart(4, '0')}`,
+          customerId: c.id,
+          category: ticketCategories[j % ticketCategories.length],
+          subject,
+          description: `Auto-generated test ticket for ${c.name}: ${subject}.`,
+          status: jamesTicketStatuses[j],
+        },
+      });
+      await prisma.ticketReply.create({
+        data: {
+          ticketId: ticket.id,
+          senderType: 'STAFF',
+          staffId: jamesO?.id ?? lagosOfficer.id,
+          content: `Hello ${c.name}, we've received your ticket "${subject}" and are looking into it.`,
+        },
+      });
+    }
+  }
+
   // ─── 10 Chat messages with primary officer ─────────────
   const chatLines = [
     'Good afternoon sir, I hope you are doing okay. Kindly confirm the payment we made yesterday.',

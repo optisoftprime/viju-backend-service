@@ -75,7 +75,16 @@ export class TicketService {
     officerId: string,
     pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
   ) {
-    const where = { customer: { assignedOfficerId: officerId } };
+    // Tickets for customers this officer manages — primary OR secondary
+    // (matches /officers/customers and chat access).
+    const where = {
+      customer: {
+        OR: [
+          { assignedOfficerId: officerId },
+          { officerAssignments: { some: { staffId: officerId } } },
+        ],
+      },
+    };
     return paginate(
       () => this.prisma.supportTicket.count({ where }),
       (skip, take) =>
@@ -107,11 +116,14 @@ export class TicketService {
     if (user.role === 'CUSTOMER' && ticket.customerId !== user.id) {
       throw new ForbiddenException('Access denied');
     }
-    if (
-      user.role === 'OFFICER' &&
-      ticket.customer.assignedOfficerId !== user.id
-    ) {
-      throw new ForbiddenException('Access denied');
+    if (user.role === 'OFFICER') {
+      const isAssigned =
+        ticket.customer.assignedOfficerId === user.id ||
+        (await this.prisma.customerOfficer.findFirst({
+          where: { customerId: ticket.customerId, staffId: user.id },
+          select: { staffId: true },
+        })) !== null;
+      if (!isAssigned) throw new ForbiddenException('Access denied');
     }
 
     return ticket;
