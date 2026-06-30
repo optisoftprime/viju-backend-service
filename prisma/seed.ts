@@ -68,6 +68,12 @@ async function main() {
 
   const customers: Customer[] = [];
   for (const c of customerSeeds) {
+    // Main test account gets a real Cloudinary photo; others get a stable,
+    // distinct avatar so every profile/home screen shows an image.
+    const profilePhotoUrl =
+      c.erpId === 'CUST001'
+        ? 'https://res.cloudinary.com/dx87iv1qi/image/upload/v1782315124/viju/profile-photos/xdixv9olkvggezvyavri.jpg'
+        : `https://i.pravatar.cc/300?u=${c.erpId}`;
     const customer = await prisma.customer.upsert({
       where: { phone: c.phone },
       update: {
@@ -76,6 +82,7 @@ async function main() {
         region: c.region,
         accountStatus: c.accountStatus,
         outstandingBalance: c.outstandingBalance,
+        profilePhotoUrl,
       },
       create: {
         erpId: c.erpId,
@@ -85,6 +92,7 @@ async function main() {
         accountStatus: c.accountStatus,
         outstandingBalance: c.outstandingBalance,
         region: c.region,
+        profilePhotoUrl,
       },
     });
     customers.push(customer);

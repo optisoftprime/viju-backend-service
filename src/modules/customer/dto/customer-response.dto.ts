@@ -109,6 +109,13 @@ export class HomeResponseDto {
   })
   customerName: string;
 
+  @ApiProperty({
+    example: 'https://res.cloudinary.com/dx87iv1qi/image/upload/v.../photo.jpg',
+    nullable: true,
+    description: 'Customer profile photo URL (null if none set)',
+  })
+  profilePhotoUrl: string | null;
+
   @ApiProperty({ type: HomeAccountBalanceDto })
   accountBalance: HomeAccountBalanceDto;
 

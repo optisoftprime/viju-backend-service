@@ -18,6 +18,7 @@ export class CustomerService {
       select: {
         id: true,
         name: true,
+        profilePhotoUrl: true,
         outstandingBalance: true,
         updatedAt: true,
       },
@@ -76,6 +77,7 @@ export class CustomerService {
 
     return {
       customerName: customer.name,
+      profilePhotoUrl: customer.profilePhotoUrl,
       accountBalance: {
         amount: customer.outstandingBalance,
         lastUpdated: customer.updatedAt,
