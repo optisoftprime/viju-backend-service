@@ -64,6 +64,7 @@ async function main() {
     { erpId: 'CUST008', name: 'Alhaji Faruk Shola',   phone: '+2349011000008',     region: 'NORTH',      accountStatus: 'ACTIVE',  outstandingBalance: 0       },
     { erpId: 'CUST009', name: 'Bello & Sons LTD',     phone: '+2349011000009',     region: 'SOUTH_WEST', accountStatus: 'ACTIVE',  outstandingBalance: 60000   },
     { erpId: 'CUST010', name: 'Akpan Stores',         phone: '+2349011000010',     region: 'SOUTH_EAST', accountStatus: 'ACTIVE',  outstandingBalance: 0       },
+    { erpId: 'CUST011', name: 'Mytera Distribution Ltd', phone: '+2348100000011',  region: 'LAGOS',      accountStatus: 'ACTIVE',  outstandingBalance: 275000  },
   ];
 
   const customers: Customer[] = [];
@@ -536,6 +537,154 @@ async function main() {
         type: 'PRD_TRIGGER',
       },
     });
+  }
+
+  // ─── Full dataset for a fresh Nigerian test account (CUST011) ──────────
+  // Mirrors customer1 across every screen: orders, payments, waybills,
+  // tickets, chat, notifications. Assignment to the Lagos officer is handled
+  // by the per-region loop above (CUST011 is LAGOS).
+  const newAcct = customers.find((c) => c.erpId === 'CUST011');
+  if (newAcct) {
+    const naOrderStatuses = [
+      'DELIVERED', 'PROCESSING', 'SHIPPED', 'DELIVERED',
+      'PENDING', 'DELIVERED', 'CANCELLED', 'DELIVERED',
+    ] as const;
+    const naPurchases: Purchase[] = [];
+    for (let i = 0; i < naOrderStatuses.length; i++) {
+      const p1 = stockProducts[i % stockProducts.length];
+      const p2 = stockProducts[(i + 2) % stockProducts.length];
+      const qty1 = 15 + i * 4;
+      const qty2 = 8 + i * 3;
+      const price1 = 1500;
+      const price2 = 2200;
+      const purchase = await prisma.purchase.create({
+        data: {
+          erpId: `VJ-2027-${500 + i}`,
+          customerId: newAcct.id,
+          orderDate: new Date(2026, 4 + Math.floor(i / 3), 5 + (i % 20)),
+          totalItems: qty1 + qty2,
+          totalValue: qty1 * price1 + qty2 * price2,
+          status: naOrderStatuses[i],
+          items: {
+            create: [
+              { productName: p1.name, quantity: qty1, unitPrice: price1, lineTotal: qty1 * price1 },
+              { productName: p2.name, quantity: qty2, unitPrice: price2, lineTotal: qty2 * price2 },
+            ],
+          },
+        },
+      });
+      naPurchases.push(purchase);
+    }
+
+    let naRunning = 600000;
+    for (let i = 0; i < 5; i++) {
+      const amount = 40000 + i * 10000;
+      naRunning -= amount;
+      await prisma.payment.create({
+        data: {
+          erpId: `PAY-2027-${100 + i}`,
+          customerId: newAcct.id,
+          date: new Date(2026, 4, 6 + i * 3),
+          amount,
+          reference: i === 0 ? 'Delivery Allowance' : `INV-${5500 + i}`,
+          runningBalance: naRunning,
+        },
+      });
+    }
+
+    const naWbStatuses: LoadingRequestStatus[] = [
+      'COMPLETED', 'LOADING_IN_PROGRESS', 'PENDING_ASSIGNMENT',
+      'ASSIGNED', 'COMPLETED', 'CANCELLED',
+    ];
+    const naRegional = staffList.find(
+      (s) => s.role === 'REGIONAL_ADMIN' && s.region === 'LAGOS',
+    );
+    for (let i = 0; i < naWbStatuses.length; i++) {
+      const status = naWbStatuses[i];
+      const isAssigned = status !== 'PENDING_ASSIGNMENT';
+      const isCompleted = status === 'COMPLETED';
+      await prisma.loadingRequest.create({
+        data: {
+          reference: `WB-${30100 + i}`,
+          customerId: newAcct.id,
+          region: 'LAGOS',
+          linkedPurchaseId: naPurchases[i]?.id ?? null,
+          truckPlateNumber: `LAG-${500 + i}-NA`,
+          driverName: ['Jimoh Ibrahim', 'John Dare', 'Tunde Dare', 'Musa Aliyu'][i % 4],
+          driverPhone: `+23480${82000000 + i}`,
+          requestedLoadingDate: new Date(2026, 5, 2 + i),
+          quantityCartons: 60 + i * 12,
+          destination: ['Yaba Warehouse', 'Ikeja Depot', 'Apapa Warehouse'][i % 3],
+          termsAcceptedAt: new Date(2026, 5, 1 + i),
+          status,
+          assignedOfficerId: isAssigned ? lagosLoader.id : null,
+          assignedAt: isAssigned ? new Date(2026, 5, 2 + i, 11) : null,
+          assignedById: isAssigned ? (naRegional?.id ?? null) : null,
+          loadingStartedAt:
+            isCompleted || status === 'LOADING_IN_PROGRESS'
+              ? new Date(2026, 5, 2 + i, 9)
+              : null,
+          completedAt: isCompleted ? new Date(2026, 5, 2 + i, 12) : null,
+          waybillDocumentUrl: isCompleted ? WAYBILL_DOC_URL : null,
+        },
+      });
+    }
+
+    const naTicketStatuses = [
+      'OPEN', 'IN_PROGRESS', 'RESOLVED', 'OPEN', 'AWAITING_CUSTOMER',
+    ] as const;
+    for (let i = 0; i < naTicketStatuses.length; i++) {
+      const subject = subjects[i % subjects.length];
+      const t = await prisma.supportTicket.create({
+        data: {
+          ticketId: `TK-${(200 + i).toString().padStart(4, '0')}`,
+          customerId: newAcct.id,
+          category: ticketCategories[i % ticketCategories.length],
+          subject,
+          description: `Test ticket for ${newAcct.name}: ${subject}.`,
+          status: naTicketStatuses[i],
+        },
+      });
+      await prisma.ticketReply.create({
+        data: {
+          ticketId: t.id,
+          senderType: 'STAFF',
+          staffId: lagosOfficer.id,
+          content: `Hello, we've received your ticket "${subject}" and are looking into it.`,
+        },
+      });
+    }
+
+    const naChat = [
+      'Good morning, please confirm the payment I made yesterday.',
+      'Confirmed — your wallet balance is updated. Thank you.',
+      'Can I get more Viju Milk 1L this week?',
+      'Yes, the truck is being prepared. ETA tomorrow.',
+      'Appreciated, thank you for the support.',
+    ];
+    for (let i = 0; i < naChat.length; i++) {
+      await prisma.message.create({
+        data: {
+          customerId: newAcct.id,
+          staffId: lagosOfficer.id,
+          senderType: i % 2 === 0 ? 'CUSTOMER' : 'STAFF',
+          content: naChat[i],
+          readAt: i < naChat.length - 1 ? new Date() : null,
+        },
+      });
+    }
+
+    const naNotifs = [
+      'Your loading request WB-30100 has been completed.',
+      'New reply from your Viju Account Officer.',
+      'Your order VJ-2027-500 is now DELIVERED.',
+      'Payment of ₦40,000 has been received.',
+    ];
+    for (const content of naNotifs) {
+      await prisma.notification.create({
+        data: { customerId: newAcct.id, content, isRead: false, type: 'PRD_TRIGGER' },
+      });
+    }
   }
 
   // ─── Product flyers (PRD F19) — home carousel + admin manager ──
