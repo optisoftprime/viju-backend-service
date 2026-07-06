@@ -150,11 +150,28 @@ export class CustomerService {
       quantityRemaining: Math.max(0, row.paid - row.loaded),
     }));
 
+    const totalPurchasedCartons = breakdown.reduce(
+      (a, r) => a + r.quantityPaid,
+      0,
+    );
+    const totalLoadedCartons = breakdown.reduce(
+      (a, r) => a + r.quantityLoaded,
+      0,
+    );
+    const totalRemainingCartons = breakdown.reduce(
+      (a, r) => a + r.quantityRemaining,
+      0,
+    );
+    const loadingProgress =
+      totalPurchasedCartons > 0
+        ? Math.round((totalLoadedCartons / totalPurchasedCartons) * 100)
+        : 0;
+
     return {
-      totalRemainingCartons: breakdown.reduce(
-        (a, r) => a + r.quantityRemaining,
-        0,
-      ),
+      totalPurchasedCartons,
+      totalLoadedCartons,
+      totalRemainingCartons,
+      loadingProgress,
       products: breakdown,
     };
   }

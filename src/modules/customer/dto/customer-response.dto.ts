@@ -146,8 +146,29 @@ export class StockBalanceProductDto {
 }
 
 export class StockBalanceBreakdownDto {
-  @ApiProperty({ example: 120 })
+  @ApiProperty({
+    example: 700,
+    description: 'Total cartons paid for across all products (the "Purchased" figure)',
+  })
+  totalPurchasedCartons: number;
+
+  @ApiProperty({
+    example: 280,
+    description: 'Total cartons already loaded/collected across all products',
+  })
+  totalLoadedCartons: number;
+
+  @ApiProperty({
+    example: 420,
+    description: 'Total cartons paid for but not yet loaded (purchased - loaded)',
+  })
   totalRemainingCartons: number;
+
+  @ApiProperty({
+    example: 40,
+    description: 'Loading progress as a whole percentage (loaded / purchased * 100)',
+  })
+  loadingProgress: number;
 
   @ApiProperty({ type: [StockBalanceProductDto] })
   products: StockBalanceProductDto[];
