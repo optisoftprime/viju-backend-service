@@ -26,6 +26,15 @@ export class AuthUserDto {
       "Always 'CUSTOMER' for customer logins; the StaffRole value for staff logins.",
   })
   role: AuthRole;
+
+  @ApiProperty({
+    enum: ['LAGOS', 'SOUTH_WEST', 'SOUTH_EAST', 'NORTH'],
+    nullable: true,
+    example: 'SOUTH_WEST',
+    description:
+      "The user's region. Always set for customers; may be null for staff who have no region assigned.",
+  })
+  region: string | null;
 }
 
 // ─── Token pair response ───────────────────────────────────────────────────

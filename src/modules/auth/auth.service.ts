@@ -465,7 +465,7 @@ export class AuthService {
       refresh_token,
       expires_in: ACCESS_EXPIRY_SECONDS,
       refresh_expires_in: REFRESH_EXPIRY_SECONDS,
-      user: { id: user.id, name: user.name, role },
+      user: { id: user.id, name: user.name, role, region: user.region ?? null },
     };
   }
 
