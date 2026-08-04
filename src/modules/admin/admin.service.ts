@@ -317,6 +317,7 @@ export class AdminService {
             phone: true,
             region: true,
             isActive: true,
+            createdAt: true,
             _count: { select: { customers: true } },
           },
           orderBy: { name: 'asc' },

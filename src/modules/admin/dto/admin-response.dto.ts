@@ -160,6 +160,13 @@ export class OfficerListItemDto {
   @ApiProperty({ example: true })
   isActive: boolean;
 
+  @ApiProperty({
+    example: '2026-06-18T09:13:00.000Z',
+    format: 'date-time',
+    description: 'When the account officer was created',
+  })
+  createdAt: Date;
+
   @ApiProperty({ type: OfficerCustomerCountDto })
   _count: OfficerCustomerCountDto;
 }
