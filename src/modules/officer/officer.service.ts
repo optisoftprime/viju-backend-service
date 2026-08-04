@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { paginate } from '../../common/pagination/paginate';
 
@@ -54,11 +55,19 @@ export class OfficerService {
 
   async getAssignedCustomers(
     user: { id: string; role: string },
-    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+    query: {
+      page: number;
+      pageSize: number;
+      search?: string;
+      overdue?: boolean;
+      activeTickets?: boolean;
+    } = { page: 1, pageSize: 20 },
   ) {
+    const pagination = { page: query.page, pageSize: query.pageSize };
+
     // Admin sees every customer org-wide (PRD F14). Officers see only
     // customers where they are primary OR secondary assigned (PRD F6).
-    const where =
+    const roleScope: Prisma.CustomerWhereInput =
       user.role === 'ADMIN'
         ? {}
         : {
@@ -67,6 +76,33 @@ export class OfficerService {
               { officerAssignments: { some: { staffId: user.id } } },
             ],
           };
+
+    // Combine role scope with the optional filters via AND, so search can use
+    // its own OR without clobbering the assignment OR above.
+    const and: Prisma.CustomerWhereInput[] = [roleScope];
+
+    if (query.search?.trim()) {
+      const term = query.search.trim();
+      and.push({
+        OR: [
+          { name: { contains: term, mode: 'insensitive' } },
+          { erpId: { contains: term, mode: 'insensitive' } },
+          { phone: { contains: term, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    // Overdue = negative balance (matches the dashboard's overdue definition).
+    if (query.overdue) {
+      and.push({ outstandingBalance: { lt: 0 } });
+    }
+
+    // Active tickets = has at least one OPEN support ticket.
+    if (query.activeTickets) {
+      and.push({ supportTickets: { some: { status: 'OPEN' } } });
+    }
+
+    const where: Prisma.CustomerWhereInput = { AND: and };
 
     const page = await paginate(
       () => this.prisma.customer.count({ where }),

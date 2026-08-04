@@ -11,6 +11,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
+import { AssignedCustomersFilterDto } from './dto/officer-request.dto';
 import { Query } from '@nestjs/common';
 import {
   OfficerDashboardSummaryDto,
@@ -47,18 +48,21 @@ export class OfficerController {
 
   @Get('customers')
   @ApiOperation({
-    summary: 'Get list of customers assigned to the officer',
+    summary:
+      'Get list of customers assigned to the officer (search + filters)',
     description:
       'OFFICER role: returns customers where they are primary OR secondary ' +
       'officer. ADMIN role: returns all customers across all regions ' +
-      '(cross-region visibility).',
+      '(cross-region visibility). Supports `search` (name / account number / ' +
+      'phone), `overdue=true` (negative balance), and `activeTickets=true` ' +
+      '(has open support tickets).',
   })
   @ApiOkResponse({ type: PaginatedAssignedCustomersResponseDto })
   async getCustomers(
     @CurrentUser() user: any,
-    @Query() pagination: PaginationQueryDto,
+    @Query() query: AssignedCustomersFilterDto,
   ) {
-    return this.officerService.getAssignedCustomers(user, pagination);
+    return this.officerService.getAssignedCustomers(user, query);
   }
 
   @Get('customers/:id')
