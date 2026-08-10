@@ -36,8 +36,11 @@ export class EzoneOtpService extends OtpService {
     }
     return {
       'Content-Type': 'application/json',
-      'x-org-key': orgKey,
-      'x-secret-key': secretKey,
+      // x-env is REQUIRED by the gateway (not in the docs). 'test' for the test
+      // keys; the live environment value comes from Ezone.
+      'x-env': process.env.EZONE_ENV || 'test',
+      'x-org-key': orgKey, // the Organization Key (ORG-…)
+      'x-secret-key': secretKey, // the Private/Secret Key (sk_…)
     };
   }
 

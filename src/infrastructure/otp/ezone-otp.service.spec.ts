@@ -14,6 +14,7 @@ describe('EzoneOtpService', () => {
 
   beforeEach(() => {
     process.env.EZONE_OTP_BASE_URL = 'https://ezone.test/api/v1/otp';
+    process.env.EZONE_ENV = 'test';
     process.env.EZONE_ORG_KEY = 'org-key';
     process.env.EZONE_SECRET_KEY = 'secret-key';
     fetchMock = jest.fn();
@@ -30,6 +31,7 @@ describe('EzoneOtpService', () => {
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe('https://ezone.test/api/v1/otp/generate');
+    expect(init.headers['x-env']).toBe('test');
     expect(init.headers['x-org-key']).toBe('org-key');
     expect(init.headers['x-secret-key']).toBe('secret-key');
     expect(JSON.parse(init.body)).toEqual({ phoneNumber: '2348168584112' });
