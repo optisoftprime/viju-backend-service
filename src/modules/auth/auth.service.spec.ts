@@ -7,6 +7,7 @@ import * as bcrypt from 'bcryptjs';
 import { SmsService } from '../../infrastructure/sms/sms.service';
 import { ErpService } from '../../infrastructure/erp/erp.types';
 import { EmailService } from '../../infrastructure/email/email.types';
+import { OtpService } from '../../infrastructure/otp/otp.service';
 
 jest.mock('bcryptjs', () => ({
   compare: jest.fn(),
@@ -65,6 +66,10 @@ describe('AuthService', () => {
         { provide: SmsService, useValue: mockSms },
         { provide: ErpService, useValue: mockErp },
         { provide: EmailService, useValue: { send: jest.fn() } },
+        {
+          provide: OtpService,
+          useValue: { send: jest.fn(), verify: jest.fn() },
+        },
       ],
     }).compile();
 

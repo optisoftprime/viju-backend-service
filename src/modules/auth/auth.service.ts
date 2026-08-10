@@ -20,6 +20,7 @@ import {
 } from './dto/auth.dto';
 import * as bcrypt from 'bcryptjs';
 import { SmsService } from '../../infrastructure/sms/sms.service';
+import { OtpService } from '../../infrastructure/otp/otp.service';
 import { ErpService } from '../../infrastructure/erp/erp.types';
 import { EmailService } from '../../infrastructure/email/email.types';
 import { StaffRole } from '@prisma/client';
@@ -36,6 +37,7 @@ export class AuthService {
     private readonly sms: SmsService,
     private readonly erp: ErpService,
     private readonly email: EmailService,
+    private readonly otp: OtpService,
   ) {}
 
   async requestOtp(dto: RequestOtpDto) {
@@ -49,26 +51,14 @@ export class AuthService {
       );
     }
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
-
-    await this.prisma.otpVerification.create({
-      data: {
-        phone: dto.phone,
-        code,
-        expiresAt,
-      },
-    });
-
-    await this.sms.send({
-      to: dto.phone,
-      body: `Your Viju verification code is ${code}. It expires in 10 minutes.`,
-    });
+    // Delegate to the configured OTP provider (local or Ezone). devCode is only
+    // ever returned by the local provider in dev; Ezone owns + delivers its code.
+    const { devCode } = await this.otp.send(dto.phone);
 
     return {
       message: 'OTP sent successfully',
-      ...(isDevMode() && {
-        devOtp: code,
+      ...(devCode && {
+        devOtp: devCode,
         devNote:
           'OTP is included in this response because NODE_ENV !== "production". Never enable dev mode in prod.',
       }),
@@ -76,36 +66,8 @@ export class AuthService {
   }
 
   async verifyOtp(dto: VerifyOtpDto) {
-    const otpRec = await this.prisma.otpVerification.findFirst({
-      where: { phone: dto.phone },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    if (!otpRec) throw new BadRequestException('No OTP found for this number');
-    if (otpRec.lockedUntil && otpRec.lockedUntil > new Date()) {
-      throw new UnauthorizedException(
-        'Account locked due to too many attempts. Please try again later.',
-      );
-    }
-    if (otpRec.expiresAt < new Date()) {
-      throw new BadRequestException(
-        'OTP has expired. Please request a new one.',
-      );
-    }
-
-    if (otpRec.code !== dto.code) {
-      await this.prisma.otpVerification.update({
-        where: { id: otpRec.id },
-        data: {
-          attempts: otpRec.attempts + 1,
-          lockedUntil:
-            otpRec.attempts + 1 >= 3
-              ? new Date(Date.now() + 30 * 60 * 1000)
-              : null,
-        },
-      });
-      throw new UnauthorizedException('Invalid OTP code');
-    }
+    // Provider verifies the code (throws BadRequest/Unauthorized on failure).
+    await this.otp.verify(dto.phone, dto.code);
 
     const customer = await this.prisma.customer.findFirst({
       where: { phone: dto.phone },
@@ -116,10 +78,6 @@ export class AuthService {
     await this.prisma.customer.update({
       where: { id: customer.id },
       data: { password: hashedPassword },
-    });
-
-    await this.prisma.otpVerification.deleteMany({
-      where: { phone: dto.phone },
     });
 
     return this.generateToken(customer, 'CUSTOMER');
