@@ -1,5 +1,12 @@
-import { IsString, IsNotEmpty, IsOptional, MinLength, IsDateString } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  MinLength,
+  IsDateString,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { PaginationQueryDto } from '../../../common/pagination/pagination.dto';
 
 export class UpdateProfilePhotoDto {
   @ApiProperty({ description: 'URL or base64 of the uploaded photo' })
@@ -16,8 +23,22 @@ export class ChangePasswordDto {
   newPassword: string;
 }
 
-export class PurchaseFilterDto {
-  @ApiPropertyOptional({ description: 'Search term for product name or order ID' })
+export class StatementRangeDto {
+  @ApiPropertyOptional({ description: 'ISO date — inclusive start' })
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @ApiPropertyOptional({ description: 'ISO date — inclusive end' })
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+}
+
+export class PurchaseFilterDto extends PaginationQueryDto {
+  @ApiPropertyOptional({
+    description: 'Search term for product name or order ID',
+  })
   @IsOptional()
   @IsString()
   search?: string;

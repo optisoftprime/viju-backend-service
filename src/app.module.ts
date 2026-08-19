@@ -8,6 +8,13 @@ import { AdminModule } from './modules/admin/admin.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { TicketModule } from './modules/ticket/ticket.module';
 import { ErpModule } from './modules/erp/erp.module';
+import { PushModule } from './modules/push/push.module';
+import { WaybillModule } from './modules/waybill/waybill.module';
+import { RegionalModule } from './modules/regional/regional.module';
+import { BroadcastModule } from './modules/broadcast/broadcast.module';
+import { AuditModule } from './modules/audit/audit.module';
+import { NotificationsApiModule } from './modules/notifications/notifications.module';
+import { UploadsModule } from './modules/uploads/uploads.module';
 
 @Module({
   imports: [
@@ -22,6 +29,13 @@ import { ErpModule } from './modules/erp/erp.module';
     ChatModule,
     TicketModule,
     ErpModule,
+    PushModule,
+    WaybillModule,
+    RegionalModule,
+    BroadcastModule,
+    AuditModule,
+    NotificationsApiModule,
+    UploadsModule,
   ],
   controllers: [],
   providers: [],

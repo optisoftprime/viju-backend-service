@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm test *)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'feat\\(notifications\\): wire PRD §6 triggers across chat/ticket/admin *)",
+      "Bash(git push *)",
+      "Bash(git commit -m 'test\\(admin\\): provide NotificationService mock in admin.service.spec *)",
+      "Bash(git commit -m 'feat\\(chat\\): customer-facing two-officer routing \\(PRD F6 finalised\\) *)",
+      "Bash(echo \"lint exit: $?\")",
+      "Bash(git commit -m 'feat\\(admin\\): replace totalOfficers with unReadMessage on org dashboard *)",
+      "Bash(echo \"EXIT: $?\")"
+    ]
+  }
+}

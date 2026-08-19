@@ -1,11 +1,38 @@
-import { Controller, Get, Post, Patch, Param, Body, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Param,
+  Body,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiCreatedResponse,
+} from '@nestjs/swagger';
 import { TicketService } from './ticket.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { CreateTicketDto, ReplyTicketDto, UpdateTicketStatusDto } from './dto/ticket.dto';
+import {
+  CreateTicketDto,
+  ReplyTicketDto,
+  UpdateTicketStatusDto,
+} from './dto/ticket.dto';
+import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
+import {
+  TicketResponseDto,
+  TicketReplyResponseDto,
+  TicketThreadResponseDto,
+  PaginatedTicketResponseDto,
+  PaginatedOfficerTicketResponseDto,
+} from './dto/ticket-response.dto';
 
 @ApiTags('Support Tickets')
 @ApiBearerAuth()
@@ -17,6 +44,7 @@ export class TicketController {
   @Post()
   @Roles('CUSTOMER')
   @ApiOperation({ summary: 'Customer creates a new support ticket' })
+  @ApiCreatedResponse({ type: TicketResponseDto })
   async createTicket(@CurrentUser() user: any, @Body() dto: CreateTicketDto) {
     return this.ticketService.createTicket(user.id, dto);
   }
@@ -24,20 +52,29 @@ export class TicketController {
   @Get('customer')
   @Roles('CUSTOMER')
   @ApiOperation({ summary: 'Get all tickets raised by the current customer' })
-  async getCustomerTickets(@CurrentUser() user: any) {
-    return this.ticketService.getCustomerTickets(user.id);
+  @ApiOkResponse({ type: PaginatedTicketResponseDto })
+  async getCustomerTickets(
+    @CurrentUser() user: any,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.ticketService.getCustomerTickets(user.id, pagination);
   }
 
   @Get('officer')
   @Roles('OFFICER')
   @ApiOperation({ summary: 'Get all tickets assigned to the current officer' })
-  async getOfficerTickets(@CurrentUser() user: any) {
-    return this.ticketService.getAssignedTickets(user.id);
+  @ApiOkResponse({ type: PaginatedOfficerTicketResponseDto })
+  async getOfficerTickets(
+    @CurrentUser() user: any,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.ticketService.getAssignedTickets(user.id, pagination);
   }
 
   @Get(':id')
   @Roles('CUSTOMER', 'OFFICER', 'ADMIN')
   @ApiOperation({ summary: 'Get full ticket thread' })
+  @ApiOkResponse({ type: TicketThreadResponseDto })
   async getTicket(@CurrentUser() user: any, @Param('id') id: string) {
     return this.ticketService.getTicket(id, user);
   }
@@ -45,14 +82,24 @@ export class TicketController {
   @Post(':id/replies')
   @Roles('CUSTOMER', 'OFFICER')
   @ApiOperation({ summary: 'Add a reply to a ticket thread' })
-  async replyToTicket(@CurrentUser() user: any, @Param('id') id: string, @Body() dto: ReplyTicketDto) {
+  @ApiCreatedResponse({ type: TicketReplyResponseDto })
+  async replyToTicket(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: ReplyTicketDto,
+  ) {
     return this.ticketService.replyToTicket(id, user.id, dto, user.role);
   }
 
   @Patch(':id/status')
   @Roles('OFFICER', 'ADMIN')
   @ApiOperation({ summary: 'Update ticket status (e.g. mark as resolved)' })
-  async updateStatus(@CurrentUser() user: any, @Param('id') id: string, @Body() dto: UpdateTicketStatusDto) {
+  @ApiOkResponse({ type: TicketResponseDto })
+  async updateStatus(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateTicketStatusDto,
+  ) {
     return this.ticketService.updateStatus(id, user.id, dto);
   }
 }

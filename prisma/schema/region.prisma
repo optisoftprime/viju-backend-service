@@ -1,0 +1,13 @@
+/// Regions, declared in BP_CLUSTER_CODE order (1-5).
+///
+/// The ERP supplies the numeric BP_CLUSTER_CODE; it is translated to one of
+/// these values at the ERP boundary by src/common/region/region.constants.ts
+/// and never stored. SOUTH_SOUTH is displayed as "SOUTH-SOUTH" (see
+/// REGION_LABELS) - enum values cannot contain a hyphen.
+enum Region {
+  LAGOS // BP_CLUSTER_CODE 1
+  EASTERN // BP_CLUSTER_CODE 2
+  SOUTH_SOUTH // BP_CLUSTER_CODE 3
+  WESTERN // BP_CLUSTER_CODE 4
+  NORTH // BP_CLUSTER_CODE 5
+}

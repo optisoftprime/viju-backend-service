@@ -7,18 +7,19 @@ enum OrderStatus {
 }
 
 model Purchase {
-  id         String   @id @default(uuid())
-  erpId      String   @unique
+  id         String      @id @default(uuid())
+  erpId      String      @unique
   customerId String
-  customer   Customer @relation(fields: [customerId], references: [id])
+  customer   Customer    @relation(fields: [customerId], references: [id])
   orderDate  DateTime
   totalItems Int
   totalValue Float
   status     OrderStatus
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
 
-  items      PurchaseItem[]
+  items           PurchaseItem[]
+  loadingRequests LoadingRequest[]
 }
 
 model PurchaseItem {
@@ -33,7 +34,7 @@ model PurchaseItem {
 
 model Payment {
   id             String   @id @default(uuid())
-  erpId          String   @unique
+  erpId          String?  @unique
   customerId     String
   customer       Customer @relation(fields: [customerId], references: [id])
   date           DateTime
@@ -41,4 +42,6 @@ model Payment {
   reference      String?
   runningBalance Float
   createdAt      DateTime @default(now())
+
+  broadcast Broadcast?
 }
