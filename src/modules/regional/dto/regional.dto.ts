@@ -1,6 +1,7 @@
 import { IsUUID, IsString, IsOptional, IsEnum, IsIn } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Region, LoadingRequestStatus } from '@prisma/client';
+import { LoadingRequestStatus } from '@prisma/client';
+import { Region } from '../../../common/region/region.constants';
 import { PaginationQueryDto } from '../../../common/pagination/pagination.dto';
 
 const STATUS_FILTER_VALUES = [
@@ -20,7 +21,7 @@ export class ListLoadingRequestsQueryDto extends PaginationQueryDto {
     description: 'Filter by loading-request status, or ALL',
   })
   @IsOptional()
-  @IsIn(STATUS_FILTER_VALUES as unknown as string[])
+  @IsIn(STATUS_FILTER_VALUES)
   status?: LoadingRequestStatus | 'ALL';
 
   @ApiPropertyOptional({

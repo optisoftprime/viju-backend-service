@@ -1,11 +1,19 @@
-export type ErpRegion = 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH';
+import { BpClusterCode } from '../../common/region/region.constants';
 
+/**
+ * The ERP identifies a business partner's region with the numeric
+ * BP_CLUSTER_CODE. It is carried on these contracts unchanged and translated
+ * into the `Region` enum by consumers via `regionFromBpClusterCode()` - see
+ * src/common/region/region.constants.ts. No caller should branch on the
+ * number itself.
+ */
 export interface ErpCustomerProfile {
   erpId: string;
   name: string;
   phone: string;
   email?: string;
-  region: ErpRegion;
+  /** BP_CLUSTER_CODE (1-5). Map with `regionFromBpClusterCode()`. */
+  bpClusterCode: BpClusterCode;
   accountStatus: 'ACTIVE' | 'ON_HOLD';
 }
 
@@ -82,7 +90,8 @@ export interface ErpStaffCredential {
     | 'REGIONAL_ADMIN'
     | 'LOADING_OFFICER'
     | 'WAREHOUSE_OFFICER';
-  region?: ErpRegion;
+  /** BP_CLUSTER_CODE (1-5). Absent for staff with no regional posting. */
+  bpClusterCode?: BpClusterCode;
 }
 
 export interface DateRange {

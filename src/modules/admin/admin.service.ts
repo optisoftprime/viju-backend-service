@@ -16,6 +16,7 @@ import {
   ReorderProductFlyersDto,
 } from './dto/admin.dto';
 import * as bcrypt from 'bcryptjs';
+import { Region, REGION_VALUES } from '../../common/region/region.constants';
 import { paginate } from '../../common/pagination/paginate';
 
 @Injectable()
@@ -29,8 +30,6 @@ export class AdminService {
   ) {}
 
   async getDashboardStats() {
-    const REGIONS = ['LAGOS', 'SOUTH_WEST', 'SOUTH_EAST', 'NORTH'] as const;
-
     const [
       totalCustomers,
       unReadMessage,
@@ -96,7 +95,7 @@ export class AdminService {
       );
     }
 
-    const byRegion = REGIONS.map((region) => {
+    const byRegion = REGION_VALUES.map((region) => {
       const distCount = customerCountByRegion.get(region) ?? 0;
       return {
         region: { name: region, dist: distCount },
@@ -117,10 +116,7 @@ export class AdminService {
     };
   }
 
-  private buildCustomerWhere(filter?: {
-    region?: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH';
-    search?: string;
-  }) {
+  private buildCustomerWhere(filter?: { region?: Region; search?: string }) {
     return {
       ...(filter?.region ? { region: filter.region } : {}),
       ...(filter?.search
@@ -143,7 +139,7 @@ export class AdminService {
 
   async getAllCustomers(
     filter: {
-      region?: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH';
+      region?: Region;
       search?: string;
     } = {},
     pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
@@ -180,7 +176,7 @@ export class AdminService {
   }
 
   async exportCustomersCsv(filter?: {
-    region?: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH';
+    region?: Region;
     search?: string;
   }): Promise<string> {
     const where = this.buildCustomerWhere(filter);
@@ -275,7 +271,7 @@ export class AdminService {
 
   async getOfficers(
     filter: {
-      region?: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH';
+      region?: Region;
       search?: string;
     } = {},
     pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },

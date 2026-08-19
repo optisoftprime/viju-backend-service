@@ -22,7 +22,7 @@ export class MockErpService extends ErpService {
       name: 'Ade Foods Ltd',
       phone,
       email: 'ade.foods@example.com',
-      region: 'LAGOS',
+      bpClusterCode: 1, // LAGOS
       accountStatus: 'ACTIVE',
     });
   }
@@ -33,7 +33,7 @@ export class MockErpService extends ErpService {
       name: 'Ade Foods Ltd',
       phone: '08190987654',
       email: 'ade.foods@example.com',
-      region: 'LAGOS',
+      bpClusterCode: 1, // LAGOS
       accountStatus: 'ACTIVE',
     });
   }
@@ -127,7 +127,7 @@ export class MockErpService extends ErpService {
       email: `${username}@viju.example`,
       phone: '+2348012345678',
       role: 'OFFICER',
-      region: 'LAGOS',
+      bpClusterCode: 1, // LAGOS
     });
   }
 }

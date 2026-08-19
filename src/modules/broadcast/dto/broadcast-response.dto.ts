@@ -1,8 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
-
-const REGION_VALUES = ['LAGOS', 'SOUTH_WEST', 'SOUTH_EAST', 'NORTH'] as const;
-type Region = (typeof REGION_VALUES)[number];
+import { Region, REGION_VALUES } from '../../../common/region/region.constants';
 
 const BROADCAST_TYPE_VALUES = ['REGIONAL', 'INDIVIDUAL'] as const;
 type BroadcastType = (typeof BROADCAST_TYPE_VALUES)[number];
@@ -29,7 +27,7 @@ export class BroadcastDto {
   @ApiProperty({
     enum: REGION_VALUES,
     isArray: true,
-    example: ['LAGOS', 'SOUTH_WEST'],
+    example: ['LAGOS', 'WESTERN'],
   })
   targetRegions: Region[];
 
@@ -98,7 +96,10 @@ export class BroadcastAllowancePaymentDto {
   @ApiProperty({ example: 'Delivery Allowance', nullable: true })
   reference: string | null;
 
-  @ApiProperty({ example: 1250000, description: 'Wallet balance after payment' })
+  @ApiProperty({
+    example: 1250000,
+    description: 'Wallet balance after payment',
+  })
   runningBalance: number;
 
   @ApiProperty({ example: '2026-06-09T08:16:56.533Z', format: 'date-time' })

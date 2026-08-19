@@ -1,4 +1,5 @@
-import { Region, StaffRole } from '@prisma/client';
+import { StaffRole } from '@prisma/client';
+import { Region } from './region.constants';
 
 export interface RegionScope {
   /** Region filter to apply to Prisma where-clauses, or null for cross-region access. */

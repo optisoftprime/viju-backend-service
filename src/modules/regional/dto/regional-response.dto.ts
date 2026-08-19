@@ -1,8 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
-
-const REGION_VALUES = ['LAGOS', 'SOUTH_WEST', 'SOUTH_EAST', 'NORTH'] as const;
-type Region = (typeof REGION_VALUES)[number];
+import { Region, REGION_VALUES } from '../../../common/region/region.constants';
 
 const LOADING_REQUEST_STATUS_VALUES = [
   'PENDING_ASSIGNMENT',
@@ -16,7 +14,10 @@ type LoadingRequestStatus = (typeof LOADING_REQUEST_STATUS_VALUES)[number];
 // ─── Dashboard (GET /regional/dashboard) ───────────────────
 
 export class RegionalDashboardSummaryDto {
-  @ApiProperty({ example: 42, description: 'Distributors (customers) in region' })
+  @ApiProperty({
+    example: 42,
+    description: 'Distributors (customers) in region',
+  })
   totalDistributors: number;
 
   @ApiProperty({ example: 5, description: 'Open support tickets in region' })

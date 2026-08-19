@@ -54,17 +54,94 @@ async function main() {
     accountStatus: AccountStatus;
     outstandingBalance: number;
   }> = [
-    { erpId: 'CUST001', name: 'John Doe',             phone: MAIN_TEST_PHONE,      region: 'LAGOS',      accountStatus: 'ACTIVE',  outstandingBalance: 480000 },
-    { erpId: 'CUST002', name: 'Jane Smith',           phone: SECONDARY_TEST_PHONE, region: 'SOUTH_WEST', accountStatus: 'ACTIVE',  outstandingBalance: 5000   },
-    { erpId: 'CUST003', name: 'Ade Foods Ltd',        phone: '+2349011000003',     region: 'LAGOS',      accountStatus: 'ACTIVE',  outstandingBalance: 1240000 },
-    { erpId: 'CUST004', name: 'K1 Fresh Mart',        phone: '+2349011000004',     region: 'LAGOS',      accountStatus: 'ACTIVE',  outstandingBalance: 0       },
-    { erpId: 'CUST005', name: 'Alhaji Bello & Sons',  phone: '+2349011000005',     region: 'NORTH',      accountStatus: 'ACTIVE',  outstandingBalance: 190980  },
-    { erpId: 'CUST006', name: 'Ikorodu Mega Distributor', phone: '+2349011000006', region: 'LAGOS',      accountStatus: 'ACTIVE',  outstandingBalance: 320500  },
-    { erpId: 'CUST007', name: 'Unity Stores Nig. Ltd',phone: '+2349011000007',     region: 'SOUTH_EAST', accountStatus: 'ON_HOLD', outstandingBalance: 75000   },
-    { erpId: 'CUST008', name: 'Alhaji Faruk Shola',   phone: '+2349011000008',     region: 'NORTH',      accountStatus: 'ACTIVE',  outstandingBalance: 0       },
-    { erpId: 'CUST009', name: 'Bello & Sons LTD',     phone: '+2349011000009',     region: 'SOUTH_WEST', accountStatus: 'ACTIVE',  outstandingBalance: 60000   },
-    { erpId: 'CUST010', name: 'Akpan Stores',         phone: '+2349011000010',     region: 'SOUTH_EAST', accountStatus: 'ACTIVE',  outstandingBalance: 0       },
-    { erpId: 'CUST011', name: 'Mytera Distribution Ltd', phone: '+2348100000011',  region: 'LAGOS',      accountStatus: 'ACTIVE',  outstandingBalance: 275000  },
+    {
+      erpId: 'CUST001',
+      name: 'John Doe',
+      phone: MAIN_TEST_PHONE,
+      region: 'LAGOS',
+      accountStatus: 'ACTIVE',
+      outstandingBalance: 480000,
+    },
+    {
+      erpId: 'CUST002',
+      name: 'Jane Smith',
+      phone: SECONDARY_TEST_PHONE,
+      region: 'WESTERN',
+      accountStatus: 'ACTIVE',
+      outstandingBalance: 5000,
+    },
+    {
+      erpId: 'CUST003',
+      name: 'Ade Foods Ltd',
+      phone: '+2349011000003',
+      region: 'LAGOS',
+      accountStatus: 'ACTIVE',
+      outstandingBalance: 1240000,
+    },
+    {
+      erpId: 'CUST004',
+      name: 'K1 Fresh Mart',
+      phone: '+2349011000004',
+      region: 'LAGOS',
+      accountStatus: 'ACTIVE',
+      outstandingBalance: 0,
+    },
+    {
+      erpId: 'CUST005',
+      name: 'Alhaji Bello & Sons',
+      phone: '+2349011000005',
+      region: 'NORTH',
+      accountStatus: 'ACTIVE',
+      outstandingBalance: 190980,
+    },
+    {
+      erpId: 'CUST006',
+      name: 'Ikorodu Mega Distributor',
+      phone: '+2349011000006',
+      region: 'LAGOS',
+      accountStatus: 'ACTIVE',
+      outstandingBalance: 320500,
+    },
+    {
+      erpId: 'CUST007',
+      name: 'Unity Stores Nig. Ltd',
+      phone: '+2349011000007',
+      region: 'EASTERN',
+      accountStatus: 'ON_HOLD',
+      outstandingBalance: 75000,
+    },
+    {
+      erpId: 'CUST008',
+      name: 'Alhaji Faruk Shola',
+      phone: '+2349011000008',
+      region: 'NORTH',
+      accountStatus: 'ACTIVE',
+      outstandingBalance: 0,
+    },
+    {
+      erpId: 'CUST009',
+      name: 'Bello & Sons LTD',
+      phone: '+2349011000009',
+      region: 'SOUTH_SOUTH',
+      accountStatus: 'ACTIVE',
+      outstandingBalance: 60000,
+    },
+    {
+      erpId: 'CUST010',
+      name: 'Akpan Stores',
+      phone: '+2349011000010',
+      region: 'EASTERN',
+      accountStatus: 'ACTIVE',
+      outstandingBalance: 0,
+    },
+    {
+      erpId: 'CUST011',
+      name: 'Mytera Distribution Ltd',
+      phone: '+2348100000011',
+      region: 'LAGOS',
+      accountStatus: 'ACTIVE',
+      outstandingBalance: 275000,
+    },
   ];
 
   const customers: Customer[] = [];
@@ -110,18 +187,86 @@ async function main() {
     username?: string;
     erpCode?: string;
   }> = [
-    { email: 'admin@viju.local',     name: 'Admin User',          phone: '+2348000000001', role: 'ADMIN',             region: null      },
-    { email: 'officer.north@viju.local',    name: 'Aisha Bello',    phone: '+2348000000002', role: 'OFFICER',           region: 'NORTH'     },
-    { email: 'officer.lagos@viju.local',    name: 'Funmi Adelaja',  phone: '+2348000000003', role: 'OFFICER',           region: 'LAGOS'     },
-    { email: 'officer.sw@viju.local',       name: 'David Ukonmagu', phone: '+2348000000004', role: 'OFFICER',           region: 'SOUTH_WEST' },
-    { email: 'officer.se@viju.local',       name: 'Emeka Nwakolo',  phone: '+2348000000005', role: 'OFFICER',           region: 'SOUTH_EAST' },
-    { email: 'regional.lagos@viju.local',   name: 'Ngozi Okafor',   phone: '+2348000000006', role: 'REGIONAL_ADMIN',    region: 'LAGOS'     },
-    { email: 'regional.north@viju.local',   name: 'Musa Aliyu',     phone: '+2348000000007', role: 'REGIONAL_ADMIN',    region: 'NORTH'     },
-    { email: 'loader.lagos@viju.local',     name: 'Ifeanyi Okonkwo',phone: '+2348000000008', role: 'LOADING_OFFICER',   region: 'LAGOS'     },
-    { email: 'loader.sw@viju.local',        name: 'Bisi Adewale',   phone: '+2348000000009', role: 'LOADING_OFFICER',   region: 'SOUTH_WEST' },
-    { email: 'warehouse.lagos@viju.local',  name: 'Ibrahim Musa',   phone: '+2348000000010', role: 'WAREHOUSE_OFFICER', region: 'LAGOS'     },
+    {
+      email: 'admin@viju.local',
+      name: 'Admin User',
+      phone: '+2348000000001',
+      role: 'ADMIN',
+      region: null,
+    },
+    {
+      email: 'officer.north@viju.local',
+      name: 'Aisha Bello',
+      phone: '+2348000000002',
+      role: 'OFFICER',
+      region: 'NORTH',
+    },
+    {
+      email: 'officer.lagos@viju.local',
+      name: 'Funmi Adelaja',
+      phone: '+2348000000003',
+      role: 'OFFICER',
+      region: 'LAGOS',
+    },
+    {
+      email: 'officer.sw@viju.local',
+      name: 'David Ukonmagu',
+      phone: '+2348000000004',
+      role: 'OFFICER',
+      region: 'WESTERN',
+    },
+    {
+      email: 'officer.se@viju.local',
+      name: 'Emeka Nwakolo',
+      phone: '+2348000000005',
+      role: 'OFFICER',
+      region: 'EASTERN',
+    },
+    {
+      email: 'regional.lagos@viju.local',
+      name: 'Ngozi Okafor',
+      phone: '+2348000000006',
+      role: 'REGIONAL_ADMIN',
+      region: 'LAGOS',
+    },
+    {
+      email: 'regional.north@viju.local',
+      name: 'Musa Aliyu',
+      phone: '+2348000000007',
+      role: 'REGIONAL_ADMIN',
+      region: 'NORTH',
+    },
+    {
+      email: 'loader.lagos@viju.local',
+      name: 'Ifeanyi Okonkwo',
+      phone: '+2348000000008',
+      role: 'LOADING_OFFICER',
+      region: 'LAGOS',
+    },
+    {
+      email: 'loader.sw@viju.local',
+      name: 'Bisi Adewale',
+      phone: '+2348000000009',
+      role: 'LOADING_OFFICER',
+      region: 'WESTERN',
+    },
+    {
+      email: 'warehouse.lagos@viju.local',
+      name: 'Ibrahim Musa',
+      phone: '+2348000000010',
+      role: 'WAREHOUSE_OFFICER',
+      region: 'LAGOS',
+    },
     // ERP-mock web-login account — username/code provisioned via /auth/staff/web-login
-    { email: 'james.o@viju.example',        name: 'James Okonkwo',  phone: '+2348000000011', role: 'OFFICER',           region: 'LAGOS',     username: 'james.o', erpCode: 'twye79woe88' },
+    {
+      email: 'james.o@viju.example',
+      name: 'James Okonkwo',
+      phone: '+2348000000011',
+      role: 'OFFICER',
+      region: 'LAGOS',
+      username: 'james.o',
+      erpCode: 'twye79woe88',
+    },
   ];
 
   const staffList: Staff[] = [];
@@ -150,9 +295,15 @@ async function main() {
     staffList.push(staff);
   }
 
-  const lagosOfficer = staffList.find((s) => s.email === 'officer.lagos@viju.local')!;
-  const secondLagosOfficer = staffList.find((s) => s.email === 'officer.sw@viju.local')!;
-  const lagosLoader = staffList.find((s) => s.email === 'loader.lagos@viju.local')!;
+  const lagosOfficer = staffList.find(
+    (s) => s.email === 'officer.lagos@viju.local',
+  )!;
+  const secondLagosOfficer = staffList.find(
+    (s) => s.email === 'officer.sw@viju.local',
+  )!;
+  const lagosLoader = staffList.find(
+    (s) => s.email === 'loader.lagos@viju.local',
+  )!;
   const adminUser = staffList.find((s) => s.email === 'admin@viju.local')!;
 
   // Assign Lagos officer as primary for customer1
@@ -163,14 +314,32 @@ async function main() {
 
   // Two-officer assignment for customer1 (PRD F6)
   await prisma.customerOfficer.upsert({
-    where: { customerId_staffId: { customerId: customer1.id, staffId: lagosOfficer.id } },
+    where: {
+      customerId_staffId: {
+        customerId: customer1.id,
+        staffId: lagosOfficer.id,
+      },
+    },
     update: { isPrimary: true },
-    create: { customerId: customer1.id, staffId: lagosOfficer.id, isPrimary: true },
+    create: {
+      customerId: customer1.id,
+      staffId: lagosOfficer.id,
+      isPrimary: true,
+    },
   });
   await prisma.customerOfficer.upsert({
-    where: { customerId_staffId: { customerId: customer1.id, staffId: secondLagosOfficer.id } },
+    where: {
+      customerId_staffId: {
+        customerId: customer1.id,
+        staffId: secondLagosOfficer.id,
+      },
+    },
     update: { isPrimary: false },
-    create: { customerId: customer1.id, staffId: secondLagosOfficer.id, isPrimary: false },
+    create: {
+      customerId: customer1.id,
+      staffId: secondLagosOfficer.id,
+      isPrimary: false,
+    },
   });
 
   // Make james.o (ERP web-login account) the secondary officer for two
@@ -183,7 +352,9 @@ async function main() {
     for (const target of [k1, ikorodu]) {
       if (!target) continue;
       await prisma.customerOfficer.upsert({
-        where: { customerId_staffId: { customerId: target.id, staffId: jamesO.id } },
+        where: {
+          customerId_staffId: { customerId: target.id, staffId: jamesO.id },
+        },
         update: { isPrimary: false },
         create: { customerId: target.id, staffId: jamesO.id, isPrimary: false },
       });
@@ -192,10 +363,10 @@ async function main() {
 
   // Assign each other customer to an officer in their region
   const officersByRegion: Record<string, Staff | undefined> = {
-    LAGOS:      lagosOfficer,
-    SOUTH_WEST: staffList.find((s) => s.email === 'officer.sw@viju.local'),
-    SOUTH_EAST: staffList.find((s) => s.email === 'officer.se@viju.local'),
-    NORTH:      staffList.find((s) => s.email === 'officer.north@viju.local'),
+    LAGOS: lagosOfficer,
+    WESTERN: staffList.find((s) => s.email === 'officer.sw@viju.local'),
+    EASTERN: staffList.find((s) => s.email === 'officer.se@viju.local'),
+    NORTH: staffList.find((s) => s.email === 'officer.north@viju.local'),
   };
   for (const c of customers.slice(1)) {
     const officer = officersByRegion[c.region];
@@ -213,26 +384,26 @@ async function main() {
 
   // ─── 10 Stock items (shared catalogue) ──────────────────
   const stockProducts = [
-    { name: 'Viju Apple Drink 400ml',     qty: 2500 },
-    { name: 'Viju Orange Drink 400ml',    qty: 1800 },
+    { name: 'Viju Apple Drink 400ml', qty: 2500 },
+    { name: 'Viju Orange Drink 400ml', qty: 1800 },
     { name: 'Viju Pineapple Drink 400ml', qty: 2000 },
-    { name: 'Viju Milk 330ml',            qty: 3200 },
-    { name: 'Viju Milk 1L',               qty: 1500 },
-    { name: 'Viju Yoghurt 200ml',         qty: 900  },
+    { name: 'Viju Milk 330ml', qty: 3200 },
+    { name: 'Viju Milk 1L', qty: 1500 },
+    { name: 'Viju Yoghurt 200ml', qty: 900 },
     { name: 'Viju Chocolate Drink 330ml', qty: 1100 },
-    { name: 'Viju Wheat Drink 400ml',     qty: 700  },
-    { name: 'Premium Groundnut Oil 5L',   qty: 450  },
-    { name: 'Tomato Paste 400g x 12',     qty: 600  },
-    { name: 'Viju Apple Drink 1L',        qty: 1400 },
-    { name: 'Viju Orange Drink 1L',       qty: 1300 },
-    { name: 'Viju Cocktail Drink 400ml',  qty: 1600 },
-    { name: 'Viju Soya Milk 330ml',       qty: 800  },
-    { name: 'Viju Yoghurt 500ml',         qty: 520  },
-    { name: 'Viju Chivita Active 1L',     qty: 1750 },
-    { name: 'Viju Water 75cl (12 pack)',  qty: 4000 },
-    { name: 'Viju Malt 330ml',            qty: 2100 },
-    { name: 'Premium Groundnut Oil 25L',  qty: 180  },
-    { name: 'Tomato Paste 70g x 50',      qty: 950  },
+    { name: 'Viju Wheat Drink 400ml', qty: 700 },
+    { name: 'Premium Groundnut Oil 5L', qty: 450 },
+    { name: 'Tomato Paste 400g x 12', qty: 600 },
+    { name: 'Viju Apple Drink 1L', qty: 1400 },
+    { name: 'Viju Orange Drink 1L', qty: 1300 },
+    { name: 'Viju Cocktail Drink 400ml', qty: 1600 },
+    { name: 'Viju Soya Milk 330ml', qty: 800 },
+    { name: 'Viju Yoghurt 500ml', qty: 520 },
+    { name: 'Viju Chivita Active 1L', qty: 1750 },
+    { name: 'Viju Water 75cl (12 pack)', qty: 4000 },
+    { name: 'Viju Malt 330ml', qty: 2100 },
+    { name: 'Premium Groundnut Oil 25L', qty: 180 },
+    { name: 'Tomato Paste 70g x 50', qty: 950 },
   ];
 
   for (let i = 0; i < stockProducts.length; i++) {
@@ -252,10 +423,26 @@ async function main() {
   // Cover every OrderStatus so derived invoice statuses also vary:
   // DELIVERED -> PAID, PROCESSING/SHIPPED -> PART_PAID, PENDING/CANCELLED -> UNPAID.
   const orderStatuses = [
-    'DELIVERED', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED',
-    'DELIVERED', 'SHIPPED', 'PROCESSING', 'PENDING', 'DELIVERED',
-    'DELIVERED', 'SHIPPED', 'PENDING', 'DELIVERED', 'PROCESSING',
-    'CANCELLED', 'DELIVERED', 'SHIPPED', 'DELIVERED', 'PROCESSING',
+    'DELIVERED',
+    'PROCESSING',
+    'SHIPPED',
+    'DELIVERED',
+    'CANCELLED',
+    'DELIVERED',
+    'SHIPPED',
+    'PROCESSING',
+    'PENDING',
+    'DELIVERED',
+    'DELIVERED',
+    'SHIPPED',
+    'PENDING',
+    'DELIVERED',
+    'PROCESSING',
+    'CANCELLED',
+    'DELIVERED',
+    'SHIPPED',
+    'DELIVERED',
+    'PROCESSING',
   ] as const;
   const purchases: Purchase[] = [];
   for (let i = 0; i < orderStatuses.length; i++) {
@@ -278,8 +465,18 @@ async function main() {
         status: orderStatuses[i],
         items: {
           create: [
-            { productName: product1.name, quantity: qty1, unitPrice: unit1, lineTotal: qty1 * unit1 },
-            { productName: product2.name, quantity: qty2, unitPrice: unit2, lineTotal: qty2 * unit2 },
+            {
+              productName: product1.name,
+              quantity: qty1,
+              unitPrice: unit1,
+              lineTotal: qty1 * unit1,
+            },
+            {
+              productName: product2.name,
+              quantity: qty2,
+              unitPrice: unit2,
+              lineTotal: qty2 * unit2,
+            },
           ],
         },
       },
@@ -305,8 +502,24 @@ async function main() {
   }
 
   // ─── 10 Support tickets (with one reply each) ──────────
-  const ticketCategories = ['DELIVERY_ISSUE', 'ACCOUNT_QUERY', 'PRODUCT_QUERY', 'OTHER'] as const;
-  const ticketStatuses = ['OPEN', 'IN_PROGRESS', 'AWAITING_CUSTOMER', 'RESOLVED', 'OPEN', 'IN_PROGRESS', 'RESOLVED', 'OPEN', 'IN_PROGRESS', 'RESOLVED'] as const;
+  const ticketCategories = [
+    'DELIVERY_ISSUE',
+    'ACCOUNT_QUERY',
+    'PRODUCT_QUERY',
+    'OTHER',
+  ] as const;
+  const ticketStatuses = [
+    'OPEN',
+    'IN_PROGRESS',
+    'AWAITING_CUSTOMER',
+    'RESOLVED',
+    'OPEN',
+    'IN_PROGRESS',
+    'RESOLVED',
+    'OPEN',
+    'IN_PROGRESS',
+    'RESOLVED',
+  ] as const;
   const subjects = [
     'Delivery delay on order VJ-2026-675',
     'Invoice correction request',
@@ -439,17 +652,28 @@ async function main() {
         region: 'LAGOS',
         linkedPurchaseId: purchase.id,
         truckPlateNumber: `LAG-${234 + i}-XY`,
-        driverName: ['Jimoh Ibrahim', 'John Dare', 'Tunde Dare', 'Musa Aliyu'][i % 4],
+        driverName: ['Jimoh Ibrahim', 'John Dare', 'Tunde Dare', 'Musa Aliyu'][
+          i % 4
+        ],
         driverPhone: `+23480${(80000000 + i).toString()}`,
         requestedLoadingDate: new Date(2026, 3, 15 + i),
         quantityCartons: 120 + i * 10,
-        destination: ['Yaba Warehouse', 'Ikeja Depot', 'Apapa Warehouse'][i % 3],
+        destination: ['Yaba Warehouse', 'Ikeja Depot', 'Apapa Warehouse'][
+          i % 3
+        ],
         termsAcceptedAt: new Date(2026, 3, 14 + i),
         status,
         assignedOfficerId: isAssigned ? lagosLoader.id : null,
         assignedAt: isAssigned ? new Date(2026, 3, 14 + i, 14) : null,
-        assignedById: isAssigned ? staffList.find((s) => s.role === 'REGIONAL_ADMIN' && s.region === 'LAGOS')?.id : null,
-        loadingStartedAt: isCompleted || status === 'LOADING_IN_PROGRESS' ? new Date(2026, 3, 15 + i, 9) : null,
+        assignedById: isAssigned
+          ? staffList.find(
+              (s) => s.role === 'REGIONAL_ADMIN' && s.region === 'LAGOS',
+            )?.id
+          : null,
+        loadingStartedAt:
+          isCompleted || status === 'LOADING_IN_PROGRESS'
+            ? new Date(2026, 3, 15 + i, 9)
+            : null,
         completedAt: isCompleted ? new Date(2026, 3, 15 + i, 12) : null,
         waybillDocumentUrl: isCompleted ? WAYBILL_DOC_URL : null,
       },
@@ -462,7 +686,7 @@ async function main() {
   // loading officer get the full status spread; the rest get pending rows.
   const loadersByRegion: Record<string, Staff | undefined> = {
     LAGOS: lagosLoader,
-    SOUTH_WEST: staffList.find((s) => s.email === 'loader.sw@viju.local'),
+    WESTERN: staffList.find((s) => s.email === 'loader.sw@viju.local'),
   };
   const regionalByRegion: Record<string, Staff | undefined> = {
     LAGOS: staffList.find(
@@ -490,9 +714,12 @@ async function main() {
           customerId: c.id,
           region: c.region,
           truckPlateNumber: `TRK-${wbSeq}-NG`,
-          driverName: ['Jimoh Ibrahim', 'John Dare', 'Tunde Dare', 'Musa Aliyu'][
-            j % 4
-          ],
+          driverName: [
+            'Jimoh Ibrahim',
+            'John Dare',
+            'Tunde Dare',
+            'Musa Aliyu',
+          ][j % 4],
           driverPhone: `+23480${81000000 + wbSeq}`,
           requestedLoadingDate: new Date(2026, 4, 1 + j),
           quantityCartons: 80 + j * 15,
@@ -546,8 +773,14 @@ async function main() {
   const newAcct = customers.find((c) => c.erpId === 'CUST011');
   if (newAcct) {
     const naOrderStatuses = [
-      'DELIVERED', 'PROCESSING', 'SHIPPED', 'DELIVERED',
-      'PENDING', 'DELIVERED', 'CANCELLED', 'DELIVERED',
+      'DELIVERED',
+      'PROCESSING',
+      'SHIPPED',
+      'DELIVERED',
+      'PENDING',
+      'DELIVERED',
+      'CANCELLED',
+      'DELIVERED',
     ] as const;
     const naPurchases: Purchase[] = [];
     for (let i = 0; i < naOrderStatuses.length; i++) {
@@ -567,8 +800,18 @@ async function main() {
           status: naOrderStatuses[i],
           items: {
             create: [
-              { productName: p1.name, quantity: qty1, unitPrice: price1, lineTotal: qty1 * price1 },
-              { productName: p2.name, quantity: qty2, unitPrice: price2, lineTotal: qty2 * price2 },
+              {
+                productName: p1.name,
+                quantity: qty1,
+                unitPrice: price1,
+                lineTotal: qty1 * price1,
+              },
+              {
+                productName: p2.name,
+                quantity: qty2,
+                unitPrice: price2,
+                lineTotal: qty2 * price2,
+              },
             ],
           },
         },
@@ -593,8 +836,12 @@ async function main() {
     }
 
     const naWbStatuses: LoadingRequestStatus[] = [
-      'COMPLETED', 'LOADING_IN_PROGRESS', 'PENDING_ASSIGNMENT',
-      'ASSIGNED', 'COMPLETED', 'CANCELLED',
+      'COMPLETED',
+      'LOADING_IN_PROGRESS',
+      'PENDING_ASSIGNMENT',
+      'ASSIGNED',
+      'COMPLETED',
+      'CANCELLED',
     ];
     const naRegional = staffList.find(
       (s) => s.role === 'REGIONAL_ADMIN' && s.region === 'LAGOS',
@@ -610,11 +857,18 @@ async function main() {
           region: 'LAGOS',
           linkedPurchaseId: naPurchases[i]?.id ?? null,
           truckPlateNumber: `LAG-${500 + i}-NA`,
-          driverName: ['Jimoh Ibrahim', 'John Dare', 'Tunde Dare', 'Musa Aliyu'][i % 4],
+          driverName: [
+            'Jimoh Ibrahim',
+            'John Dare',
+            'Tunde Dare',
+            'Musa Aliyu',
+          ][i % 4],
           driverPhone: `+23480${82000000 + i}`,
           requestedLoadingDate: new Date(2026, 5, 2 + i),
           quantityCartons: 60 + i * 12,
-          destination: ['Yaba Warehouse', 'Ikeja Depot', 'Apapa Warehouse'][i % 3],
+          destination: ['Yaba Warehouse', 'Ikeja Depot', 'Apapa Warehouse'][
+            i % 3
+          ],
           termsAcceptedAt: new Date(2026, 5, 1 + i),
           status,
           assignedOfficerId: isAssigned ? lagosLoader.id : null,
@@ -631,7 +885,11 @@ async function main() {
     }
 
     const naTicketStatuses = [
-      'OPEN', 'IN_PROGRESS', 'RESOLVED', 'OPEN', 'AWAITING_CUSTOMER',
+      'OPEN',
+      'IN_PROGRESS',
+      'RESOLVED',
+      'OPEN',
+      'AWAITING_CUSTOMER',
     ] as const;
     for (let i = 0; i < naTicketStatuses.length; i++) {
       const subject = subjects[i % subjects.length];
@@ -682,7 +940,12 @@ async function main() {
     ];
     for (const content of naNotifs) {
       await prisma.notification.create({
-        data: { customerId: newAcct.id, content, isRead: false, type: 'PRD_TRIGGER' },
+        data: {
+          customerId: newAcct.id,
+          content,
+          isRead: false,
+          type: 'PRD_TRIGGER',
+        },
       });
     }
   }
@@ -704,19 +967,71 @@ async function main() {
   ];
   const flyerImg = (i: number) => flyerImages[i % flyerImages.length];
   const flyerSeeds = [
-    { name: 'Viju Chivita 1L — June Promo',     imageUrl: flyerImg(0), sortOrder: 0, isActive: true },
-    { name: 'Viju Milk 1L — Bulk Discount',     imageUrl: flyerImg(1), sortOrder: 1, isActive: true },
-    { name: 'Viju Yoghurt 200ml — New Stock',   imageUrl: flyerImg(2), sortOrder: 2, isActive: true },
-    { name: 'Premium Groundnut Oil 5L',         imageUrl: flyerImg(3), sortOrder: 3, isActive: true },
-    { name: 'Viju Cocktail 400ml — Combo Deal', imageUrl: flyerImg(4), sortOrder: 4, isActive: true },
-    { name: 'Viju Water 75cl — Wholesale',      imageUrl: flyerImg(5), sortOrder: 5, isActive: true },
-    { name: 'Viju Malt 330ml — Launch Offer',   imageUrl: flyerImg(6), sortOrder: 6, isActive: true },
-    { name: 'Tomato Paste — Trade Pack',        imageUrl: flyerImg(7), sortOrder: 7, isActive: true },
-    { name: 'Easter Campaign (archived)',       imageUrl: flyerImg(8), sortOrder: 8, isActive: false },
-    { name: 'Christmas Campaign (archived)',    imageUrl: flyerImg(9), sortOrder: 9, isActive: false },
+    {
+      name: 'Viju Chivita 1L — June Promo',
+      imageUrl: flyerImg(0),
+      sortOrder: 0,
+      isActive: true,
+    },
+    {
+      name: 'Viju Milk 1L — Bulk Discount',
+      imageUrl: flyerImg(1),
+      sortOrder: 1,
+      isActive: true,
+    },
+    {
+      name: 'Viju Yoghurt 200ml — New Stock',
+      imageUrl: flyerImg(2),
+      sortOrder: 2,
+      isActive: true,
+    },
+    {
+      name: 'Premium Groundnut Oil 5L',
+      imageUrl: flyerImg(3),
+      sortOrder: 3,
+      isActive: true,
+    },
+    {
+      name: 'Viju Cocktail 400ml — Combo Deal',
+      imageUrl: flyerImg(4),
+      sortOrder: 4,
+      isActive: true,
+    },
+    {
+      name: 'Viju Water 75cl — Wholesale',
+      imageUrl: flyerImg(5),
+      sortOrder: 5,
+      isActive: true,
+    },
+    {
+      name: 'Viju Malt 330ml — Launch Offer',
+      imageUrl: flyerImg(6),
+      sortOrder: 6,
+      isActive: true,
+    },
+    {
+      name: 'Tomato Paste — Trade Pack',
+      imageUrl: flyerImg(7),
+      sortOrder: 7,
+      isActive: true,
+    },
+    {
+      name: 'Easter Campaign (archived)',
+      imageUrl: flyerImg(8),
+      sortOrder: 8,
+      isActive: false,
+    },
+    {
+      name: 'Christmas Campaign (archived)',
+      imageUrl: flyerImg(9),
+      sortOrder: 9,
+      isActive: false,
+    },
   ];
   for (const f of flyerSeeds) {
-    await prisma.productFlyer.create({ data: { ...f, createdById: adminUser.id } });
+    await prisma.productFlyer.create({
+      data: { ...f, createdById: adminUser.id },
+    });
   }
 
   // ─── Broadcasts (PRD F15) — regional + individual w/ allowance ──
@@ -729,7 +1044,7 @@ async function main() {
       type: 'REGIONAL',
       message:
         'Reminder: Loading bay closes 5pm on public holidays. Plan your pickups.',
-      targetRegions: ['LAGOS', 'SOUTH_WEST'],
+      targetRegions: ['LAGOS', 'WESTERN'],
       sentById: adminUser.id,
       deliveredCount: 42,
     },
@@ -762,28 +1077,64 @@ async function main() {
 
   // ─── Staff notifications (web portal bell) ─────────────
   const staffNotifications = [
-    { staffId: lagosOfficer.id,        content: 'New support ticket raised by a customer in your region.', isRead: true },
-    { staffId: lagosOfficer.id,        content: 'Customer John Doe sent you a new message.',               isRead: false },
-    { staffId: regionalAdminLagos.id,  content: 'A loading request is awaiting assignment in LAGOS.',       isRead: false },
+    {
+      staffId: lagosOfficer.id,
+      content: 'New support ticket raised by a customer in your region.',
+      isRead: true,
+    },
+    {
+      staffId: lagosOfficer.id,
+      content: 'Customer John Doe sent you a new message.',
+      isRead: false,
+    },
+    {
+      staffId: regionalAdminLagos.id,
+      content: 'A loading request is awaiting assignment in LAGOS.',
+      isRead: false,
+    },
   ];
   for (const n of staffNotifications) {
     await prisma.notification.create({
-      data: { staffId: n.staffId, content: n.content, isRead: n.isRead, type: 'STAFF_ALERT' },
+      data: {
+        staffId: n.staffId,
+        content: n.content,
+        isRead: n.isRead,
+        type: 'STAFF_ALERT',
+      },
     });
   }
 
   // ─── Push tokens — cover every DevicePlatform ──────────
   await prisma.pushToken.createMany({
     data: [
-      { token: 'seed-ios-customer1',     platform: 'IOS',     customerId: customer1.id, lastUsedAt: new Date() },
-      { token: 'seed-android-customer1', platform: 'ANDROID', customerId: customer1.id, lastUsedAt: new Date() },
-      { token: 'seed-web-officer',       platform: 'WEB',     staffId: lagosOfficer.id, lastUsedAt: new Date() },
+      {
+        token: 'seed-ios-customer1',
+        platform: 'IOS',
+        customerId: customer1.id,
+        lastUsedAt: new Date(),
+      },
+      {
+        token: 'seed-android-customer1',
+        platform: 'ANDROID',
+        customerId: customer1.id,
+        lastUsedAt: new Date(),
+      },
+      {
+        token: 'seed-web-officer',
+        platform: 'WEB',
+        staffId: lagosOfficer.id,
+        lastUsedAt: new Date(),
+      },
     ],
   });
 
   // ─── Recent T&C acceptance — lets customer1 submit a loading request ──
   await prisma.termsAcceptance.create({
-    data: { customerId: customer1.id, termsVersion: 'v1.0', acceptedAt: new Date() },
+    data: {
+      customerId: customer1.id,
+      termsVersion: 'v1.0',
+      acceptedAt: new Date(),
+    },
   });
 
   // ─── Light data for the OTHER 9 customers ──────────────
@@ -872,9 +1223,15 @@ async function main() {
   console.log('');
   console.log('📋 STAFF LOGINS (password: ' + STAFF_PASSWORD + ')');
   for (const s of staffSeeds) {
-    console.log(`   ${s.email.padEnd(32)} ${s.role.padEnd(18)} ${s.region ?? '—'}`);
+    console.log(
+      `   ${s.email.padEnd(32)} ${s.role.padEnd(18)} ${s.region ?? '—'}`,
+    );
   }
-  console.log('\n📋 PRIMARY OFFICER for ' + MAIN_TEST_PHONE + ': officer.lagos@viju.local');
+  console.log(
+    '\n📋 PRIMARY OFFICER for ' +
+      MAIN_TEST_PHONE +
+      ': officer.lagos@viju.local',
+  );
   console.log('📋 SECONDARY OFFICER:                  officer.sw@viju.local\n');
 }
 

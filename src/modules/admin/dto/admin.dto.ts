@@ -7,7 +7,7 @@ import {
   IsOptional,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Region } from '@prisma/client';
+import { Region } from '../../../common/region/region.constants';
 import { PaginationQueryDto } from '../../../common/pagination/pagination.dto';
 
 /**

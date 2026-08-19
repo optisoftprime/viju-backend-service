@@ -11,7 +11,8 @@ import {
   ArrayMinSize,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Region, BroadcastType } from '@prisma/client';
+import { BroadcastType } from '@prisma/client';
+import { Region } from '../../../common/region/region.constants';
 import { PaginationQueryDto } from '../../../common/pagination/pagination.dto';
 
 export class SendRegionalBroadcastDto {

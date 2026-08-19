@@ -33,6 +33,7 @@ import {
   OfficerFilterDto,
 } from './dto/admin.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { Region } from '../../common/region/region.constants';
 import { PaginatedCustomersResponseDto } from './dto/customer-response.dto';
 import { MessageResponseDto } from '../../common/dto/message-response.dto';
 import {
@@ -62,8 +63,7 @@ export class AdminController {
 
   @Get('customers')
   @ApiOperation({
-    summary:
-      'List customers with optional region filter + name/erpId search',
+    summary: 'List customers with optional region filter + name/erpId search',
   })
   @ApiOkResponse({
     description: 'Paginated list of customers',
@@ -84,7 +84,7 @@ export class AdminController {
   })
   async exportCustomers(
     @Query('region')
-    region: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH' | undefined,
+    region: Region | undefined,
     @Query('search') search: string | undefined,
     @Res() res: Response,
   ) {
@@ -183,8 +183,7 @@ export class AdminController {
 
   @Patch('product-flyers/reorder')
   @ApiOperation({
-    summary:
-      'Reorder flyer cards — order in payload = order shown on mobile',
+    summary: 'Reorder flyer cards — order in payload = order shown on mobile',
   })
   @ApiOkResponse({ type: [ProductFlyerDto] })
   async reorderFlyers(@Body() dto: ReorderProductFlyersDto) {

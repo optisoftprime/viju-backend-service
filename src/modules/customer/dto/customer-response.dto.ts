@@ -1,8 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
-
-const REGION_VALUES = ['LAGOS', 'SOUTH_WEST', 'SOUTH_EAST', 'NORTH'] as const;
-type Region = (typeof REGION_VALUES)[number];
+import { Region, REGION_VALUES } from '../../../common/region/region.constants';
 
 const ORDER_STATUS_VALUES = [
   'PENDING',
@@ -148,7 +146,8 @@ export class StockBalanceProductDto {
 export class StockBalanceBreakdownDto {
   @ApiProperty({
     example: 700,
-    description: 'Total cartons paid for across all products (the "Purchased" figure)',
+    description:
+      'Total cartons paid for across all products (the "Purchased" figure)',
   })
   totalPurchasedCartons: number;
 
@@ -160,13 +159,15 @@ export class StockBalanceBreakdownDto {
 
   @ApiProperty({
     example: 420,
-    description: 'Total cartons paid for but not yet loaded (purchased - loaded)',
+    description:
+      'Total cartons paid for but not yet loaded (purchased - loaded)',
   })
   totalRemainingCartons: number;
 
   @ApiProperty({
     example: 40,
-    description: 'Loading progress as a whole percentage (loaded / purchased * 100)',
+    description:
+      'Loading progress as a whole percentage (loaded / purchased * 100)',
   })
   loadingProgress: number;
 
@@ -209,7 +210,10 @@ export class CustomerProfileDto {
   @ApiProperty({ example: 50000.5 })
   outstandingBalance: number;
 
-  @ApiProperty({ example: 'https://cdn.viju.example/photos/me.jpg', nullable: true })
+  @ApiProperty({
+    example: 'https://cdn.viju.example/photos/me.jpg',
+    nullable: true,
+  })
   profilePhotoUrl: string | null;
 
   @ApiProperty({ type: AccountOfficerDto, nullable: true })

@@ -203,6 +203,6 @@ export class StatementService {
   }
 
   private money(n: number): string {
-    return '₦' + n.toLocaleString('en-NG', { minimumFractionDigits: 2 });
+    return '₦' + n.toLocaleString('en-NG', { minimumFractionDigits: 4 });
   }
 }

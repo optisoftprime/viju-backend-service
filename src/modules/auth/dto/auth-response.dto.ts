@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Region, REGION_VALUES } from '../../../common/region/region.constants';
 
 const ROLE_VALUES = [
   'CUSTOMER',
@@ -28,13 +29,13 @@ export class AuthUserDto {
   role: AuthRole;
 
   @ApiProperty({
-    enum: ['LAGOS', 'SOUTH_WEST', 'SOUTH_EAST', 'NORTH'],
+    enum: REGION_VALUES,
     nullable: true,
-    example: 'SOUTH_WEST',
+    example: 'WESTERN',
     description:
       "The user's region. Always set for customers; may be null for staff who have no region assigned.",
   })
-  region: string | null;
+  region: Region | null;
 }
 
 // ─── Token pair response ───────────────────────────────────────────────────
@@ -54,7 +55,10 @@ export class AuthTokenResponseDto {
   })
   refresh_token: string;
 
-  @ApiProperty({ example: 3600, description: 'Access token lifetime in seconds.' })
+  @ApiProperty({
+    example: 3600,
+    description: 'Access token lifetime in seconds.',
+  })
   expires_in: number;
 
   @ApiProperty({

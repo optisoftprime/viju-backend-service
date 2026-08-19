@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
+import { Region, REGION_VALUES } from '../../../common/region/region.constants';
 
 /**
  * The assigning officer embedded under each customer's `officerAssignments`.
@@ -42,11 +43,8 @@ export class CustomerListItemDto {
   @ApiProperty({ example: '+2348012345678' })
   phone: string;
 
-  @ApiProperty({
-    enum: ['LAGOS', 'SOUTH_WEST', 'SOUTH_EAST', 'NORTH'],
-    example: 'LAGOS',
-  })
-  region: 'LAGOS' | 'SOUTH_WEST' | 'SOUTH_EAST' | 'NORTH';
+  @ApiProperty({ enum: REGION_VALUES, example: 'LAGOS' })
+  region: Region;
 
   @ApiProperty({ enum: ['ACTIVE', 'ON_HOLD'], example: 'ACTIVE' })
   accountStatus: 'ACTIVE' | 'ON_HOLD';

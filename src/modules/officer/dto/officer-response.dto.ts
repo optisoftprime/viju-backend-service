@@ -1,8 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
-
-const REGION_VALUES = ['LAGOS', 'SOUTH_WEST', 'SOUTH_EAST', 'NORTH'] as const;
-type Region = (typeof REGION_VALUES)[number];
+import { Region, REGION_VALUES } from '../../../common/region/region.constants';
 
 const ACCOUNT_STATUS_VALUES = ['ACTIVE', 'ON_HOLD'] as const;
 type AccountStatus = (typeof ACCOUNT_STATUS_VALUES)[number];
@@ -289,11 +287,7 @@ export class CustomerInvoicesDto {
 // ---------------------------------------------------------------------------
 // GET /officers/customers/:id/stock  -> OfficerService.getCustomerStock
 // ---------------------------------------------------------------------------
-const STOCK_STATUS_VALUES = [
-  'AVAILABLE',
-  'LOW_STOCK',
-  'OUT_OF_STOCK',
-] as const;
+const STOCK_STATUS_VALUES = ['AVAILABLE', 'LOW_STOCK', 'OUT_OF_STOCK'] as const;
 type StockStatus = (typeof STOCK_STATUS_VALUES)[number];
 
 // One row per product — matches the Figma Stock-tab columns.
@@ -307,12 +301,16 @@ export class CustomerStockItemDto {
   @ApiProperty({ example: 'Viju Apple Drink 400ml', description: 'Product' })
   productName: string;
 
-  @ApiProperty({ example: 2500, description: 'Stock Balance (ERP stock level)' })
+  @ApiProperty({
+    example: 2500,
+    description: 'Stock Balance (ERP stock level)',
+  })
   stockBalance: number;
 
   @ApiProperty({
     example: 300,
-    description: 'Reserved Stock — total reserved across this customer’s orders',
+    description:
+      'Reserved Stock — total reserved across this customer’s orders',
   })
   reservedStock: number;
 
@@ -358,7 +356,10 @@ export class StockLevelDto {
   @ApiProperty({ example: 'Viju Apple Drink 400ml' })
   productName: string;
 
-  @ApiProperty({ example: 2500, description: 'Stock Balance (ERP stock level)' })
+  @ApiProperty({
+    example: 2500,
+    description: 'Stock Balance (ERP stock level)',
+  })
   stockBalance: number;
 
   @ApiProperty({ example: '2026-04-15T10:45:00.000Z', format: 'date-time' })

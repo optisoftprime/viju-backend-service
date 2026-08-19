@@ -25,6 +25,7 @@ import { ErpService } from '../../infrastructure/erp/erp.types';
 import { EmailService } from '../../infrastructure/email/email.types';
 import { StaffRole } from '@prisma/client';
 import { isDevMode } from '../../common/utils/env';
+import { tryRegionFromBpClusterCode } from '../../common/region/region.constants';
 
 const PASSWORD_MAX_ATTEMPTS = 5;
 const PASSWORD_LOCK_MINUTES = 30;
@@ -140,6 +141,13 @@ export class AuthService {
       throw new UnauthorizedException('Invalid username or code.');
     }
 
+    // The ERP reports the posting as a numeric BP_CLUSTER_CODE; translate it
+    // once, here, so nothing downstream ever sees the number. Staff.region is
+    // nullable, so an absent or unrecognised code degrades to null rather than
+    // blocking the login - a regionless staff member is already handled by
+    // RegionalController.resolveRegion().
+    const region = tryRegionFromBpClusterCode(erpStaff.bpClusterCode);
+
     let staff = await this.prisma.staff.findUnique({
       where: { username: erpStaff.username },
     });
@@ -152,7 +160,7 @@ export class AuthService {
           erpCode: erpStaff.erpCode,
           phone: erpStaff.phone,
           role: erpStaff.role,
-          region: erpStaff.region ?? null,
+          region,
         },
         create: {
           name: erpStaff.name,
@@ -161,7 +169,7 @@ export class AuthService {
           username: erpStaff.username,
           erpCode: erpStaff.erpCode,
           role: erpStaff.role,
-          region: erpStaff.region ?? null,
+          region,
         },
       });
     }

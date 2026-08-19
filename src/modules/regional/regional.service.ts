@@ -10,7 +10,8 @@ import {
   AssignLoadingOfficerDto,
   UpdateLoadingStatusDto,
 } from './dto/regional.dto';
-import { Region, LoadingRequestStatus } from '@prisma/client';
+import { LoadingRequestStatus } from '@prisma/client';
+import { Region } from '../../common/region/region.constants';
 import { paginate } from '../../common/pagination/paginate';
 
 @Injectable()

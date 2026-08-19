@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
+import { Region, REGION_VALUES } from '../../../common/region/region.constants';
 
 const TICKET_CATEGORIES = [
   'ACCOUNT_QUERY',
@@ -14,8 +15,6 @@ const TICKET_STATUSES = [
   'AWAITING_CUSTOMER',
   'RESOLVED',
 ] as const;
-
-const REGIONS = ['LAGOS', 'SOUTH_WEST', 'SOUTH_EAST', 'NORTH'] as const;
 
 const SENDER_TYPES = ['CUSTOMER', 'STAFF'] as const;
 
@@ -120,8 +119,8 @@ export class TicketCustomerDto {
   @ApiProperty({ example: 12500.5 })
   outstandingBalance: number;
 
-  @ApiProperty({ enum: REGIONS, example: 'LAGOS' })
-  region: (typeof REGIONS)[number];
+  @ApiProperty({ enum: REGION_VALUES, example: 'LAGOS' })
+  region: Region;
 
   @ApiProperty({ example: 0 })
   failedLoginAttempts: number;

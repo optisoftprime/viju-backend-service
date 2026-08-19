@@ -24,7 +24,7 @@ import {
   UpdateLoadingStatusDto,
   ListLoadingRequestsQueryDto,
 } from './dto/regional.dto';
-import { Region } from '@prisma/client';
+import { Region } from '../../common/region/region.constants';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 import {
   RegionalDashboardResponseDto,
@@ -93,8 +93,7 @@ export class RegionalController {
   @Patch('loading-requests/:id/assign')
   @Roles('REGIONAL_ADMIN', 'ADMIN')
   @ApiOperation({
-    summary:
-      'Assign a loading request to a loading / warehouse officer',
+    summary: 'Assign a loading request to a loading / warehouse officer',
   })
   @ApiOkResponse({
     description: 'The updated loading request (now ASSIGNED).',
@@ -131,8 +130,7 @@ export class RegionalController {
   @Patch('loading-requests/:id/status')
   @Roles('LOADING_OFFICER', 'WAREHOUSE_OFFICER', 'ADMIN')
   @ApiOperation({
-    summary:
-      'Loading Officer advances status + uploads waybill',
+    summary: 'Loading Officer advances status + uploads waybill',
   })
   @ApiOkResponse({
     description: 'The updated loading request with its new status.',

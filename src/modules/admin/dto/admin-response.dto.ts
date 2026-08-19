@@ -1,8 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
-
-const REGION_VALUES = ['LAGOS', 'SOUTH_WEST', 'SOUTH_EAST', 'NORTH'] as const;
-type Region = (typeof REGION_VALUES)[number];
+import { Region, REGION_VALUES } from '../../../common/region/region.constants';
 
 const STAFF_ROLE_VALUES = [
   'ADMIN',
@@ -48,7 +46,10 @@ export class OfficerDetailDto {
   @ApiProperty({ example: 15, description: 'Distributors assigned to officer' })
   distributors: number;
 
-  @ApiProperty({ example: 2, description: 'Open tickets across their customers' })
+  @ApiProperty({
+    example: 2,
+    description: 'Open tickets across their customers',
+  })
   openTickets: number;
 }
 
@@ -137,7 +138,10 @@ export class TestCustomerDto {
 // ─── Officers (GET/POST /admin/officers) ───────────────────
 
 export class OfficerCustomerCountDto {
-  @ApiProperty({ example: 24, description: 'Customers assigned to this officer' })
+  @ApiProperty({
+    example: 24,
+    description: 'Customers assigned to this officer',
+  })
   customers: number;
 }
 

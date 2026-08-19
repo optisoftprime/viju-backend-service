@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
+import { Region, REGION_VALUES } from '../../../common/region/region.constants';
 
-const REGIONS = ['LAGOS', 'SOUTH_WEST', 'SOUTH_EAST', 'NORTH'];
 const TICKET_CATEGORIES = [
   'ACCOUNT_QUERY',
   'DELIVERY_ISSUE',
@@ -23,8 +23,8 @@ export class AuditCustomerDto {
   @ApiProperty({ example: 'Adeola Distributors Ltd' })
   name: string;
 
-  @ApiProperty({ enum: REGIONS, example: 'LAGOS' })
-  region: string;
+  @ApiProperty({ enum: REGION_VALUES, example: 'LAGOS' })
+  region: Region;
 }
 
 /** Staff summary embedded in audit results (selected: id, name). */
