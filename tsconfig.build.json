@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Decorator support is required by NestJS + class-validator. Pin it here
+    // (not only in the base config) so `nest build` is self-contained and a
+    // stale/incomplete base tsconfig can never drop these — without them TS 5
+    // uses native decorators and class-validator decorators fail with TS1240.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
+  },
+  // Compile only the app source. Without this, prisma/seed.ts is pulled in,
+  // which lifts the inferred rootDir to the project root and emits
+  // dist/src/main.js instead of dist/main.js (the entrypoint runs `node
+  // dist/main`). The seed runs separately via `ts-node prisma/seed.ts`.
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]
+}

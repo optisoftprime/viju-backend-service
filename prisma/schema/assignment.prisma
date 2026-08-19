@@ -1,0 +1,14 @@
+model CustomerOfficer {
+  id           String   @id @default(uuid())
+  customerId   String
+  staffId      String
+  isPrimary    Boolean  @default(false)
+  assignedAt   DateTime @default(now())
+  assignedById String?
+  customer     Customer @relation(fields: [customerId], references: [id])
+  staff        Staff    @relation("StaffToCustomerAssignment", fields: [staffId], references: [id])
+
+  @@unique([customerId, staffId])
+  @@index([customerId])
+  @@index([staffId])
+}

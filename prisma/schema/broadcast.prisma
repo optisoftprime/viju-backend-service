@@ -1,0 +1,26 @@
+model Broadcast {
+  id                 String        @id @default(uuid())
+  reference          String        @unique
+  type               BroadcastType
+  message            String
+  targetRegions      Region[]
+  targetCustomerId   String?
+  deliveryAllowance  Float?
+  allowancePaymentId String?       @unique
+  sentById           String
+  sentAt             DateTime      @default(now())
+  deliveredCount     Int           @default(0)
+  createdAt          DateTime      @default(now())
+  allowancePayment   Payment?      @relation(fields: [allowancePaymentId], references: [id])
+  sentBy             Staff         @relation("StaffToBroadcast", fields: [sentById], references: [id])
+  targetCustomer     Customer?     @relation("BroadcastToCustomer", fields: [targetCustomerId], references: [id])
+
+  @@index([type])
+  @@index([targetCustomerId])
+  @@index([sentById])
+}
+
+enum BroadcastType {
+  REGIONAL
+  INDIVIDUAL
+}

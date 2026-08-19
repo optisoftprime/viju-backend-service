@@ -1,0 +1,12 @@
+services:
+  # No Postgres service here on purpose: the app connects to the existing
+  # host Postgres via the DATABASE_URL in .env.docker (134.209.64.28:5432).
+  # Running a compose Postgres would collide on host port 5432 and create a
+  # second, empty database.
+  app:
+    build: .
+    ports:
+      - '${PORT:-3025}:3025'
+    env_file:
+      - .env
+    restart: unless-stopped

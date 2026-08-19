@@ -1,0 +1,55 @@
+model Message {
+  id            String    @id @default(uuid())
+  customerId    String
+  staffId       String
+  senderType    String
+  content       String?
+  attachmentUrl String?
+  createdAt     DateTime  @default(now())
+  readAt        DateTime?
+  customer      Customer  @relation(fields: [customerId], references: [id])
+  staff         Staff     @relation(fields: [staffId], references: [id])
+}
+
+model SupportTicket {
+  id            String         @id @default(uuid())
+  ticketId      String         @unique
+  customerId    String
+  category      TicketCategory
+  subject       String
+  description   String
+  attachmentUrl String?
+  status        TicketStatus   @default(OPEN)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  customer      Customer       @relation(fields: [customerId], references: [id])
+  replies       TicketReply[]
+}
+
+model TicketReply {
+  id            String        @id @default(uuid())
+  ticketId      String
+  senderType    String
+  customerId    String?
+  staffId       String?
+  content       String
+  attachmentUrl String?
+  createdAt     DateTime      @default(now())
+  customer      Customer?     @relation(fields: [customerId], references: [id])
+  staff         Staff?        @relation(fields: [staffId], references: [id])
+  ticket        SupportTicket @relation(fields: [ticketId], references: [id])
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  AWAITING_CUSTOMER
+  RESOLVED
+}
+
+enum TicketCategory {
+  ACCOUNT_QUERY
+  DELIVERY_ISSUE
+  PRODUCT_QUERY
+  OTHER
+}
