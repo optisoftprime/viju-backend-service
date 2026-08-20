@@ -4,10 +4,12 @@ import {
   NotFoundException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   HttpStatus,
 } from '@nestjs/common';
 import { Prisma, StaffRole } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { ErpRawService } from '../../infrastructure/erp-raw/erp-raw.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
 import { EmailService } from '../../infrastructure/email/email.types';
 import {
@@ -23,7 +25,11 @@ import {
 import * as bcrypt from 'bcryptjs';
 import { NotificationTypes } from '../../common/notifications/notification-types';
 import { Region, REGION_VALUES } from '../../common/region/region.constants';
-import { paginate, paginateInMemory } from '../../common/pagination/paginate';
+import {
+  buildPaginationMeta,
+  paginate,
+  paginateInMemory,
+} from '../../common/pagination/paginate';
 import {
   SortOrder,
   compareBy,
@@ -36,6 +42,8 @@ interface CustomerListFilter {
   search?: string;
   sortBy?: CustomerSortField;
   sortOrder?: SortOrder;
+  /** B-1.1 — true: only assigned customers; false: only unassigned. */
+  hasOfficer?: boolean;
 }
 
 interface OfficerListFilter {
@@ -54,11 +62,12 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
     private readonly email: EmailService,
+    private readonly erpRaw: ErpRawService,
   ) {}
 
   async getDashboardStats() {
     const [
-      totalCustomers,
+      syncedCustomers,
       unReadMessage,
       openTickets,
       activeOfficers,
@@ -66,6 +75,10 @@ export class AdminService {
       perRegionCustomers,
       perRegionTicketsByCustomer,
       perRegionOfficers,
+      activeCustomers,
+      customersWithoutOfficer,
+      erpCounts,
+      erpSync,
     ] = await Promise.all([
       this.prisma.customer.count(),
       this.prisma.message.count({
@@ -90,7 +103,18 @@ export class AdminService {
         where: { role: 'OFFICER', isActive: true, region: { not: null } },
         _count: { _all: true },
       }),
+      this.prisma.customer.count({ where: { accountStatus: 'ACTIVE' } }),
+      this.prisma.customer.count({ where: { assignedOfficerId: null } }),
+      this.erpRaw.getCustomerCounts(),
+      this.erpRaw.getSyncStatus(),
     ]);
+
+    // B-1.2 — the headline tile must show what the ERP holds, not how many
+    // rows the projector has copied across so far. When the ERP feed is not
+    // attached (a fresh database, CI) fall back to the local count so the tile
+    // still renders a number rather than nothing.
+    const erpAvailable = erpCounts.erpTotal > 0;
+    const totalCustomers = erpAvailable ? erpCounts.vijuTotal : syncedCustomers;
 
     const totalOutstandingBalance = customers.reduce(
       (sum, c) => sum + (c.outstandingBalance || 0),
@@ -135,17 +159,72 @@ export class AdminService {
 
     return {
       totalCustomers,
+      totalActiveCustomers: activeCustomers,
+      customersWithoutOfficer,
       totalOutstandingBalance,
       activeOfficers,
       openTickets,
       unReadMessage,
+      lastErpSyncAt: erpCounts.lastSyncAt ?? erpSync.lastSyncAt,
+      // B-2.3 — ERP rows whose region does not map to a Viju region. Surfaced
+      // so the mismatch is visible instead of silently dropped.
+      unmappedRegionCount: erpCounts.unmappedRegionCount,
+      erpReconciliation: {
+        source: erpAvailable ? ('ERP' as const) : ('LOCAL' as const),
+        erpTotal: erpCounts.erpTotal,
+        vijuTotal: erpCounts.vijuTotal,
+        syncedTotal: syncedCustomers,
+        awaitingProjection: Math.max(0, erpCounts.vijuTotal - syncedCustomers),
+        unmappedRegionCount: erpCounts.unmappedRegionCount,
+        lastSyncAt: erpCounts.lastSyncAt,
+      },
       byRegion,
     };
   }
 
-  private buildCustomerWhere(filter?: { region?: Region; search?: string }) {
+  /**
+   * B-2.3 — the ERP customer rows whose BP_CLUSTER_CODE does not map to a Viju
+   * region. Read-only quarantine listing so ops can chase the ERP team with
+   * specific codes instead of a bare count.
+   */
+  async listUnmappedErpCustomers(pagination: {
+    page: number;
+    pageSize: number;
+  }) {
+    const { rows, total } = await this.erpRaw.listUnmappedCustomers(pagination);
+    return {
+      data: rows,
+      meta: buildPaginationMeta(total, pagination.page, pagination.pageSize),
+    };
+  }
+
+  /** Ingest / projection freshness, for the ERP status panel. */
+  async getErpSyncStatus() {
+    const [status, counts] = await Promise.all([
+      this.erpRaw.getSyncStatus(),
+      this.erpRaw.getCustomerCounts(),
+    ]);
+    return {
+      available: await this.erpRaw.isAvailable(),
+      lastSyncAt: status.lastSyncAt,
+      customers: {
+        erpTotal: counts.erpTotal,
+        vijuTotal: counts.vijuTotal,
+        unmappedRegionCount: counts.unmappedRegionCount,
+        byRegion: counts.byRegion,
+      },
+      jobs: status.jobs,
+    };
+  }
+
+  private buildCustomerWhere(filter?: CustomerListFilter) {
     return {
       ...(filter?.region ? { region: filter.region } : {}),
+      ...(filter?.hasOfficer === undefined
+        ? {}
+        : filter.hasOfficer
+          ? { assignedOfficerId: { not: null } }
+          : { assignedOfficerId: null }),
       ...(filter?.search
         ? {
             OR: [
@@ -182,6 +261,8 @@ export class AdminService {
         return { region: direction };
       case 'outstandingBalance':
         return { outstandingBalance: direction };
+      case 'createdAt':
+        return { createdAt: direction };
       default:
         // supportTickets is a filtered relation count — see getAllCustomers.
         return { erpId: 'asc' };
@@ -196,6 +277,8 @@ export class AdminService {
     region: true,
     accountStatus: true,
     outstandingBalance: true,
+    assignedOfficerId: true,
+    createdAt: true,
     _count: {
       select: { supportTickets: { where: { status: 'OPEN' as const } } },
     },
@@ -228,11 +311,15 @@ export class AdminService {
           sortDirection(filter.sortOrder),
         ),
       );
-      return paginateInMemory(rows, pagination);
+      const inMemory = paginateInMemory(rows, pagination);
+      return {
+        data: await this.withErpColumns(inMemory.data),
+        meta: inMemory.meta,
+      };
     }
 
     const orderBy = this.customerOrderBy(filter.sortBy, filter.sortOrder);
-    return paginate(
+    const page = await paginate(
       () => this.prisma.customer.count({ where }),
       (skip, take) =>
         this.prisma.customer.findMany({
@@ -244,6 +331,141 @@ export class AdminService {
         }),
       pagination,
     );
+    return { data: await this.withErpColumns(page.data), meta: page.meta };
+  }
+
+  /**
+   * Adds the two ERP-derived columns the customer table needs (B-1.1):
+   *
+   * - `stockBalanceCartons` — cartons paid for but not yet loaded, i.e.
+   *   ordered minus completed loading requests, floored at zero.
+   * - `lastSyncedAt` — when the ERP last reported this customer, read from the
+   *   ERP feed rather than a local column, so it reflects the ERP and not the
+   *   projector that writes our rows.
+   *
+   * Both are computed for the page slice only: two aggregates plus one small
+   * feed lookup, regardless of page size.
+   */
+  private async withErpColumns<
+    T extends { id: string; erpId: string; assignedOfficerId?: string | null },
+  >(rows: T[]) {
+    if (rows.length === 0) return [];
+    const customerIds = rows.map((r) => r.id);
+
+    const [orderedRows, loadedRows, lastSeen] = await Promise.all([
+      this.prisma.$queryRaw<{ customerId: string; qty: number }[]>`
+        SELECT p."customerId" AS "customerId",
+               COALESCE(SUM(i.quantity), 0)::int AS qty
+          FROM "PurchaseItem" i
+          JOIN "Purchase" p ON p.id = i."purchaseId"
+         WHERE p."customerId" = ANY(${customerIds})
+         GROUP BY 1`,
+      this.prisma.loadingRequest.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: customerIds }, status: 'COMPLETED' },
+        _sum: { quantityCartons: true },
+      }),
+      this.erpRaw.getLastSeenByErpIds(rows.map((r) => r.erpId)),
+    ]);
+
+    const ordered = new Map(orderedRows.map((r) => [r.customerId, r.qty]));
+    const loaded = new Map(
+      loadedRows.map((r) => [r.customerId, r._sum.quantityCartons ?? 0]),
+    );
+
+    return rows.map((row) => ({
+      ...row,
+      hasOfficer: row.assignedOfficerId != null,
+      stockBalanceCartons: Math.max(
+        0,
+        (ordered.get(row.id) ?? 0) - (loaded.get(row.id) ?? 0),
+      ),
+      lastSyncedAt: lastSeen.get(row.erpId) ?? null,
+    }));
+  }
+
+  /**
+   * B-3 — one customer, at ERP parity.
+   *
+   * Combines what we hold locally with what the ERP feed reports for the same
+   * erpId (credit limit, ERP freshness). Every optional field is returned as
+   * an explicit null rather than omitted, so the client never has to
+   * distinguish "absent" from "unknown".
+   *
+   * `address` is always null today: the ERP customer master has no address
+   * field. See ErpRawService.getCustomerDetail for what it would take.
+   */
+  async getCustomerDetail(
+    customerId: string,
+    viewer: { role: string; region?: Region | null },
+  ) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: {
+        id: true,
+        erpId: true,
+        name: true,
+        phone: true,
+        email: true,
+        region: true,
+        accountStatus: true,
+        outstandingBalance: true,
+        assignedOfficerId: true,
+        createdAt: true,
+        updatedAt: true,
+        _count: {
+          select: { supportTickets: { where: { status: 'OPEN' } } },
+        },
+        officerAssignments: {
+          select: {
+            id: true,
+            isPrimary: true,
+            assignedAt: true,
+            staff: { select: { id: true, name: true, email: true } },
+          },
+          orderBy: { isPrimary: 'desc' },
+        },
+      },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+
+    // A regional admin may only open a customer inside their own region.
+    if (
+      viewer.role === 'REGIONAL_ADMIN' &&
+      customer.region !== (viewer.region ?? null)
+    ) {
+      throw new ForbiddenException(
+        'You do not have permission to perform this action.',
+      );
+    }
+
+    const [enriched] = await this.withErpColumns([customer]);
+    const erp = await this.erpRaw.getCustomerDetail(customer.erpId);
+
+    return {
+      id: customer.id,
+      erpId: customer.erpId,
+      name: customer.name,
+      phone: customer.phone,
+      email: customer.email ?? null,
+      address: erp?.address ?? null,
+      region: customer.region,
+      isActive: customer.accountStatus === 'ACTIVE',
+      accountStatus: customer.accountStatus,
+      outstandingBalance: customer.outstandingBalance,
+      stockBalanceCartons: enriched.stockBalanceCartons,
+      creditLimit: erp?.creditLimit ?? null,
+      officerAssignments: customer.officerAssignments.map((a) => ({
+        id: a.id,
+        isPrimary: a.isPrimary,
+        assignedAt: a.assignedAt,
+        staff: a.staff,
+      })),
+      _count: { supportTickets: customer._count.supportTickets },
+      lastErpSyncAt: erp?.lastErpSyncAt ?? enriched.lastSyncedAt ?? null,
+      createdAt: customer.createdAt,
+      updatedAt: customer.updatedAt,
+    };
   }
 
   async exportCustomersCsv(filter?: {
@@ -494,7 +716,18 @@ export class AdminService {
     };
   }
 
-  async getOfficerDetail(officerId: string) {
+  /**
+   * B-4.1 — officer profile plus the portfolio the Regional Portal renders
+   * beside it.
+   *
+   * `chatThreads` counts the customers this officer has an actual
+   * conversation with — one thread per customer, matching how the chat audit
+   * groups them.
+   */
+  async getOfficerDetail(
+    officerId: string,
+    viewer: { role: string; region?: Region | null } = { role: 'ADMIN' },
+  ) {
     const officer = await this.prisma.staff.findUnique({
       where: { id: officerId },
       select: {
@@ -506,22 +739,48 @@ export class AdminService {
         role: true,
         isActive: true,
         lastLoginAt: true,
+        createdAt: true,
       },
     });
     if (!officer) throw new NotFoundException('Officer not found');
 
-    const assigned = await this.prisma.customer.findMany({
+    // The Regional Portal may read officers in its own region only.
+    if (
+      viewer.role === 'REGIONAL_ADMIN' &&
+      officer.region !== (viewer.region ?? null)
+    ) {
+      throw new ForbiddenException(
+        'You do not have permission to perform this action.',
+      );
+    }
+
+    const customers = await this.prisma.customer.findMany({
       where: { assignedOfficerId: officerId },
-      select: { id: true },
+      select: { id: true, name: true, erpId: true, region: true },
+      orderBy: { name: 'asc' },
     });
-    const customerIds = assigned.map((c) => c.id);
-    const openTickets = await this.prisma.supportTicket.count({
-      where: { customerId: { in: customerIds }, status: 'OPEN' },
-    });
+    const customerIds = customers.map((c) => c.id);
+
+    const [openTickets, threads] = await Promise.all([
+      this.prisma.supportTicket.count({
+        where: { customerId: { in: customerIds }, status: 'OPEN' },
+      }),
+      this.prisma.message.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: customerIds } },
+      }),
+    ]);
 
     return {
       ...officer,
-      distributors: customerIds.length,
+      _count: {
+        customers: customers.length,
+        supportTickets: openTickets,
+        chatThreads: threads.length,
+      },
+      customers,
+      // Retained so the existing admin officer-detail screen keeps working.
+      distributors: customers.length,
       openTickets,
     };
   }

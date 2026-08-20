@@ -184,7 +184,7 @@ export class RegionalDashboardResponseDto {
  * Full LoadingRequest scalar shape returned by the assign and
  * status-update mutations (Prisma `update` with no relation includes).
  */
-export class LoadingRequestDto {
+export class RegionalLoadingRequestFullDto {
   @ApiProperty({ example: 'loading-request-uuid-1' })
   id: string;
 
@@ -307,7 +307,7 @@ export class PaginatedLoadingRequestsResponseDto {
  * Queue item: all scalar fields plus customer.name and
  * linkedPurchase.erpId (assignedOfficer is NOT included here).
  */
-export class LoadingQueueItemDto extends LoadingRequestDto {
+export class RegionalLoadingQueueItemDto extends RegionalLoadingRequestFullDto {
   @ApiProperty({ type: CustomerNameDto })
   customer: CustomerNameDto;
 
@@ -315,9 +315,9 @@ export class LoadingQueueItemDto extends LoadingRequestDto {
   linkedPurchase: LinkedPurchaseErpDto | null;
 }
 
-export class PaginatedLoadingQueueResponseDto {
-  @ApiProperty({ type: [LoadingQueueItemDto] })
-  data: LoadingQueueItemDto[];
+export class PaginatedRegionalLoadingQueueResponseDto {
+  @ApiProperty({ type: [RegionalLoadingQueueItemDto] })
+  data: RegionalLoadingQueueItemDto[];
 
   @ApiProperty({ type: PaginationMetaDto })
   meta: PaginationMetaDto;

@@ -1,9 +1,19 @@
+/// Order lifecycle as the portal reports it (B-5.3).
+///
+/// SHIPPED is retained only because existing rows carry it; the ERP mapping
+/// never produces it any more - DISPATCHED is its replacement. The ERP state
+/// -> enum mapping lives in src/modules/erp/order-status.ts and is the single
+/// place web and mobile wording is derived from.
 enum OrderStatus {
   PENDING
   PROCESSING
-  SHIPPED
+  LOADED
+  DISPATCHED
   DELIVERED
+  CLOSED
   CANCELLED
+  /// @deprecated superseded by DISPATCHED
+  SHIPPED
 }
 
 model Purchase {
@@ -15,6 +25,8 @@ model Purchase {
   totalItems Int
   totalValue Float
   status     OrderStatus
+  /// When `status` last changed, so the app can show how current it is (B-5.3).
+  statusUpdatedAt DateTime?
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
 
@@ -27,6 +39,8 @@ model PurchaseItem {
   purchaseId  String
   purchase    Purchase @relation(fields: [purchaseId], references: [id])
   productName String
+  /// ERP item code (ITEM_ID). Null until the projector supplies it (B-5.4).
+  itemCode    String?
   quantity    Int
   unitPrice   Float
   lineTotal   Float

@@ -187,7 +187,7 @@ export class WaybillDetailLinkedPurchaseDto {
   erpId: string;
 }
 
-export class WaybillAssignedOfficerDto {
+export class CustomerWaybillAssignedOfficerDto {
   @ApiProperty({
     example: 'Viju Loading Officer',
     description: 'Generic label — customers never see the officer’s real name',
@@ -200,9 +200,9 @@ export class WaybillDetailDto extends WaybillDto {
   linkedPurchase: WaybillDetailLinkedPurchaseDto | null;
 
   @ApiProperty({
-    type: WaybillAssignedOfficerDto,
+    type: CustomerWaybillAssignedOfficerDto,
     nullable: true,
     description: 'Present (masked) once a loading officer is assigned',
   })
-  assignedOfficer: WaybillAssignedOfficerDto | null;
+  assignedOfficer: CustomerWaybillAssignedOfficerDto | null;
 }

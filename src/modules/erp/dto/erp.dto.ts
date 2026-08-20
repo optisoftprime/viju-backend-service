@@ -8,7 +8,7 @@ import {
   IsOptional,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class SyncBalanceDto {
   @ApiProperty()
@@ -37,7 +37,15 @@ export class SyncStockDto {
   quantity: number;
 }
 
-class PurchaseItemDto {
+class ErpPurchaseItemDto {
+  @ApiPropertyOptional({
+    description: 'ERP item code (ITEM_ID) for this line (B-5.4)',
+    example: 'ITM-0099',
+  })
+  @IsOptional()
+  @IsString()
+  itemCode?: string;
+
   @ApiProperty()
   @IsString()
   productName: string;
@@ -84,11 +92,11 @@ export class SyncPurchaseDto {
   @IsEnum(['PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'])
   status: any;
 
-  @ApiProperty({ type: [PurchaseItemDto] })
+  @ApiProperty({ type: [ErpPurchaseItemDto] })
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => PurchaseItemDto)
-  items: PurchaseItemDto[];
+  @Type(() => ErpPurchaseItemDto)
+  items: ErpPurchaseItemDto[];
 }
 
 export class SyncPaymentDto {

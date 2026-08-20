@@ -3,6 +3,7 @@ import { AdminService } from './admin.service';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
 import { EmailService } from '../../infrastructure/email/email.types';
+import { ErpRawService } from '../../infrastructure/erp-raw/erp-raw.service';
 import {
   NotFoundException,
   BadRequestException,
@@ -40,6 +41,23 @@ describe('AdminService', () => {
   const mockNotifications = { notify: jest.fn().mockResolvedValue(undefined) };
   const mockEmail = { send: jest.fn().mockResolvedValue(undefined) };
 
+  // The ERP landing schema is optional; these tests run without it, which is
+  // the same shape a database with no feed attached returns.
+  const mockErpRaw = {
+    isAvailable: jest.fn().mockResolvedValue(false),
+    getLastSeenByErpIds: jest.fn().mockResolvedValue(new Map()),
+    getCustomerCounts: jest.fn().mockResolvedValue({
+      erpTotal: 0,
+      vijuTotal: 0,
+      unmappedRegionCount: 0,
+      byRegion: {},
+      lastSyncAt: null,
+    }),
+    getSyncStatus: jest.fn().mockResolvedValue({ lastSyncAt: null, jobs: [] }),
+    getCustomerDetail: jest.fn().mockResolvedValue(null),
+    listUnmappedCustomers: jest.fn().mockResolvedValue({ rows: [], total: 0 }),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -47,6 +65,7 @@ describe('AdminService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: NotificationService, useValue: mockNotifications },
         { provide: EmailService, useValue: mockEmail },
+        { provide: ErpRawService, useValue: mockErpRaw },
       ],
     }).compile();
 

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { DatabaseModule } from './infrastructure/database/database.module';
+import { ErpRawModule } from './infrastructure/erp-raw/erp-raw.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { CustomerModule } from './modules/customer/customer.module';
 import { OfficerModule } from './modules/officer/officer.module';
@@ -26,6 +27,7 @@ import { RealtimeApiModule } from './modules/realtime/realtime.module';
       isGlobal: true,
     }),
     DatabaseModule,
+    ErpRawModule,
     AuthModule,
     CustomerModule,
     OfficerModule,

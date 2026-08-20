@@ -6,6 +6,7 @@ import {
   SyncPaymentDto,
   SyncStockDto,
 } from './dto/erp.dto';
+import { orderStatusFromErp } from './order-status';
 
 @Injectable()
 export class ErpService {
@@ -52,10 +53,23 @@ export class ErpService {
 
     return this.prisma.$transaction(async (prisma) => {
       // Upsert Purchase
+      // B-5.3 — map the ERP state through the published table instead of
+      // storing whatever arrived (which defaulted everything to PROCESSING).
+      const status = orderStatusFromErp(dto.status);
+      const existing = await prisma.purchase.findUnique({
+        where: { erpId: dto.erpId },
+        select: { status: true },
+      });
+      // Only move the stamp when the status actually changes, so it means
+      // "when this order last changed state", not "when it was last synced".
+      const statusUpdatedAt =
+        existing && existing.status === status ? undefined : new Date();
+
       const purchase = await prisma.purchase.upsert({
         where: { erpId: dto.erpId },
         update: {
-          status: dto.status,
+          status,
+          ...(statusUpdatedAt ? { statusUpdatedAt } : {}),
           totalItems: dto.totalItems,
           totalValue: dto.totalValue,
         },
@@ -63,7 +77,8 @@ export class ErpService {
           erpId: dto.erpId,
           customerId: customer.id,
           orderDate: new Date(dto.orderDate),
-          status: dto.status,
+          status,
+          statusUpdatedAt: new Date(),
           totalItems: dto.totalItems,
           totalValue: dto.totalValue,
         },
@@ -77,6 +92,7 @@ export class ErpService {
         data: dto.items.map((i) => ({
           purchaseId: purchase.id,
           productName: i.productName,
+          itemCode: i.itemCode ?? null,
           quantity: i.quantity,
           unitPrice: i.unitPrice,
           lineTotal: i.lineTotal,

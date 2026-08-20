@@ -16,6 +16,7 @@ import {
 } from '@nestjs/swagger';
 import { CustomerService } from './customer.service';
 import { StatementService } from './statement.service';
+import { StatementLedgerService } from './statement-ledger.service';
 import { Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -39,6 +40,7 @@ import {
   PaginatedPaymentsResponseDto,
   InvoicesResponseDto,
   InvoiceDetailDto,
+  StatementResponseDto,
 } from './dto/customer-response.dto';
 
 @ApiTags('Customer Portal')
@@ -50,7 +52,34 @@ export class CustomerController {
   constructor(
     private readonly customerService: CustomerService,
     private readonly statementService: StatementService,
+    private readonly ledger: StatementLedgerService,
   ) {}
+
+  @Get('me/statement')
+  @ApiOperation({
+    summary: 'Account statement (JSON)',
+    description:
+      'B-5.1 / B-5.2 / B-5.5 — the statement as data, so the app renders ' +
+      'labels from the payload instead of hardcoding them.\n\n' +
+      'Movements are kept distinct by `type`: INVOICE, PAYMENT and ' +
+      'TRANSPORT_ALLOWANCE (a payment settling a delivery allowance). ' +
+      '`debit`/`credit` are always numbers, never null.\n\n' +
+      '`runningBalance` is computed server-side in strict chronological ' +
+      'order, with `openingBalance` and `closingBalance` on the envelope, so ' +
+      'web, mobile and the PDF cannot disagree. For any window ' +
+      '`closingBalance = openingBalance + Σ(credit) − Σ(debit)`. Ties on the ' +
+      'same timestamp are broken by movement type then id.\n\n' +
+      'Windows: `period=LAST_30_DAYS | LAST_90_DAYS | LAST_6_MONTHS | ' +
+      'YEAR_TO_DATE | CUSTOM`, defaulting to LAST_30_DAYS. `startDate` and ' +
+      '`endDate` are required for CUSTOM; an inverted range is a 400.',
+  })
+  @ApiOkResponse({ type: StatementResponseDto })
+  async getStatement(
+    @CurrentUser() user: any,
+    @Query() query: StatementRangeDto,
+  ) {
+    return this.ledger.build(user.id, this.ledger.resolvePeriod(query));
+  }
 
   @Get('me/home')
   @ApiOperation({
@@ -163,8 +192,9 @@ export class CustomerController {
     summary: 'Generate Account Statement PDF',
     description:
       'Returns a binary PDF (Content-Type: application/pdf) containing ' +
-      'invoices, payments, and running wallet balance for the date range. ' +
-      'Omit dates to get the full lifetime statement.',
+      'invoices, payments, and running wallet balance for the window.\n\n' +
+      'B-5.2 — accepts the same `period` presets as GET /customers/me/statement ' +
+      '(LAST_30_DAYS by default), or an explicit startDate/endDate range.',
   })
   @ApiProduces('application/pdf')
   @ApiOkResponse({
@@ -176,10 +206,13 @@ export class CustomerController {
     @Query() range: StatementRangeDto,
     @Res() res: Response,
   ) {
-    const buf = await this.statementService.generateAccountStatement(
-      user.id,
-      range,
-    );
+    // B-5.2 — the download honours the same period presets as the JSON
+    // statement, so "Last 30 Days" means the same thing in both.
+    const period = this.ledger.resolvePeriod(range);
+    const buf = await this.statementService.generateAccountStatement(user.id, {
+      startDate: period.from.toISOString(),
+      endDate: period.to.toISOString(),
+    });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
@@ -202,10 +235,11 @@ export class CustomerController {
     @Query() range: StatementRangeDto,
     @Res() res: Response,
   ) {
-    const buf = await this.statementService.generateStockStatement(
-      user.id,
-      range,
-    );
+    const period = this.ledger.resolvePeriod(range);
+    const buf = await this.statementService.generateStockStatement(user.id, {
+      startDate: period.from.toISOString(),
+      endDate: period.to.toISOString(),
+    });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
