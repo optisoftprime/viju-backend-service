@@ -15,6 +15,8 @@ import {
   ApiConsumes,
   ApiBody,
   ApiCreatedResponse,
+  ApiBadRequestResponse,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { StorageService } from '../../infrastructure/storage/storage.service';
@@ -68,9 +70,17 @@ const FOLDER_RULES: Record<UploadFolder, { mime: string[]; maxBytes: number }> =
     },
   };
 
+/**
+ * CC-01: uploads are authenticated. Any signed-in principal (customer or
+ * staff) may upload, but an anonymous caller may not — an open endpoint here
+ * would let anyone write into the project's storage bucket.
+ */
 @ApiTags('File Uploads')
-// @ApiBearerAuth()
-// @UseGuards(JwtAuthGuard)
+@ApiBearerAuth()
+@ApiUnauthorizedResponse({
+  description: 'Missing, invalid or expired access token',
+})
+@UseGuards(JwtAuthGuard)
 @Controller('uploads')
 export class UploadsController {
   constructor(private readonly storage: StorageService) {}
@@ -88,8 +98,14 @@ export class UploadsController {
   })
   @ApiConsumes('multipart/form-data')
   @ApiCreatedResponse({
-    description: 'File stored successfully; returns the public URL + storage key.',
+    description:
+      'File stored successfully; returns the public URL + storage key.',
     type: UploadResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'No file supplied, file larger than the folder allows, or a MIME type ' +
+      'the folder does not accept.',
   })
   @ApiBody({
     schema: {

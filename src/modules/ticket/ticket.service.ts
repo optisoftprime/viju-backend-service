@@ -5,6 +5,8 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
+import { RealtimeService } from '../../infrastructure/realtime/realtime.service';
+import { NotificationTypes } from '../../common/notifications/notification-types';
 import { paginate } from '../../common/pagination/paginate';
 import {
   CreateTicketDto,
@@ -17,7 +19,63 @@ export class TicketService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
+    private readonly realtime: RealtimeService,
   ) {}
+
+  /**
+   * Every officer who currently manages this customer - primary
+   * (Customer.assignedOfficerId) plus every CustomerOfficer row.
+   *
+   * US-13.5: read from the live assignment on each call, so tickets follow a
+   * reassignment automatically instead of staying with the old officer.
+   */
+  private async currentOfficerIds(customerId: string): Promise<string[]> {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: {
+        assignedOfficerId: true,
+        officerAssignments: { select: { staffId: true } },
+      },
+    });
+    if (!customer) return [];
+    const ids = new Set<string>(
+      customer.officerAssignments.map((a) => a.staffId),
+    );
+    if (customer.assignedOfficerId) ids.add(customer.assignedOfficerId);
+    return [...ids];
+  }
+
+  /**
+   * Publishes a `ticket.updated` frame to the customer and to every officer
+   * currently on the account (US-11.2), so open sessions refresh their ticket
+   * list without waiting out the query cache.
+   */
+  private async publishTicketUpdate(ticket: {
+    id: string;
+    ticketId: string;
+    customerId: string;
+    status: string;
+  }): Promise<void> {
+    const data = {
+      id: ticket.id,
+      ticketId: ticket.ticketId,
+      status: ticket.status,
+    };
+    this.realtime.publish({
+      event: 'ticket.updated',
+      recipientType: 'CUSTOMER',
+      recipientId: ticket.customerId,
+      data,
+    });
+    for (const staffId of await this.currentOfficerIds(ticket.customerId)) {
+      this.realtime.publish({
+        event: 'ticket.updated',
+        recipientType: 'STAFF',
+        recipientId: staffId,
+        data,
+      });
+    }
+  }
 
   async createTicket(customerId: string, dto: CreateTicketDto) {
     const ticketId = `TKT-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
@@ -32,23 +90,23 @@ export class TicketService {
       },
     });
 
-    // PRD §6 — notify assigned officers
+    // PRD §6 / US-11.8 - notify every officer currently on the account, so a
+    // ticket raised right after a reassignment still reaches someone.
     const customer = await this.prisma.customer.findUnique({
       where: { id: customerId },
-      select: { name: true, officerAssignments: { select: { staffId: true } } },
+      select: { name: true },
     });
-    if (customer) {
-      for (const a of customer.officerAssignments) {
-        await this.notifications.notify({
-          recipientType: 'STAFF',
-          recipientId: a.staffId,
-          title: `New ticket from ${customer.name}`,
-          body: `${dto.subject}`,
-          type: 'TICKET_CREATED',
-          data: { ticketId: ticket.id },
-        });
-      }
+    for (const staffId of await this.currentOfficerIds(customerId)) {
+      await this.notifications.notify({
+        recipientType: 'STAFF',
+        recipientId: staffId,
+        title: `New ticket from ${customer?.name ?? 'distributor'}`,
+        body: `${dto.subject}`,
+        type: NotificationTypes.TICKET_CREATED,
+        data: { ticketId: ticket.id },
+      });
     }
+    await this.publishTicketUpdate(ticket);
 
     return ticket;
   }
@@ -106,7 +164,11 @@ export class TicketService {
         replies: { orderBy: { createdAt: 'asc' } },
         // Never surface the customer's auth secrets in the ticket thread.
         customer: {
-          omit: { password: true, failedLoginAttempts: true, lockedUntil: true },
+          omit: {
+            password: true,
+            failedLoginAttempts: true,
+            lockedUntil: true,
+          },
         },
       },
     });
@@ -148,19 +210,16 @@ export class TicketService {
       },
     });
 
-    // PRD §6 — staff reply pushes customer; customer reply notifies officers
+    // PRD §6 - staff reply pushes the customer (US-11.7); a customer reply
+    // notifies every officer currently on the account.
     if (role === 'CUSTOMER') {
-      const assignments = await this.prisma.customerOfficer.findMany({
-        where: { customerId: ticket.customerId },
-        select: { staffId: true },
-      });
-      for (const a of assignments) {
+      for (const staffId of await this.currentOfficerIds(ticket.customerId)) {
         await this.notifications.notify({
           recipientType: 'STAFF',
-          recipientId: a.staffId,
+          recipientId: staffId,
           title: `Ticket reply: ${ticket.subject}`,
           body: dto.content.slice(0, 120),
-          type: 'TICKET_REPLY_FROM_CUSTOMER',
+          type: NotificationTypes.TICKET_REPLY,
           data: { ticketId: ticket.id },
         });
       }
@@ -170,10 +229,11 @@ export class TicketService {
         recipientId: ticket.customerId,
         title: 'Your ticket has a new reply from your officer',
         body: dto.content.slice(0, 120),
-        type: 'TICKET_REPLY_FROM_OFFICER',
+        type: NotificationTypes.TICKET_REPLY,
         data: { ticketId: ticket.id },
       });
     }
+    await this.publishTicketUpdate(ticket);
 
     return reply;
   }
@@ -193,15 +253,16 @@ export class TicketService {
       data: { status: dto.status },
     });
 
-    // PRD §6 — status change pushes customer
+    // PRD §6 / US-11.7 - status change pushes the customer
     await this.notifications.notify({
       recipientType: 'CUSTOMER',
       recipientId: ticket.customerId,
       title: 'Ticket status updated',
       body: `Your ticket status is now: ${dto.status}`,
-      type: 'TICKET_STATUS_CHANGED',
+      type: NotificationTypes.TICKET_STATUS,
       data: { ticketId: ticket.id, status: dto.status },
     });
+    await this.publishTicketUpdate(updated);
 
     return updated;
   }

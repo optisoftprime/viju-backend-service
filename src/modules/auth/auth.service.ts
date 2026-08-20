@@ -26,6 +26,7 @@ import { EmailService } from '../../infrastructure/email/email.types';
 import { StaffRole } from '@prisma/client';
 import { isDevMode } from '../../common/utils/env';
 import { tryRegionFromBpClusterCode } from '../../common/region/region.constants';
+import { DEACTIVATED_ACCOUNT_MESSAGE } from './auth.constants';
 
 const PASSWORD_MAX_ATTEMPTS = 5;
 const PASSWORD_LOCK_MINUTES = 30;
@@ -174,8 +175,9 @@ export class AuthService {
       });
     }
 
+    // US-15.5 — a deactivated account cannot authenticate.
     if (!staff.isActive) {
-      throw new ForbiddenException('Account deactivated. Contact admin.');
+      throw new ForbiddenException(DEACTIVATED_ACCOUNT_MESSAGE);
     }
 
     await this.prisma.staff.update({
@@ -196,6 +198,13 @@ export class AuthService {
 
     const isMatch = await bcrypt.compare(dto.password, staff.password);
     if (!isMatch) throw new UnauthorizedException('Incorrect credentials.');
+
+    // US-15.5 — checked AFTER the password so a wrong password on a
+    // deactivated account still reads as 'Incorrect credentials' and the
+    // route can't be used to probe which accounts are deactivated.
+    if (!staff.isActive) {
+      throw new ForbiddenException(DEACTIVATED_ACCOUNT_MESSAGE);
+    }
 
     await this.prisma.staff.update({
       where: { id: staff.id },
@@ -431,7 +440,17 @@ export class AuthService {
       refresh_token,
       expires_in: ACCESS_EXPIRY_SECONDS,
       refresh_expires_in: REFRESH_EXPIRY_SECONDS,
-      user: { id: user.id, name: user.name, role, region: user.region ?? null },
+      user: {
+        id: user.id,
+        name: user.name,
+        role,
+        email: user.email ?? null,
+        // RA-03: the region the token is scoped to. Null only for org-wide
+        // ADMIN (and for staff whose ERP posting has no BP_CLUSTER_CODE).
+        // Every region-scoped endpoint filters by THIS value server-side,
+        // never by a client-supplied query param.
+        region: user.region ?? null,
+      },
     };
   }
 
@@ -480,6 +499,18 @@ export class AuthService {
         ? await this.prisma.customer.findUnique({ where: { id: payload.sub } })
         : await this.prisma.staff.findUnique({ where: { id: payload.sub } });
     if (!user) throw new UnauthorizedException('User no longer exists.');
+
+    // US-15.5 — refuse to mint a new pair for a deactivated staff account, so
+    // a session that was live when the admin deactivated them dies at its
+    // next refresh instead of running to the end of the refresh window.
+    if (
+      payload.type === 'STAFF' &&
+      (user as { isActive: boolean }).isActive === false
+    ) {
+      // Kill the chain too — nothing further should be mintable from it.
+      await this.revokeChain(row.id);
+      throw new ForbiddenException(DEACTIVATED_ACCOUNT_MESSAGE);
+    }
 
     const fresh = await this.generateToken(user, payload.type);
     // Mark the old row revoked + chained to the new one

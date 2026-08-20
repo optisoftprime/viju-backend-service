@@ -4,11 +4,36 @@ import {
   IsEmail,
   MinLength,
   IsEnum,
+  IsIn,
   IsOptional,
+  IsBoolean,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { StaffRole } from '@prisma/client';
 import { Region } from '../../../common/region/region.constants';
-import { PaginationQueryDto } from '../../../common/pagination/pagination.dto';
+import { SortQueryDto } from '../../../common/pagination/sort.dto';
+
+/** Columns GET /admin/customers can be sorted by (US-09.3). */
+export const CUSTOMER_SORT_FIELDS = [
+  'name',
+  'erpId',
+  'region',
+  'outstandingBalance',
+  'supportTickets',
+] as const;
+export type CustomerSortField = (typeof CUSTOMER_SORT_FIELDS)[number];
+
+/** Columns GET /admin/officers can be sorted by (US-09.3). */
+export const OFFICER_SORT_FIELDS = [
+  'name',
+  'email',
+  'region',
+  'customers',
+  'createdAt',
+  'lastLoginAt',
+  'supportTickets',
+] as const;
+export type OfficerSortField = (typeof OFFICER_SORT_FIELDS)[number];
 
 /**
  * Query params for GET /admin/customers: optional region/search filter plus
@@ -16,7 +41,7 @@ import { PaginationQueryDto } from '../../../common/pagination/pagination.dto';
  * query param — required under the global `forbidNonWhitelisted` pipe, which
  * rejects any property not declared on the bound DTO.
  */
-export class CustomerFilterDto extends PaginationQueryDto {
+export class CustomerFilterDto extends SortQueryDto {
   @ApiPropertyOptional({ enum: Region, description: 'Optional region filter' })
   @IsOptional()
   @IsEnum(Region)
@@ -26,6 +51,16 @@ export class CustomerFilterDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @ApiPropertyOptional({
+    enum: CUSTOMER_SORT_FIELDS,
+    description:
+      'Column to sort by. Omit to keep the default ordering (erpId ascending). ' +
+      '`supportTickets` sorts by the open-ticket count shown in the table.',
+  })
+  @IsOptional()
+  @IsIn(CUSTOMER_SORT_FIELDS)
+  sortBy?: CustomerSortField;
 }
 
 /**
@@ -33,8 +68,13 @@ export class CustomerFilterDto extends PaginationQueryDto {
  * pagination. Single @Query() DTO so every param is whitelisted under the
  * global `forbidNonWhitelisted` pipe.
  */
-export class OfficerFilterDto extends PaginationQueryDto {
-  @ApiPropertyOptional({ enum: Region, description: 'Optional region filter' })
+export class OfficerFilterDto extends SortQueryDto {
+  @ApiPropertyOptional({
+    enum: Region,
+    description:
+      'Optional region filter. Ignored for REGIONAL_ADMIN callers, who are ' +
+      "always forced to their own token's region (RA-05).",
+  })
   @IsOptional()
   @IsEnum(Region)
   region?: Region;
@@ -43,22 +83,63 @@ export class OfficerFilterDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   search?: string;
+
+  @ApiPropertyOptional({
+    enum: StaffRole,
+    default: StaffRole.OFFICER,
+    description:
+      'Staff role to list. Defaults to OFFICER. Pass LOADING_OFFICER to ' +
+      'populate the assign-loading-officer picker on the regional admin ' +
+      'portal (RA-06).',
+  })
+  @IsOptional()
+  @IsEnum(StaffRole)
+  role?: StaffRole;
+
+  @ApiPropertyOptional({
+    enum: OFFICER_SORT_FIELDS,
+    description:
+      'Column to sort by. Omit to keep the default ordering (name ascending). ' +
+      '`customers` sorts by _count.customers, `supportTickets` by the open ' +
+      "ticket count across that officer's customers.",
+  })
+  @IsOptional()
+  @IsIn(OFFICER_SORT_FIELDS)
+  sortBy?: OfficerSortField;
+}
+
+/**
+ * Body for PATCH /admin/officers/:id — activate or deactivate an officer
+ * (US-15.4 / US-15.5).
+ */
+export class UpdateOfficerStatusDto {
+  @ApiProperty({
+    example: false,
+    description:
+      'false deactivates the officer (refused with 409 while they still ' +
+      'hold customers); true reactivates them.',
+  })
+  @IsBoolean()
+  isActive: boolean;
 }
 
 export class ReassignOfficerDto {
-  @ApiProperty({ description: 'The user ID of the new Account Officer' })
+  @ApiProperty({
+    description: 'The user ID of the new Account Officer',
+    example: 'stf_7',
+  })
   @IsString()
   @IsNotEmpty()
   newOfficerId: string;
 }
 
 export class CreateOfficerDto {
-  @ApiProperty()
+  @ApiProperty({ example: 'Ifeanyi Okon' })
   @IsString()
   @IsNotEmpty()
   name: string;
 
-  @ApiProperty()
+  @ApiProperty({ example: 'i.okon@viju.com' })
   @IsEmail()
   email: string;
 
@@ -73,13 +154,20 @@ export class CreateOfficerDto {
   @ApiProperty({
     enum: Region,
     required: false,
+    example: Region.LAGOS,
     description: 'Required for all non-admin staff',
   })
   @IsOptional()
   @IsEnum(Region)
   region?: Region;
 
-  @ApiProperty({ description: 'Temporary password for the new officer' })
+  @ApiProperty({
+    description:
+      'Temporary password for the new officer. It is emailed to them ' +
+      'verbatim (US-15.3), so treat it as one-time.',
+    example: 'TempPass123',
+    minLength: 8,
+  })
   @IsString()
   @IsNotEmpty()
   @MinLength(8)

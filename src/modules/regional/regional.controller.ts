@@ -13,6 +13,12 @@ import {
   ApiOperation,
   ApiBearerAuth,
   ApiOkResponse,
+  ApiBadRequestResponse,
+  ApiConflictResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+  ApiParam,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { RegionalService } from './regional.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -30,7 +36,7 @@ import {
   RegionalDashboardResponseDto,
   PaginatedLoadingRequestsResponseDto,
   PaginatedLoadingQueueResponseDto,
-  LoadingRequestDto,
+  RegionalLoadingRequestDto,
 } from './dto/regional-response.dto';
 
 interface StaffUser {
@@ -39,8 +45,22 @@ interface StaffUser {
   region: Region | null;
 }
 
+/**
+ * CC-01 + RA-03: every route is role-gated server-side, and a regional admin
+ * is always scoped to the region on their token — resolveRegion() below
+ * refuses any attempt to widen that with a query param.
+ */
 @ApiTags('Regional Admin Portal')
 @ApiBearerAuth()
+@ApiUnauthorizedResponse({
+  description: 'Missing, invalid or expired access token',
+})
+@ApiForbiddenResponse({
+  description:
+    'Caller lacks the role for this route, or asked for a region outside ' +
+    'their own: `{ "message": "You do not have permission to perform this ' +
+    'action.", "statusCode": 403 }`',
+})
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('regional')
 export class RegionalController {
@@ -51,9 +71,13 @@ export class RegionalController {
   @ApiOperation({
     summary: 'Regional Admin dashboard',
     description:
-      'Summary cards + pending loading-request queue, scoped to the ' +
-      'regional admin’s assigned region. ADMIN can pass ?region= to ' +
-      'inspect any region.',
+      'Summary cards + pending loading-request queue (RA-02).\n\n' +
+      'The region is derived from the token for a REGIONAL_ADMIN: passing a ' +
+      'different `region` is refused with 403, so the scope cannot be widened ' +
+      'from the client (RA-03). ADMIN has cross-region visibility and must ' +
+      'pass `region` to choose one.\n\n' +
+      '`pendingLoadingRequests` stays empty until distributors submit ' +
+      'loading requests (RA-06).',
   })
   @ApiOkResponse({
     description: 'Regional summary cards and pending loading-request queue.',
@@ -70,13 +94,24 @@ export class RegionalController {
   @Get('loading-requests')
   @Roles('REGIONAL_ADMIN', 'ADMIN')
   @ApiOperation({
-    summary: 'All loading requests in the region by status',
+    summary: 'Loading requests in the region (RA-06)',
     description:
-      'Use ?status=PENDING_ASSIGNMENT | ASSIGNED | LOADING_IN_PROGRESS | COMPLETED | ALL',
+      'Backs the regional Loading Requests table: waybill, distributor, ' +
+      'order, truck, driver, submitted date, assigned officer and status.\n\n' +
+      '`status` matches the FE filter tabs — PENDING | ASSIGNED | ' +
+      'IN_PROGRESS | COMPLETED | ALL (the database spellings ' +
+      'PENDING_ASSIGNMENT / LOADING_IN_PROGRESS are accepted too).\n\n' +
+      'The region comes from the token for a REGIONAL_ADMIN, never from the ' +
+      'query string (RA-03).\n\n' +
+      'To populate the assign-officer picker, call ' +
+      'GET /admin/officers?role=LOADING_OFFICER.',
   })
   @ApiOkResponse({
     description: 'Paginated loading requests in the region.',
     type: PaginatedLoadingRequestsResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Unknown status filter or invalid pagination params',
   })
   async listRequests(
     @CurrentUser() user: StaffUser,
@@ -94,10 +129,22 @@ export class RegionalController {
   @Roles('REGIONAL_ADMIN', 'ADMIN')
   @ApiOperation({
     summary: 'Assign a loading request to a loading / warehouse officer',
+    description:
+      'RA-06. The officer must be active and in the same region. Both the ' +
+      'officer and the distributor are notified, and the load then appears ' +
+      "in that officer's queue at GET /loading/queue.",
   })
+  @ApiParam({ name: 'id', description: 'Loading request id' })
   @ApiOkResponse({
     description: 'The updated loading request (now ASSIGNED).',
-    type: LoadingRequestDto,
+    type: RegionalLoadingRequestDto,
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Already assigned, or the officer is inactive / outside the region',
+  })
+  @ApiNotFoundResponse({
+    description: 'Loading request not found in your region',
   })
   async assignRequest(
     @CurrentUser() user: StaffUser,
@@ -111,10 +158,13 @@ export class RegionalController {
   @Get('my-loading-queue')
   @Roles('LOADING_OFFICER', 'WAREHOUSE_OFFICER', 'ADMIN')
   @ApiOperation({
-    summary: 'Loading / Warehouse Officer queue',
+    summary: '[Legacy] Loading / Warehouse Officer queue',
     description:
-      'Returns only requests assigned to the current officer in ASSIGNED ' +
-      'or LOADING_IN_PROGRESS state.',
+      'Returns only requests assigned to the current officer in ASSIGNED or ' +
+      'LOADING_IN_PROGRESS state, in the raw row shape.\n\n' +
+      'Prefer GET /loading/queue (LO-02), which returns the shape the ' +
+      'loading-officer screens render and also includes completed loads.',
+    deprecated: true,
   })
   @ApiOkResponse({
     description: 'Paginated queue of requests assigned to the current officer.',
@@ -131,10 +181,26 @@ export class RegionalController {
   @Roles('LOADING_OFFICER', 'WAREHOUSE_OFFICER', 'ADMIN')
   @ApiOperation({
     summary: 'Loading Officer advances status + uploads waybill',
+    description:
+      'Enforces the same transitions as PATCH /loading/queue/{id}/status ' +
+      '(ASSIGNED → LOADING_IN_PROGRESS → COMPLETED); an illegal move is ' +
+      'refused with 409. Requires `waybillDocumentUrl` when completing ' +
+      '(PRD F13 AC3) — the newer POST /loading/queue/{id}/waybill records ' +
+      'truck, driver and quantity alongside the document.',
   })
+  @ApiParam({ name: 'id', description: 'Loading request id' })
   @ApiOkResponse({
     description: 'The updated loading request with its new status.',
-    type: LoadingRequestDto,
+    type: RegionalLoadingRequestDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'waybillDocumentUrl missing when completing the load',
+  })
+  @ApiNotFoundResponse({ description: 'Loading request not found' })
+  @ApiConflictResponse({
+    description:
+      'Illegal transition: `{ "message": "A completed load cannot be ' +
+      'reopened.", "code": "INVALID_STATUS_TRANSITION", "statusCode": 409 }`',
   })
   async updateStatus(
     @CurrentUser() user: StaffUser,

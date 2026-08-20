@@ -1,0 +1,21 @@
+/// Submissions from the public "Contact us" form on the marketing site.
+///
+/// Unauthenticated and rate-limited by IP at the route. The row is the record
+/// of the enquiry; an email notification is best-effort on top of it.
+model ContactMessage {
+  id String @id @default(uuid())
+
+  fullName String
+  email    String
+  phone    String
+  message  String
+
+  /// Captured for abuse investigation / rate-limit forensics.
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([email])
+}

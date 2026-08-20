@@ -5,12 +5,18 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiTags,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PushService } from './push.service';
-import { RegisterPushTokenDto, UnregisterPushTokenDto } from './dto/push.dto';
 import {
+  RegisterDeviceDto,
+  RegisterPushTokenDto,
+  UnregisterPushTokenDto,
+} from './dto/push.dto';
+import {
+  DeviceRegisteredResponseDto,
   PushTokenResponseDto,
   UnregisterPushTokenResponseDto,
 } from './dto/push-response.dto';
@@ -22,6 +28,9 @@ interface AuthUser {
 
 @ApiTags('Push Notifications')
 @ApiBearerAuth()
+@ApiUnauthorizedResponse({
+  description: 'Missing, invalid or expired access token',
+})
 @UseGuards(JwtAuthGuard)
 @Controller('push-tokens')
 export class PushController {

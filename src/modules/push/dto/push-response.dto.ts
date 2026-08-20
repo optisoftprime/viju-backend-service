@@ -43,6 +43,13 @@ export class PushTokenResponseDto {
   updatedAt: Date;
 }
 
+// ─── Device registration (POST /devices/register) ──────────
+
+export class DeviceRegisteredResponseDto {
+  @ApiProperty({ example: 'Device registered' })
+  message: string;
+}
+
 // ─── Unregister acknowledgement (DELETE /push-tokens) ──────
 
 export class UnregisterPushTokenResponseDto {

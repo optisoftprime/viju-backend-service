@@ -1,7 +1,24 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { paginate } from '../../common/pagination/paginate';
+import { paginate, paginateInMemory } from '../../common/pagination/paginate';
+import {
+  SortOrder,
+  compareBy,
+  sortDirection,
+} from '../../common/pagination/sort.dto';
+import { AssignedCustomerSortField } from './dto/officer-request.dto';
+
+/**
+ * The caller of every officer-portal route. ADMIN is included deliberately:
+ * US-12.3 lets an administrator open ANY distributor and see the same tabs as
+ * the officer, so the role travels with the id and the assignment check is
+ * skipped for ADMIN only.
+ */
+export interface OfficerPortalUser {
+  id: string;
+  role: string;
+}
 
 export type StockStatus = 'AVAILABLE' | 'LOW_STOCK' | 'OUT_OF_STOCK';
 
@@ -54,13 +71,15 @@ export class OfficerService {
   }
 
   async getAssignedCustomers(
-    user: { id: string; role: string },
+    user: OfficerPortalUser,
     query: {
       page: number;
       pageSize: number;
       search?: string;
       overdue?: boolean;
       activeTickets?: boolean;
+      sortBy?: AssignedCustomerSortField;
+      sortOrder?: SortOrder;
     } = { page: 1, pageSize: 20 },
   ) {
     const pagination = { page: query.page, pageSize: query.pageSize };
@@ -104,33 +123,108 @@ export class OfficerService {
 
     const where: Prisma.CustomerWhereInput = { AND: and };
 
+    // lastPurchaseDate, lastContactDate and openTickets are all derived after
+    // the query (aggregates and a filtered relation count), so sorting on one
+    // of them cannot be pushed into SQL without changing what the column
+    // means. Those three sort the full matching set in memory; the rest sort
+    // in the database and only derive values for the page slice.
+    const derivedSort =
+      query.sortBy === 'lastPurchaseDate' ||
+      query.sortBy === 'lastContactDate' ||
+      query.sortBy === 'openTickets';
+
+    if (derivedSort) {
+      const rows = await this.prisma.customer.findMany({
+        where,
+        select: this.assignedCustomerSelect,
+        orderBy: { name: 'asc' },
+      });
+      const mapped = await this.withDerivedColumns(rows);
+      const order = sortDirection(query.sortOrder);
+      mapped.sort(
+        compareBy(
+          query.sortBy === 'openTickets'
+            ? (c) => c.openTickets
+            : query.sortBy === 'lastPurchaseDate'
+              ? (c) => c.lastPurchaseDate
+              : (c) => c.lastContactDate,
+          order,
+        ),
+      );
+      return paginateInMemory(mapped, pagination);
+    }
+
     const page = await paginate(
       () => this.prisma.customer.count({ where }),
       (skip, take) =>
         this.prisma.customer.findMany({
           where,
-          select: {
-            id: true,
-            name: true,
-            erpId: true,
-            phone: true,
-            region: true,
-            outstandingBalance: true,
-            accountStatus: true,
-            updatedAt: true,
-            _count: {
-              select: { supportTickets: { where: { status: 'OPEN' } } },
-            },
-          },
-          orderBy: { name: 'asc' },
+          select: this.assignedCustomerSelect,
+          orderBy: this.assignedCustomerOrderBy(query.sortBy, query.sortOrder),
           skip,
           take,
         }),
       pagination,
     );
 
-    // Last purchase date + last contact (message) — only for the page slice
-    const customerIds = page.data.map((c) => c.id);
+    return {
+      data: await this.withDerivedColumns(page.data),
+      meta: page.meta,
+    };
+  }
+
+  private readonly assignedCustomerSelect = {
+    id: true,
+    name: true,
+    erpId: true,
+    phone: true,
+    region: true,
+    outstandingBalance: true,
+    accountStatus: true,
+    updatedAt: true,
+    _count: {
+      select: { supportTickets: { where: { status: 'OPEN' as const } } },
+    },
+  };
+
+  /** Columns of GET /officers/customers that map onto a Prisma orderBy. */
+  private assignedCustomerOrderBy(
+    sortBy: AssignedCustomerSortField | undefined,
+    sortOrder?: SortOrder,
+  ): Prisma.CustomerOrderByWithRelationInput {
+    // Default (no sortBy) reproduces today's ordering exactly (US-09.3).
+    if (!sortBy) return { name: 'asc' };
+    const direction = sortDirection(sortOrder);
+    switch (sortBy) {
+      case 'name':
+        return { name: direction };
+      case 'accountNumber':
+        return { erpId: direction };
+      case 'walletBalance':
+        return { outstandingBalance: direction };
+      default:
+        return { name: 'asc' };
+    }
+  }
+
+  /**
+   * Adds last purchase date + last contact date to a set of customer rows.
+   * Two grouped queries regardless of how many rows are passed in.
+   */
+  private async withDerivedColumns(
+    rows: {
+      id: string;
+      name: string;
+      erpId: string;
+      phone: string;
+      region: string;
+      outstandingBalance: number;
+      accountStatus: string;
+      updatedAt: Date;
+      _count: { supportTickets: number };
+    }[],
+  ) {
+    const customerIds = rows.map((c) => c.id);
     const [lastPurchases, lastMessages] = await Promise.all([
       this.prisma.purchase.groupBy({
         by: ['customerId'],
@@ -150,21 +244,18 @@ export class OfficerService {
       lastMessages.map((r) => [r.customerId, r._max.createdAt]),
     );
 
-    return {
-      data: page.data.map((c) => ({
-        id: c.id,
-        name: c.name,
-        accountNumber: c.erpId,
-        phone: c.phone,
-        region: c.region,
-        walletBalance: c.outstandingBalance,
-        accountStatus: c.accountStatus,
-        openTickets: c._count.supportTickets,
-        lastPurchaseDate: lastPurchaseMap.get(c.id) ?? null,
-        lastContactDate: lastMessageMap.get(c.id) ?? c.updatedAt,
-      })),
-      meta: page.meta,
-    };
+    return rows.map((c) => ({
+      id: c.id,
+      name: c.name,
+      accountNumber: c.erpId,
+      phone: c.phone,
+      region: c.region,
+      walletBalance: c.outstandingBalance,
+      accountStatus: c.accountStatus,
+      openTickets: c._count.supportTickets,
+      lastPurchaseDate: lastPurchaseMap.get(c.id) ?? null,
+      lastContactDate: lastMessageMap.get(c.id) ?? c.updatedAt,
+    }));
   }
 
   /**
@@ -172,8 +263,8 @@ export class OfficerService {
    * Returns Overview tab content; other tabs (Orders, Invoices, etc.) are
    * served by dedicated endpoints below for pagination/lazy-load support.
    */
-  async getCustomerOverview(officerId: string, customerId: string) {
-    const customer = await this.ensureAssignedCustomer(officerId, customerId);
+  async getCustomerOverview(user: OfficerPortalUser, customerId: string) {
+    const customer = await this.ensureAssignedCustomer(user, customerId);
     const assignments = await this.prisma.customerOfficer.findMany({
       where: { customerId },
       include: {
@@ -199,32 +290,44 @@ export class OfficerService {
   }
 
   async getCustomerOrders(
-    officerId: string,
+    user: OfficerPortalUser,
     customerId: string,
     pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
   ) {
-    await this.ensureAssignedCustomer(officerId, customerId);
+    const customer = await this.ensureAssignedCustomer(user, customerId);
     const where = { customerId };
-    return paginate(
-      () => this.prisma.purchase.count({ where }),
-      (skip, take) =>
-        this.prisma.purchase.findMany({
-          where,
-          orderBy: { orderDate: 'desc' },
-          include: { items: true },
-          skip,
-          take,
-        }),
-      pagination,
-    );
+    const [page, lastSync] = await Promise.all([
+      paginate(
+        () => this.prisma.purchase.count({ where }),
+        (skip, take) =>
+          this.prisma.purchase.findMany({
+            where,
+            orderBy: { orderDate: 'desc' },
+            include: { items: true },
+            skip,
+            take,
+          }),
+        pagination,
+      ),
+      this.prisma.purchase.aggregate({
+        where,
+        _max: { updatedAt: true },
+      }),
+    ]);
+    // PRD §7 / US-10.7: when the ERP data for this dataset was last synced —
+    // NOT the time of this request.
+    return {
+      lastUpdated: lastSync._max.updatedAt ?? customer.updatedAt,
+      ...page,
+    };
   }
 
-  async getCustomerInvoices(officerId: string, customerId: string) {
-    await this.ensureAssignedCustomer(officerId, customerId);
+  async getCustomerInvoices(user: OfficerPortalUser, customerId: string) {
+    const scoped = await this.ensureAssignedCustomer(user, customerId);
     const [customer, purchases, payments] = await Promise.all([
       this.prisma.customer.findUnique({
         where: { id: customerId },
-        select: { outstandingBalance: true },
+        select: { outstandingBalance: true, updatedAt: true },
       }),
       this.prisma.purchase.findMany({
         where: { customerId },
@@ -236,15 +339,23 @@ export class OfficerService {
         orderBy: { date: 'desc' },
       }),
     ]);
+    // Invoices are assembled from three ERP-fed sources; the stamp is the
+    // most recent of them (US-10.7). The balance itself lands on Customer,
+    // so its updatedAt counts too.
     return {
+      lastUpdated: this.latestDate([
+        customer?.updatedAt ?? scoped.updatedAt,
+        ...purchases.map((p) => p.updatedAt),
+        ...payments.map((p) => p.createdAt),
+      ]),
       walletBalance: customer?.outstandingBalance ?? 0,
       invoices: purchases,
       paymentHistory: payments,
     };
   }
 
-  async getCustomerStock(officerId: string, customerId: string) {
-    await this.ensureAssignedCustomer(officerId, customerId);
+  async getCustomerStock(user: OfficerPortalUser, customerId: string) {
+    const customer = await this.ensureAssignedCustomer(user, customerId);
     // PRD F10 AC6: current stock from ERP + stock balance awaiting loading.
     const purchases = await this.prisma.purchase.findMany({
       where: { customerId },
@@ -285,6 +396,11 @@ export class OfficerService {
     // One row per product, shaped for the Figma Stock tab columns:
     // Product | Stock Balance | Reserved Stock | Awaiting Loading | Last Stock Update | Status
     return {
+      // US-10.7 — last ERP stock sync, from the Stock rows themselves.
+      lastUpdated: this.latestDate([
+        customer.updatedAt,
+        ...stockCatalogue.map((s) => s.updatedAt),
+      ]),
       catalogue: stockCatalogue.map((s) => {
         const m = productMap.get(s.productName);
         const reserved = m?.reserved ?? 0;
@@ -305,50 +421,88 @@ export class OfficerService {
   }
 
   async getCustomerWaybills(
-    officerId: string,
+    user: OfficerPortalUser,
     customerId: string,
     pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
   ) {
-    await this.ensureAssignedCustomer(officerId, customerId);
+    const customer = await this.ensureAssignedCustomer(user, customerId);
     const where = { customerId };
-    return paginate(
-      () => this.prisma.loadingRequest.count({ where }),
-      (skip, take) =>
-        this.prisma.loadingRequest.findMany({
-          where,
-          orderBy: { createdAt: 'desc' },
-          include: {
-            assignedOfficer: { select: { id: true, name: true } },
-            linkedPurchase: { select: { erpId: true } },
-          },
-          skip,
-          take,
-        }),
-      pagination,
-    );
+    const [page, lastSync] = await Promise.all([
+      paginate(
+        () => this.prisma.loadingRequest.count({ where }),
+        (skip, take) =>
+          this.prisma.loadingRequest.findMany({
+            where,
+            orderBy: { createdAt: 'desc' },
+            include: {
+              assignedOfficer: { select: { id: true, name: true } },
+              linkedPurchase: { select: { erpId: true } },
+            },
+            skip,
+            take,
+          }),
+        pagination,
+      ),
+      this.prisma.loadingRequest.aggregate({
+        where,
+        _max: { updatedAt: true },
+      }),
+    ]);
+    return {
+      lastUpdated: lastSync._max.updatedAt ?? customer.updatedAt,
+      ...page,
+    };
   }
 
-  private async ensureAssignedCustomer(officerId: string, customerId: string) {
+  /** Most recent of a list of dates, ignoring nulls. */
+  private latestDate(dates: (Date | null | undefined)[]): Date {
+    const times = dates
+      .filter((d): d is Date => d instanceof Date)
+      .map((d) => d.getTime());
+    return new Date(times.length ? Math.max(...times) : Date.now());
+  }
+
+  /**
+   * Resolves the customer for a per-tab route, enforcing scope.
+   *
+   * OFFICER: only customers they are assigned to, primary or secondary.
+   * ADMIN:   any customer (US-12.3) — the administrator opens the same five
+   *          tabs with byte-identical responses, so the assignment filter is
+   *          skipped rather than the routes being mirrored under /admin.
+   */
+  private async ensureAssignedCustomer(
+    user: OfficerPortalUser,
+    customerId: string,
+  ) {
+    const isAdmin = user.role === 'ADMIN';
     const customer = await this.prisma.customer.findFirst({
       where: {
         id: customerId,
-        OR: [
-          { assignedOfficerId: officerId },
-          { officerAssignments: { some: { staffId: officerId } } },
-        ],
+        ...(isAdmin
+          ? {}
+          : {
+              OR: [
+                { assignedOfficerId: user.id },
+                { officerAssignments: { some: { staffId: user.id } } },
+              ],
+            }),
       },
       // Never surface auth secrets: getCustomerDetail spreads this record
       // straight into its response.
       omit: { password: true, failedLoginAttempts: true, lockedUntil: true },
     });
     if (!customer)
-      throw new NotFoundException('Customer not found or not assigned to you');
+      throw new NotFoundException(
+        isAdmin
+          ? 'Customer not found'
+          : 'Customer not found or not assigned to you',
+      );
     return customer;
   }
 
-  async getCustomerDetail(officerId: string, customerId: string) {
+  async getCustomerDetail(user: OfficerPortalUser, customerId: string) {
     // Legacy compatibility - returns overview + all transactional data
-    const customer = await this.ensureAssignedCustomer(officerId, customerId);
+    const customer = await this.ensureAssignedCustomer(user, customerId);
     const [purchases, payments, supportTickets] = await Promise.all([
       this.prisma.purchase.findMany({
         where: { customerId },

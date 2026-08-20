@@ -9,6 +9,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 export class SendMessageDto {
   @ApiPropertyOptional({
     description: 'Message text. Optional when an attachmentUrl is provided.',
+    example: 'Your waybill is ready for collection.',
   })
   @ValidateIf((o) => !o.attachmentUrl)
   @IsString()
@@ -17,6 +18,7 @@ export class SendMessageDto {
 
   @ApiPropertyOptional({
     description: 'Attachment URL. Optional when content is provided.',
+    example: 'https://res.cloudinary.com/viju/chat-attachments/photo.jpg',
   })
   @ValidateIf((o) => !o.content)
   @IsString()

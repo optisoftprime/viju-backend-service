@@ -11,6 +11,9 @@ import {
   ApiOperation,
   ApiBearerAuth,
   ApiOkResponse,
+  ApiNotFoundResponse,
+  ApiParam,
+  ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -29,6 +32,9 @@ interface AuthUser {
 
 @ApiTags('Notifications')
 @ApiBearerAuth()
+@ApiUnauthorizedResponse({
+  description: 'Missing, invalid or expired access token',
+})
 @UseGuards(JwtAuthGuard)
 @Controller('notifications')
 export class NotificationsController {
@@ -38,8 +44,17 @@ export class NotificationsController {
   @ApiOperation({
     summary: 'List my notifications (both mobile + web bell)',
     description:
-      'Works for any authenticated user (customer or staff). Returns the ' +
-      '100 most recent notifications and an unread count for the badge.',
+      'Works for any authenticated user (customer or staff). Paginated, ' +
+      'newest first, with `unread` for the badge count.\n\n' +
+      'Rows are created server-side as a side effect of the flows that ' +
+      'warrant them (US-11.8): a customer chat message or a new ticket ' +
+      'notifies every officer currently on that account; a reply or status ' +
+      'change notifies the other side; a reassignment notifies the receiving ' +
+      'officer (US-13.4). `type` is a closed enum so the bell can pick an ' +
+      'icon and route the click.\n\n' +
+      'For live updates without polling, subscribe to GET /realtime/stream ' +
+      'and invalidate this query when a `notification.created` frame ' +
+      'arrives (US-11.2).',
   })
   @ApiOkResponse({ type: PaginatedNotificationsResponseDto })
   async list(
@@ -63,8 +78,15 @@ export class NotificationsController {
   }
 
   @Patch(':id/read')
-  @ApiOperation({ summary: 'Mark a single notification as read' })
+  @ApiOperation({
+    summary: 'Mark a single notification as read',
+    description: "Only the caller's own notifications can be marked read.",
+  })
+  @ApiParam({ name: 'id', description: 'Notification id' })
   @ApiOkResponse({ type: NotificationDto })
+  @ApiNotFoundResponse({
+    description: 'Notification not found, or not addressed to the caller',
+  })
   async read(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.notificationsService.markRead(
       user.role === 'CUSTOMER' ? 'CUSTOMER' : 'STAFF',

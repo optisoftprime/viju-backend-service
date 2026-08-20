@@ -17,6 +17,28 @@ export class RegisterPushTokenDto {
   platform: DevicePlatform;
 }
 
+/**
+ * AO-13 — body for POST /devices/register, the route mobile clients use to
+ * tell the backend where to deliver push. Same registration as
+ * POST /push-tokens, with the field name the mobile contract uses.
+ */
+export class RegisterDeviceDto {
+  @ApiProperty({
+    description: 'Device push token from FCM (Android) or APNs (iOS)',
+    example: 'fcm_or_apns_token',
+  })
+  @IsString()
+  @IsNotEmpty()
+  deviceToken: string;
+
+  @ApiProperty({
+    enum: [DevicePlatform.IOS, DevicePlatform.ANDROID],
+    example: DevicePlatform.IOS,
+  })
+  @IsEnum(DevicePlatform)
+  platform: DevicePlatform;
+}
+
 export class UnregisterPushTokenDto {
   @ApiProperty()
   @IsString()

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
+import { NotificationTypes } from '../../common/notifications/notification-types';
 import { AcceptTermsDto, SubmitLoadingRequestDto } from './dto/waybill.dto';
 import { paginate } from '../../common/pagination/paginate';
 
@@ -153,7 +154,7 @@ export class WaybillService {
         recipientId: admin.id,
         title: 'New loading request',
         body: `${customer.name} — ${customer.region}`,
-        type: 'WAYBILL_SUBMITTED',
+        type: NotificationTypes.WAYBILL_SUBMITTED,
         data: { waybillId: request.id, region: customer.region },
       });
     }

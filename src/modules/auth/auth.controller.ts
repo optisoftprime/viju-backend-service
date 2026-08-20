@@ -1,5 +1,11 @@
-import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiOkResponse } from '@nestjs/swagger';
+import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiOkResponse,
+  ApiForbiddenResponse,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import { AuthService } from './auth.service';
 import {
   RequestOtpDto,
@@ -59,6 +65,12 @@ export class AuthController {
       'Retained for transition. New web portal uses /auth/staff/web-login.',
   })
   @ApiOkResponse({ type: AuthTokenResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Incorrect credentials.' })
+  @ApiForbiddenResponse({
+    description:
+      'The staff account has been deactivated (US-15.5): ' +
+      '`{ "message": "This account has been deactivated. Contact an administrator.", "statusCode": 403 }`',
+  })
   async staffLogin(@Body() dto: StaffLoginDto) {
     return this.authService.staffLogin(dto);
   }
@@ -71,6 +83,12 @@ export class AuthController {
       'Officers, regional admins and administrators sign in to the web portal using credentials issued by the ERP. The platform validates against ERP, upserts a local Staff row, and returns a JWT.',
   })
   @ApiOkResponse({ type: AuthTokenResponseDto })
+  @ApiUnauthorizedResponse({ description: 'Invalid username or code.' })
+  @ApiForbiddenResponse({
+    description:
+      'The staff account has been deactivated (US-15.5): ' +
+      '`{ "message": "This account has been deactivated. Contact an administrator.", "statusCode": 403 }`',
+  })
   async staffWebLogin(@Body() dto: StaffWebLoginDto) {
     return this.authService.staffWebLogin(dto);
   }
@@ -97,6 +115,14 @@ export class AuthController {
       'token revokes the entire chain and forces re-login (theft defence).',
   })
   @ApiOkResponse({ type: AuthTokenResponseDto })
+  @ApiUnauthorizedResponse({
+    description: 'Refresh token missing, expired, revoked or already used.',
+  })
+  @ApiForbiddenResponse({
+    description:
+      'The staff account has been deactivated (US-15.5): ' +
+      '`{ "message": "This account has been deactivated. Contact an administrator.", "statusCode": 403 }`',
+  })
   async refresh(@Body() dto: RefreshTokenDto) {
     return this.authService.refresh(dto.refresh_token);
   }

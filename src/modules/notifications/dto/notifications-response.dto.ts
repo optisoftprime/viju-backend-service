@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
+import { NOTIFICATION_TYPE_VALUES } from '../../../common/notifications/notification-types';
 
 /**
  * A single notification record. Matches the full scalar shape of the Prisma
@@ -24,16 +25,23 @@ export class NotificationDto {
   })
   staffId: string | null;
 
-  @ApiProperty({ example: 'Your order #1234 has been delivered.' })
+  @ApiProperty({ example: 'New message from Ade Foods Ltd' })
   content: string;
 
   @ApiProperty({ example: false })
   isRead: boolean;
 
   @ApiProperty({
-    example: 'ORDER_UPDATE',
+    enum: NOTIFICATION_TYPE_VALUES,
+    example: 'CHAT_MESSAGE',
     nullable: true,
-    description: 'Free-form notification category tag',
+    description:
+      'Closed, stable set (US-11.8) — the bell switches on it to pick an ' +
+      'icon and route the click. CHAT_MESSAGE, TICKET_CREATED, ' +
+      'TICKET_REPLY and TICKET_STATUS come from the chat and ticket flows; ' +
+      'ASSIGNMENT is raised when a customer is assigned to an officer ' +
+      '(US-13.4); the WAYBILL_* and BROADCAST values are distributor-facing. ' +
+      'Null only for legacy rows written before the enum existed.',
   })
   type: string | null;
 
