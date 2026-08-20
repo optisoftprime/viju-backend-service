@@ -22,6 +22,7 @@ import {
   ApiConflictResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
+  ApiParam,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
@@ -52,7 +53,11 @@ import {
   OfficerDetailDto,
   BulkReassignResponseDto,
   OfficerStatusDto,
+  AdminCustomerDetailDto,
+  ErpSyncStatusDto,
+  PaginatedUnmappedErpCustomersResponseDto,
 } from './dto/admin-response.dto';
+import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 
 /**
  * CC-01: every route here is ADMIN-only at the server, regardless of what the
@@ -77,7 +82,17 @@ export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   @Get('dashboard')
-  @ApiOperation({ summary: 'Get aggregate organization dashboard stats' })
+  @ApiOperation({
+    summary: 'Get aggregate organization dashboard stats',
+    description:
+      'B-1.2 — `totalCustomers` is the ERP-reconciled distributor count, not ' +
+      'the number of rows projected locally, so the tile stops ' +
+      'under-reporting. `erpReconciliation` shows the provenance ' +
+      '(erpTotal / vijuTotal / syncedTotal / awaitingProjection), and ' +
+      '`unmappedRegionCount` (B-2.3) exposes ERP rows whose region does not ' +
+      'map. Counts are 0 rather than null when unknown; `lastErpSyncAt` shows ' +
+      'staleness.',
+  })
   @ApiOkResponse({ type: DashboardStatsDto })
   async getDashboard() {
     return this.adminService.getDashboardStats();
@@ -88,10 +103,18 @@ export class AdminController {
     summary: 'List customers with optional region filter + name/erpId search',
     description:
       'Sortable (US-09.3): pass `sortBy` with one of name | erpId | region | ' +
-      'outstandingBalance | supportTickets, plus `sortOrder` (asc | desc, ' +
-      'default desc). With no `sortBy` the ordering is unchanged (erpId ' +
-      'ascending). An unrecognised `sortBy` is rejected with 400 rather than ' +
-      'silently ignored. Only the row order changes — the envelope is the same.',
+      'outstandingBalance | supportTickets | createdAt, plus `sortOrder` ' +
+      '(asc | desc, default desc). With no `sortBy` the ordering is unchanged ' +
+      '(erpId ascending). An unrecognised `sortBy` is rejected with 400.\n\n' +
+      'B-1.1: `hasOfficer=true|false` filters on officer assignment server ' +
+      'side, so the assignment screen no longer has to page through everything ' +
+      'and filter locally. Each row now carries `stockBalanceCartons`, ' +
+      '`lastSyncedAt` (ERP freshness), `hasOfficer` and `createdAt`.\n\n' +
+      '`pageSize` accepts any positive integer and is clamped to 200 rather ' +
+      'than rejected — read `meta.pageSize` for the value actually applied.\n\n' +
+      '`meta.total` counts the rows this filter matches, so pagination stays ' +
+      'correct. For the ERP-reconciled distributor count use ' +
+      'GET /admin/dashboard (`totalCustomers` / `erpReconciliation`).',
   })
   @ApiOkResponse({
     description: 'Paginated list of customers',
@@ -126,6 +149,60 @@ export class AdminController {
       'attachment; filename="viju-customers.csv"',
     );
     res.send(csv);
+  }
+
+  @Get('customers/:id')
+  @Roles('ADMIN', 'REGIONAL_ADMIN')
+  @ApiOperation({
+    summary: 'Customer detail at ERP parity (B-3)',
+    description:
+      'Everything the portal holds for one customer plus what the ERP feed ' +
+      'reports for the same erpId: `creditLimit` (latest effective ERP credit ' +
+      'limit), `stockBalanceCartons`, and `lastErpSyncAt`.\n\n' +
+      'Every optional field is present as an explicit null rather than ' +
+      'omitted. `address` is always null today — the ERP customer master has ' +
+      'no address field.\n\n' +
+      'A REGIONAL_ADMIN may only open a customer in their own region (403 ' +
+      'otherwise).',
+  })
+  @ApiParam({ name: 'id', description: 'Internal customer UUID' })
+  @ApiOkResponse({ type: AdminCustomerDetailDto })
+  @ApiNotFoundResponse({ description: 'Customer not found' })
+  async getCustomerDetail(
+    @CurrentUser() user: { role: string; region?: Region | null },
+    @Param('id') id: string,
+  ) {
+    return this.adminService.getCustomerDetail(id, user);
+  }
+
+  // ─── ERP reconciliation (B-1.2 / B-2.3) ─────────────────────
+  @Get('erp/sync-status')
+  @ApiOperation({
+    summary: 'ERP ingest / projection freshness (B-1.2)',
+    description:
+      'Per-job status of the ERP pipeline plus the customer counts the feed ' +
+      'reports. Use it to show data freshness and to see when the projector ' +
+      'is behind. `available: false` means this environment has no ERP feed ' +
+      'attached.',
+  })
+  @ApiOkResponse({ type: ErpSyncStatusDto })
+  async getErpSyncStatus() {
+    return this.adminService.getErpSyncStatus();
+  }
+
+  @Get('erp/unmapped-customers')
+  @ApiOperation({
+    summary: 'ERP customers whose region could not be mapped (B-2.3)',
+    description:
+      'The quarantine list behind `unmappedRegionCount` on the dashboard: ERP ' +
+      'rows whose BP_CLUSTER_CODE is not one of the Viju regions (1-5) — ' +
+      'other-tenant codes and blanks. These are never counted as ' +
+      'distributors. Read-only; `bpClusterCode` is the raw ERP value so the ' +
+      'ERP team can be given specifics.',
+  })
+  @ApiOkResponse({ type: PaginatedUnmappedErpCustomersResponseDto })
+  async listUnmappedErpCustomers(@Query() pagination: PaginationQueryDto) {
+    return this.adminService.listUnmappedErpCustomers(pagination);
   }
 
   @Patch('customers/:id/reassign')
@@ -213,13 +290,26 @@ export class AdminController {
   }
 
   @Get('officers/:id')
+  @Roles('ADMIN', 'REGIONAL_ADMIN')
   @ApiOperation({
-    summary:
-      'Officer detail — profile, region, role, distributors, open tickets, last login',
+    summary: 'Officer detail — profile + portfolio (B-4.1)',
+    description:
+      'Profile, region, role, last login, plus `_count` (customers, open ' +
+      'supportTickets, chatThreads) and the `customers` portfolio the ' +
+      'Regional Portal renders beside it.\n\n' +
+      'REGIONAL_ADMIN may read officers in their own region (403 outside it). ' +
+      '`lastLoginAt` is null until first login — render "Never". ' +
+      '`distributors` and `openTickets` remain as deprecated aliases of the ' +
+      '`_count` fields.',
   })
+  @ApiParam({ name: 'id', description: 'Officer UUID' })
   @ApiOkResponse({ type: OfficerDetailDto })
-  async getOfficer(@Param('id') id: string) {
-    return this.adminService.getOfficerDetail(id);
+  @ApiNotFoundResponse({ description: 'Officer not found' })
+  async getOfficer(
+    @CurrentUser() user: { role: string; region?: Region | null },
+    @Param('id') id: string,
+  ) {
+    return this.adminService.getOfficerDetail(id, user);
   }
 
   @Patch('officers/:id')

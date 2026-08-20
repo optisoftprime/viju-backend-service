@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsDateString,
   IsIn,
+  IsUUID,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Region } from '../../../common/region/region.constants';
@@ -35,6 +36,24 @@ export class InteractionAuditFilterDto extends SortQueryDto {
   @IsOptional()
   @IsString()
   officerName?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'B-4.2 — exact officer id. Prefer this over `officerName`, which is ' +
+      'ambiguous when two officers share a name.',
+    example: 'b1f2e3d4-5678-90ab-cdef-1234567890ab',
+  })
+  @IsOptional()
+  @IsUUID()
+  officerId?: string;
+
+  @ApiPropertyOptional({
+    description: 'B-4.2 — exact customer id.',
+    example: 'c1f2e3d4-5678-90ab-cdef-1234567890ab',
+  })
+  @IsOptional()
+  @IsUUID()
+  customerId?: string;
 
   @ApiPropertyOptional({ enum: Region })
   @IsOptional()

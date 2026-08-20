@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
+import { CustomerOpenTicketCountDto } from './customer-response.dto';
 import { Region, REGION_VALUES } from '../../../common/region/region.constants';
 
 const STAFF_ROLE_VALUES = [
@@ -12,6 +13,34 @@ const STAFF_ROLE_VALUES = [
 type StaffRole = (typeof STAFF_ROLE_VALUES)[number];
 
 // ─── Officer detail (GET /admin/officers/:id) ──────────────
+
+export class OfficerPortfolioCustomerDto {
+  @ApiProperty({ example: 'customer-uuid-1' })
+  id: string;
+
+  @ApiProperty({ example: 'Ade Foods Ltd' })
+  name: string;
+
+  @ApiProperty({ example: 'VJ-00987' })
+  erpId: string;
+
+  @ApiProperty({ enum: REGION_VALUES, example: 'LAGOS' })
+  region: Region;
+}
+
+export class OfficerDetailCountDto {
+  @ApiProperty({ example: 24, description: 'Customers assigned' })
+  customers: number;
+
+  @ApiProperty({ example: 3, description: 'OPEN tickets across them' })
+  supportTickets: number;
+
+  @ApiProperty({
+    example: 11,
+    description: 'Customers this officer has a chat thread with',
+  })
+  chatThreads: number;
+}
 
 export class OfficerDetailDto {
   @ApiProperty({ example: 'officer-uuid-1' })
@@ -43,12 +72,29 @@ export class OfficerDetailDto {
   })
   lastLoginAt: Date | null;
 
-  @ApiProperty({ example: 15, description: 'Distributors assigned to officer' })
+  @ApiProperty({ example: '2026-01-12T08:00:00.000Z', format: 'date-time' })
+  createdAt: Date;
+
+  @ApiProperty({ type: OfficerDetailCountDto })
+  _count: OfficerDetailCountDto;
+
+  @ApiProperty({
+    type: [OfficerPortfolioCustomerDto],
+    description: 'B-4.1 — the officer’s portfolio, name-ascending.',
+  })
+  customers: OfficerPortfolioCustomerDto[];
+
+  @ApiProperty({
+    example: 15,
+    deprecated: true,
+    description: 'Deprecated alias of _count.customers.',
+  })
   distributors: number;
 
   @ApiProperty({
     example: 2,
-    description: 'Open tickets across their customers',
+    deprecated: true,
+    description: 'Deprecated alias of _count.supportTickets.',
   })
   openTickets: number;
 }
@@ -93,9 +139,102 @@ export class DashboardRegionStatDto {
   activeOfficers: number;
 }
 
+/** B-1.2 — provenance of the headline customer count. */
+export class ErpReconciliationDto {
+  @ApiProperty({
+    enum: ['ERP', 'LOCAL'],
+    example: 'ERP',
+    description:
+      "'ERP' when the counts came from the ERP feed, 'LOCAL' when no feed is " +
+      'attached and the locally projected count was used instead.',
+  })
+  source: 'ERP' | 'LOCAL';
+
+  @ApiProperty({
+    example: 3747,
+    description: 'Every row in the ERP customer feed, all tenants included.',
+  })
+  erpTotal: number;
+
+  @ApiProperty({
+    example: 1851,
+    description:
+      'ERP rows whose BP_CLUSTER_CODE maps to a Viju region (1-5) — the ' +
+      'distributor count the portal reports.',
+  })
+  vijuTotal: number;
+
+  @ApiProperty({
+    example: 4,
+    description: 'Customers actually projected into this database so far.',
+  })
+  syncedTotal: number;
+
+  @ApiProperty({
+    example: 1847,
+    description:
+      'vijuTotal minus syncedTotal — customers the ERP has that the projector ' +
+      'has not copied across yet. Non-zero means the projection job is behind.',
+  })
+  awaitingProjection: number;
+
+  @ApiProperty({
+    example: 1896,
+    description: 'ERP rows whose region could not be mapped (B-2.3).',
+  })
+  unmappedRegionCount: number;
+
+  @ApiProperty({
+    example: '2026-08-19T04:30:05.124Z',
+    format: 'date-time',
+    nullable: true,
+  })
+  lastSyncAt: Date | null;
+}
+
 export class DashboardStatsDto {
-  @ApiProperty({ example: 150 })
+  @ApiProperty({
+    example: 1851,
+    description:
+      'B-1.2 — distributors as the ERP reports them, not the number projected ' +
+      'locally. Falls back to the local count when no ERP feed is attached. ' +
+      'Never null: 0 when nothing is known.',
+  })
   totalCustomers: number;
+
+  @ApiProperty({
+    example: 1820,
+    description: 'Locally known customers whose account status is ACTIVE.',
+  })
+  totalActiveCustomers: number;
+
+  @ApiProperty({
+    example: 12,
+    description: 'Locally known customers with no assigned officer.',
+  })
+  customersWithoutOfficer: number;
+
+  @ApiProperty({
+    example: '2026-08-19T04:30:05.124Z',
+    format: 'date-time',
+    nullable: true,
+    description:
+      'Last successful ERP sync. Null when no feed is attached — render the ' +
+      'tile with a staleness warning rather than hiding it.',
+  })
+  lastErpSyncAt: Date | null;
+
+  @ApiProperty({
+    example: 1896,
+    description:
+      'B-2.3 — ERP customer rows whose region does not map to a Viju region. ' +
+      'Surfaced so the mismatch is visible; these are not counted as ' +
+      'distributors.',
+  })
+  unmappedRegionCount: number;
+
+  @ApiProperty({ type: ErpReconciliationDto })
+  erpReconciliation: ErpReconciliationDto;
 
   @ApiProperty({ example: 4500000.5 })
   totalOutstandingBalance: number;
@@ -111,6 +250,209 @@ export class DashboardStatsDto {
 
   @ApiProperty({ type: [DashboardRegionStatDto] })
   byRegion: DashboardRegionStatDto[];
+}
+
+// ─── Customer detail (GET /admin/customers/:id) — B-3 ──────
+
+export class CustomerDetailOfficerDto {
+  @ApiProperty({ example: 'officer-uuid-1' })
+  id: string;
+
+  @ApiProperty({ example: 'Ifeanyi Okon' })
+  name: string;
+
+  @ApiProperty({ example: 'i.okon@viju.com' })
+  email: string;
+}
+
+export class CustomerDetailAssignmentDto {
+  @ApiProperty({ example: 'assignment-uuid-1' })
+  id: string;
+
+  @ApiProperty({ example: true })
+  isPrimary: boolean;
+
+  @ApiProperty({ example: '2026-01-12T08:00:00.000Z', format: 'date-time' })
+  assignedAt: Date;
+
+  @ApiProperty({ type: CustomerDetailOfficerDto })
+  staff: CustomerDetailOfficerDto;
+}
+
+/**
+ * B-3 — full customer record at ERP parity. Every optional field is present
+ * as an explicit null rather than omitted.
+ */
+export class AdminCustomerDetailDto {
+  @ApiProperty({ example: 'customer-uuid-1' })
+  id: string;
+
+  @ApiProperty({ example: 'VJ-00987' })
+  erpId: string;
+
+  @ApiProperty({ example: 'Ade Foods Ltd' })
+  name: string;
+
+  @ApiProperty({ example: '08087654321' })
+  phone: string;
+
+  @ApiProperty({ example: 'ops@adefoods.com', nullable: true })
+  email: string | null;
+
+  @ApiProperty({
+    example: null,
+    nullable: true,
+    description:
+      'Always null today — the ERP customer master carries no address field. ' +
+      'Populating it needs an ERP change; see the handoff notes.',
+  })
+  address: string | null;
+
+  @ApiProperty({ enum: REGION_VALUES, example: 'LAGOS' })
+  region: Region;
+
+  @ApiProperty({ example: true, description: 'accountStatus === ACTIVE' })
+  isActive: boolean;
+
+  @ApiProperty({ enum: ['ACTIVE', 'ON_HOLD'], example: 'ACTIVE' })
+  accountStatus: 'ACTIVE' | 'ON_HOLD';
+
+  @ApiProperty({ example: 1240000 })
+  outstandingBalance: number;
+
+  @ApiProperty({ example: 320, description: 'Cartons awaiting loading' })
+  stockBalanceCartons: number;
+
+  @ApiProperty({
+    example: 2000000,
+    nullable: true,
+    description:
+      'Latest effective ERP credit limit (CREDIT_AMT). Null when the ERP ' +
+      'holds none for this customer.',
+  })
+  creditLimit: number | null;
+
+  @ApiProperty({ type: [CustomerDetailAssignmentDto] })
+  officerAssignments: CustomerDetailAssignmentDto[];
+
+  @ApiProperty({ type: CustomerOpenTicketCountDto })
+  _count: CustomerOpenTicketCountDto;
+
+  @ApiProperty({
+    example: '2026-08-19T04:30:05.124Z',
+    format: 'date-time',
+    nullable: true,
+  })
+  lastErpSyncAt: Date | null;
+
+  @ApiProperty({ example: '2026-01-12T08:00:00.000Z', format: 'date-time' })
+  createdAt: Date;
+
+  @ApiProperty({ example: '2026-08-19T09:15:00.000Z', format: 'date-time' })
+  updatedAt: Date;
+}
+
+// ─── ERP reconciliation (GET /admin/erp/*) — B-2.3 ─────────
+
+export class UnmappedErpCustomerDto {
+  @ApiProperty({ example: 'T20642', description: 'ERP CUSTOMER_CODE' })
+  erpId: string;
+
+  @ApiProperty({ example: '潍坊绿霸化工有限公司', nullable: true })
+  name: string | null;
+
+  @ApiProperty({ example: '0913580925', nullable: true })
+  phone: string | null;
+
+  @ApiProperty({
+    example: 'GZ020',
+    nullable: true,
+    description: 'The raw BP_CLUSTER_CODE exactly as the ERP sent it.',
+  })
+  bpClusterCode: string | null;
+
+  @ApiProperty({ example: '广州拓燊客户编码', nullable: true })
+  bpClusterName: string | null;
+
+  @ApiProperty({
+    example: '2026-08-19T04:30:05.124Z',
+    format: 'date-time',
+    nullable: true,
+  })
+  lastSeenAt: Date | null;
+}
+
+export class PaginatedUnmappedErpCustomersResponseDto {
+  @ApiProperty({ type: [UnmappedErpCustomerDto] })
+  data: UnmappedErpCustomerDto[];
+
+  @ApiProperty({ type: PaginationMetaDto })
+  meta: PaginationMetaDto;
+}
+
+export class ErpSyncJobDto {
+  @ApiProperty({ example: 'ingest:customer' })
+  job: string;
+
+  @ApiProperty({ example: 'SUCCESS' })
+  status: string;
+
+  @ApiProperty({
+    example: '2026-08-19T04:30:40.113Z',
+    format: 'date-time',
+    nullable: true,
+  })
+  lastFinishedAt: Date | null;
+
+  @ApiProperty({ example: 3747, nullable: true })
+  rowsFetched: number | null;
+
+  @ApiProperty({ example: 0, nullable: true })
+  rowsProjected: number | null;
+}
+
+export class ErpCustomerCountsDto {
+  @ApiProperty({ example: 3747 })
+  erpTotal: number;
+
+  @ApiProperty({ example: 1851 })
+  vijuTotal: number;
+
+  @ApiProperty({ example: 1896 })
+  unmappedRegionCount: number;
+
+  @ApiProperty({
+    example: {
+      LAGOS: 734,
+      EASTERN: 82,
+      SOUTH_SOUTH: 133,
+      WESTERN: 439,
+      NORTH: 463,
+    },
+    description: 'Mappable ERP customers per region.',
+  })
+  byRegion: Record<string, number>;
+}
+
+export class ErpSyncStatusDto {
+  @ApiProperty({
+    example: true,
+    description: 'False when this database has no ERP feed attached.',
+  })
+  available: boolean;
+
+  @ApiProperty({
+    example: '2026-08-20T17:21:05.529Z',
+    format: 'date-time',
+    nullable: true,
+  })
+  lastSyncAt: Date | null;
+
+  @ApiProperty({ type: ErpCustomerCountsDto })
+  customers: ErpCustomerCountsDto;
+
+  @ApiProperty({ type: [ErpSyncJobDto] })
+  jobs: ErpSyncJobDto[];
 }
 
 // ─── Test customer (POST /admin/customers) ─────────────────

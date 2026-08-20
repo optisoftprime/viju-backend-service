@@ -35,7 +35,7 @@ import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 import {
   RegionalDashboardResponseDto,
   PaginatedLoadingRequestsResponseDto,
-  PaginatedLoadingQueueResponseDto,
+  PaginatedRegionalLoadingQueueResponseDto,
   RegionalLoadingRequestDto,
 } from './dto/regional-response.dto';
 
@@ -168,7 +168,7 @@ export class RegionalController {
   })
   @ApiOkResponse({
     description: 'Paginated queue of requests assigned to the current officer.',
-    type: PaginatedLoadingQueueResponseDto,
+    type: PaginatedRegionalLoadingQueueResponseDto,
   })
   async getMyQueue(
     @CurrentUser() user: StaffUser,

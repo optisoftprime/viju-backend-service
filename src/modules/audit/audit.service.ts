@@ -33,6 +33,9 @@ export class AuditService {
   private buildChatWhere(filter: InteractionAuditFilterDto) {
     return {
       ...this.buildDateClause(filter),
+      // B-4.2 — exact-id filters, unambiguous where the name filters are not.
+      ...(filter.customerId ? { customerId: filter.customerId } : {}),
+      ...(filter.officerId ? { staffId: filter.officerId } : {}),
       ...(filter.keyword
         ? {
             content: {
@@ -68,6 +71,7 @@ export class AuditService {
   private buildTicketWhere(filter: InteractionAuditFilterDto) {
     return {
       ...this.buildDateClause(filter),
+      ...(filter.customerId ? { customerId: filter.customerId } : {}),
       ...(filter.keyword
         ? {
             OR: [

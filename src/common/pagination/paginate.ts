@@ -1,3 +1,9 @@
+/**
+ * Server-side ceiling on `pageSize`. A larger request is clamped to this and
+ * the applied value is returned in `meta.pageSize` — never rejected.
+ */
+export const MAX_PAGE_SIZE = 200;
+
 export interface PaginationMeta {
   total: number;
   page: number;
@@ -47,7 +53,7 @@ export async function paginate<T>(
 ): Promise<PaginatedResponse<T>> {
   const page = Math.max(1, Math.floor(pagination.page || 1));
   const pageSize = Math.min(
-    100,
+    MAX_PAGE_SIZE,
     Math.max(1, Math.floor(pagination.pageSize || 20)),
   );
   const skip = (page - 1) * pageSize;
@@ -66,7 +72,7 @@ export function paginateInMemory<T>(
 ): PaginatedResponse<T> {
   const page = Math.max(1, Math.floor(pagination.page || 1));
   const pageSize = Math.min(
-    100,
+    MAX_PAGE_SIZE,
     Math.max(1, Math.floor(pagination.pageSize || 20)),
   );
   const start = (page - 1) * pageSize;

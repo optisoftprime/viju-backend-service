@@ -2,12 +2,19 @@ import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
 import { Region, REGION_VALUES } from '../../../common/region/region.constants';
 
+/**
+ * B-5.3 — the order lifecycle the ERP mapping produces. SHIPPED is legacy
+ * data only; new syncs use DISPATCHED.
+ */
 const ORDER_STATUS_VALUES = [
   'PENDING',
   'PROCESSING',
-  'SHIPPED',
+  'LOADED',
+  'DISPATCHED',
   'DELIVERED',
+  'CLOSED',
   'CANCELLED',
+  'SHIPPED',
 ] as const;
 type OrderStatus = (typeof ORDER_STATUS_VALUES)[number];
 
@@ -16,7 +23,7 @@ type InvoiceStatus = (typeof INVOICE_STATUS_VALUES)[number];
 
 // ─── Shared line item ──────────────────────────────────────
 
-export class PurchaseItemDto {
+export class CustomerPurchaseItemDto {
   @ApiProperty({ example: 'item-uuid-1' })
   id: string;
 
@@ -250,8 +257,8 @@ export class PurchaseListItemDto {
   @ApiProperty({ example: '2026-06-01T10:00:00.000Z', format: 'date-time' })
   updatedAt: Date;
 
-  @ApiProperty({ type: [PurchaseItemDto] })
-  items: PurchaseItemDto[];
+  @ApiProperty({ type: [CustomerPurchaseItemDto] })
+  items: CustomerPurchaseItemDto[];
 }
 
 export class PaginatedPurchasesResponseDto {
@@ -260,6 +267,137 @@ export class PaginatedPurchasesResponseDto {
 
   @ApiProperty({ type: PaginationMetaDto })
   meta: PaginationMetaDto;
+}
+
+// ─── Account statement (GET /customers/me/statement) — B-5.1/5.2/5.5 ──────
+
+const STATEMENT_LINE_TYPE_VALUES = [
+  'INVOICE',
+  'PAYMENT',
+  'TRANSPORT_ALLOWANCE',
+] as const;
+
+const STATEMENT_PERIOD_VALUES = [
+  'LAST_30_DAYS',
+  'LAST_90_DAYS',
+  'LAST_6_MONTHS',
+  'YEAR_TO_DATE',
+  'CUSTOM',
+] as const;
+
+export class StatementLineDto {
+  @ApiProperty({ example: '2026-07-14T00:00:00.000Z', format: 'date-time' })
+  date: Date;
+
+  @ApiProperty({
+    enum: STATEMENT_LINE_TYPE_VALUES,
+    example: 'PAYMENT',
+    description:
+      'B-5.1 — the three movement types kept distinct. TRANSPORT_ALLOWANCE is ' +
+      'a payment that settles a delivery allowance, not an ordinary payment.',
+  })
+  type: (typeof STATEMENT_LINE_TYPE_VALUES)[number];
+
+  @ApiProperty({ example: 'VJ-2026-675' })
+  reference: string;
+
+  @ApiProperty({ example: 'Payment received' })
+  description: string;
+
+  @ApiProperty({
+    example: 0,
+    description: 'Amount owed by this movement. Always a number, never null.',
+  })
+  debit: number;
+
+  @ApiProperty({
+    example: 250000,
+    description: 'Amount credited. Always a number, never null.',
+  })
+  credit: number;
+
+  @ApiProperty({
+    example: 1240000,
+    description:
+      'B-5.5 — balance after this line, computed server-side in chronological ' +
+      'order. Do not recompute on the client.',
+  })
+  runningBalance: number;
+}
+
+export class StatementResponseDto {
+  @ApiProperty({
+    example: 'Ade Foods Ltd',
+    description: 'B-5.1 — replaces distributorName.',
+  })
+  customerName: string;
+
+  @ApiProperty({
+    example: 'VJ-00987',
+    description: 'B-5.1 — replaces erpId.',
+  })
+  code: string;
+
+  @ApiProperty({ enum: STATEMENT_PERIOD_VALUES, example: 'LAST_30_DAYS' })
+  period: (typeof STATEMENT_PERIOD_VALUES)[number];
+
+  @ApiProperty({ example: '2026-07-21T00:00:00.000Z', format: 'date-time' })
+  startDate: Date;
+
+  @ApiProperty({ example: '2026-08-20T00:00:00.000Z', format: 'date-time' })
+  endDate: Date;
+
+  @ApiProperty({
+    example: 990000,
+    description: 'Balance carried into the window from everything before it.',
+  })
+  openingBalance: number;
+
+  @ApiProperty({
+    example: 1240000,
+    description: 'openingBalance + Σ(credit) − Σ(debit) across the window.',
+  })
+  closingBalance: number;
+
+  @ApiProperty({ example: 310000 })
+  totalDebit: number;
+
+  @ApiProperty({ example: 560000 })
+  totalCredit: number;
+
+  @ApiProperty({ type: [StatementLineDto] })
+  lines: StatementLineDto[];
+}
+
+// ─── Order/payment detail lines — B-5.4 ──────────────────────────────────
+
+export class TransactionLineDto {
+  @ApiProperty({ example: 'Viju Milk 330ml' })
+  product: string;
+
+  @ApiProperty({
+    example: 'ITM-0099',
+    nullable: true,
+    description: 'ERP item code. Null until the ERP projection supplies it.',
+  })
+  itemCode: string | null;
+
+  @ApiProperty({ example: 120 })
+  quantity: number;
+
+  @ApiProperty({ example: 2500 })
+  unitPrice: number;
+
+  @ApiProperty({ example: 300000, description: 'Line total' })
+  amount: number;
+
+  @ApiProperty({
+    example: 1240000,
+    description:
+      'Running account balance at this transaction, from the same ledger the ' +
+      'statement uses.',
+  })
+  accountBalance: number;
 }
 
 // ─── Purchase detail (GET /customers/me/purchases/:id) ─────
@@ -274,8 +412,22 @@ export class PurchaseDetailDto {
   @ApiProperty({ example: '2026-06-01T10:00:00.000Z', format: 'date-time' })
   orderDate: Date;
 
-  @ApiProperty({ enum: ORDER_STATUS_VALUES, example: 'DELIVERED' })
+  @ApiProperty({
+    enum: ORDER_STATUS_VALUES,
+    example: 'CLOSED',
+    description:
+      'B-5.3 — mapped from the ERP order state through the published table, ' +
+      'not defaulted to PROCESSING. An unmappable ERP state becomes PENDING.',
+  })
   status: OrderStatus;
+
+  @ApiProperty({
+    example: '2026-06-04T09:12:00.000Z',
+    format: 'date-time',
+    nullable: true,
+    description: 'When the status last changed. Null for never-synced rows.',
+  })
+  statusUpdatedAt: Date | null;
 
   @ApiProperty({ example: 3 })
   totalItems: number;
@@ -286,8 +438,26 @@ export class PurchaseDetailDto {
   @ApiProperty({ example: 'INV-444120', description: 'Derived invoice number' })
   linkedInvoiceNumber: string;
 
-  @ApiProperty({ type: [PurchaseItemDto] })
-  items: PurchaseItemDto[];
+  @ApiProperty({
+    example: 1240000,
+    description: 'Running account balance at this transaction (B-5.4).',
+  })
+  accountBalance: number;
+
+  @ApiProperty({
+    type: [TransactionLineDto],
+    description:
+      'B-5.4 — the six columns the detail screen renders. Empty array (never ' +
+      'null) when the ERP supplied no lines.',
+  })
+  lines: TransactionLineDto[];
+
+  @ApiProperty({
+    type: [CustomerPurchaseItemDto],
+    deprecated: true,
+    description: 'Superseded by `lines`; kept for the existing screens.',
+  })
+  items: CustomerPurchaseItemDto[];
 }
 
 // ─── Payments (GET /customers/me/payments) ─────────────────
@@ -410,8 +580,8 @@ export class InvoiceDetailDto {
   @ApiProperty({ enum: INVOICE_STATUS_VALUES, example: 'PAID' })
   status: InvoiceStatus;
 
-  @ApiProperty({ type: [PurchaseItemDto] })
-  lineItems: PurchaseItemDto[];
+  @ApiProperty({ type: [CustomerPurchaseItemDto] })
+  lineItems: CustomerPurchaseItemDto[];
 
   @ApiProperty({ example: 45000.0 })
   subtotal: number;

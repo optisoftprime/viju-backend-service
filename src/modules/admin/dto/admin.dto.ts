@@ -8,18 +8,30 @@ import {
   IsOptional,
   IsBoolean,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { StaffRole } from '@prisma/client';
 import { Region } from '../../../common/region/region.constants';
 import { SortQueryDto } from '../../../common/pagination/sort.dto';
 
-/** Columns GET /admin/customers can be sorted by (US-09.3). */
+/**
+ * Query-string booleans arrive as strings. Anything unrecognised is left
+ * untouched so @IsBoolean() rejects it rather than silently reading as false.
+ */
+const toOptionalBool = ({ value }: { value: unknown }) => {
+  if (value === true || value === 'true' || value === '1') return true;
+  if (value === false || value === 'false' || value === '0') return false;
+  return value;
+};
+
+/** Columns GET /admin/customers can be sorted by (US-09.3, B-1.1). */
 export const CUSTOMER_SORT_FIELDS = [
   'name',
   'erpId',
   'region',
   'outstandingBalance',
   'supportTickets',
+  'createdAt',
 ] as const;
 export type CustomerSortField = (typeof CUSTOMER_SORT_FIELDS)[number];
 
@@ -61,6 +73,19 @@ export class CustomerFilterDto extends SortQueryDto {
   @IsOptional()
   @IsIn(CUSTOMER_SORT_FIELDS)
   sortBy?: CustomerSortField;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'B-1.1 — filter on officer assignment. `true` returns only customers ' +
+      'that already have an assigned officer, `false` only those without. ' +
+      'Omit for both. Lets the assignment screen stop fetching every page and ' +
+      'filtering client-side.',
+  })
+  @IsOptional()
+  @Transform(toOptionalBool)
+  @IsBoolean()
+  hasOfficer?: boolean;
 }
 
 /**

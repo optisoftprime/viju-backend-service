@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { StatementLedgerService } from './statement-ledger.service';
 import {
   UpdateProfilePhotoDto,
   ChangePasswordDto,
@@ -10,7 +11,10 @@ import { paginate } from '../../common/pagination/paginate';
 
 @Injectable()
 export class CustomerService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ledger: StatementLedgerService,
+  ) {}
 
   async getHome(customerId: string) {
     const customer = await this.prisma.customer.findUnique({
@@ -271,6 +275,7 @@ export class CustomerService {
           select: {
             id: true,
             productName: true,
+            itemCode: true,
             quantity: true,
             unitPrice: true,
             lineTotal: true,
@@ -280,14 +285,32 @@ export class CustomerService {
     });
     if (!purchase) throw new NotFoundException('Order not found');
 
+    // B-5.4 — the six columns the detail screen renders. `accountBalance` is
+    // the running balance at the moment of this transaction, computed by the
+    // ledger so it agrees with the statement rather than being recalculated
+    // on the client.
+    const balances = await this.ledger.balanceByPurchase(customerId);
+    const accountBalance = balances.get(purchase.id) ?? 0;
+
     return {
       id: purchase.id,
       orderId: purchase.erpId,
       orderDate: purchase.orderDate,
       status: purchase.status,
+      statusUpdatedAt: purchase.statusUpdatedAt ?? null,
       totalItems: purchase.totalItems,
       totalValue: purchase.totalValue,
       linkedInvoiceNumber: this.deriveInvoiceNumber(purchase.erpId),
+      accountBalance,
+      lines: purchase.items.map((i) => ({
+        product: i.productName,
+        itemCode: i.itemCode ?? null,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        amount: i.lineTotal,
+        accountBalance,
+      })),
+      // Retained for the existing screens; `lines` is the B-5.4 shape.
       items: purchase.items,
     };
   }
