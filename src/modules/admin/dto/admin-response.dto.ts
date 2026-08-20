@@ -143,6 +143,14 @@ export class OfficerCustomerCountDto {
     description: 'Customers assigned to this officer',
   })
   customers: number;
+
+  @ApiProperty({
+    example: 3,
+    description:
+      'US-15.1 — OPEN support tickets across this officer’s customers. ' +
+      'Derived per row, so it always matches the number the officer list shows.',
+  })
+  supportTickets: number;
 }
 
 export class OfficerListItemDto {
@@ -170,6 +178,16 @@ export class OfficerListItemDto {
     description: 'When the account officer was created',
   })
   createdAt: Date;
+
+  @ApiProperty({
+    example: '2026-08-19T07:41:00.000Z',
+    format: 'date-time',
+    nullable: true,
+    description:
+      'US-15.1 — most recent successful login. Null until the officer has ' +
+      'logged in at least once; do not substitute createdAt for it.',
+  })
+  lastLoginAt: Date | null;
 
   @ApiProperty({ type: OfficerCustomerCountDto })
   _count: OfficerCustomerCountDto;
@@ -199,6 +217,47 @@ export class CreatedOfficerDto {
 
   @ApiProperty({ enum: REGION_VALUES, example: 'LAGOS', nullable: true })
   region: Region | null;
+
+  @ApiProperty({ example: true })
+  isActive: boolean;
+
+  @ApiProperty({ example: '2026-08-19T10:00:00.000Z', format: 'date-time' })
+  createdAt: Date;
+
+  @ApiProperty({
+    example: true,
+    description:
+      'US-15.3 — whether the credentials email was delivered. The officer is ' +
+      'created either way; false means the admin should pass the password on ' +
+      'by another route.',
+  })
+  emailSent: boolean;
+}
+
+/**
+ * Shape returned by PATCH /admin/officers/:id (activate / deactivate).
+ */
+export class OfficerStatusDto {
+  @ApiProperty({ example: 'officer-uuid-1' })
+  id: string;
+
+  @ApiProperty({ example: 'Ifeanyi Okon' })
+  name: string;
+
+  @ApiProperty({ example: 'i.okon@viju.com' })
+  email: string;
+
+  @ApiProperty({ example: '+2348012345678' })
+  phone: string;
+
+  @ApiProperty({ enum: REGION_VALUES, example: 'LAGOS', nullable: true })
+  region: Region | null;
+
+  @ApiProperty({ example: false, description: 'False once deactivated' })
+  isActive: boolean;
+
+  @ApiProperty({ example: '2026-08-19T10:30:00.000Z', format: 'date-time' })
+  updatedAt: Date;
 }
 
 // ─── Product flyers (PRD F19) ──────────────────────────────

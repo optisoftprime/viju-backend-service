@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { RealtimeService } from '../realtime/realtime.service';
 import { NotificationGateway, NotificationPayload } from './notification.types';
 
 @Injectable()
@@ -9,6 +10,7 @@ export class NotificationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly gateway: NotificationGateway,
+    private readonly realtime: RealtimeService,
   ) {}
 
   /**
@@ -21,13 +23,29 @@ export class NotificationService {
   async notify(payload: NotificationPayload): Promise<void> {
     // 1) DB row — this we DO want to fail loud if it errors,
     //    since it's the source of truth for the bell icon.
-    await this.prisma.notification.create({
+    const row = await this.prisma.notification.create({
       data: {
         customerId:
           payload.recipientType === 'CUSTOMER' ? payload.recipientId : null,
         staffId: payload.recipientType === 'STAFF' ? payload.recipientId : null,
         content: `${payload.title}: ${payload.body}`,
         type: payload.type,
+      },
+    });
+
+    // 1b) Realtime frame (US-11.2) so an open web session sees the bell
+    //     update without waiting out its query cache. Publishing is
+    //     non-throwing by contract — the row above is what counts.
+    this.realtime.publish({
+      event: 'notification.created',
+      recipientType: payload.recipientType,
+      recipientId: payload.recipientId,
+      data: {
+        id: row.id,
+        content: row.content,
+        type: row.type,
+        isRead: row.isRead,
+        createdAt: row.createdAt,
       },
     });
 

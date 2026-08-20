@@ -46,7 +46,10 @@ export class CustomerLoginDto {
 }
 
 export class StaffLoginDto {
-  @ApiProperty({ description: 'Staff email address' })
+  @ApiProperty({
+    description: 'Staff email address',
+    example: 'i.okon@viju.com',
+  })
   @IsEmail()
   @IsNotEmpty()
   email: string;
@@ -87,7 +90,10 @@ export class StaffPasswordResetRequestDto {
 }
 
 export class RefreshTokenDto {
-  @ApiProperty({ description: 'The refresh_token returned at login/refresh' })
+  @ApiProperty({
+    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5YjRkIn0.xyz',
+    description: 'The refresh_token returned at login/refresh',
+  })
   @IsString()
   @IsNotEmpty()
   refresh_token: string;
@@ -95,6 +101,7 @@ export class RefreshTokenDto {
 
 export class LogoutDto {
   @ApiProperty({
+    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI5YjRkIn0.xyz',
     description:
       'Refresh token to revoke. Provide the refresh_token from your login response.',
   })

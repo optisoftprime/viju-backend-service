@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common';
 import { DatabaseModule } from '../database/database.module';
+import { RealtimeModule } from '../realtime/realtime.module';
 import { ConsoleNotificationGateway } from './console-notification.gateway';
 import { FcmNotificationGateway } from './fcm-notification.gateway';
 import { NotificationService } from './notification.service';
 import { NotificationGateway } from './notification.types';
 
 @Module({
-  imports: [DatabaseModule],
+  imports: [DatabaseModule, RealtimeModule],
   providers: [
     {
       provide: NotificationGateway,

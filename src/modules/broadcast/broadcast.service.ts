@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
+import { NotificationTypes } from '../../common/notifications/notification-types';
 import { paginate } from '../../common/pagination/paginate';
 import {
   SendRegionalBroadcastDto,
@@ -43,7 +44,7 @@ export class BroadcastService {
         recipientId: c.id,
         title: 'Viju',
         body: dto.message,
-        type: 'BROADCAST_REGIONAL',
+        type: NotificationTypes.BROADCAST,
         data: { broadcastId: broadcast.id },
       });
     }
@@ -116,9 +117,7 @@ export class BroadcastService {
       recipientId: customer.id,
       title: 'Viju',
       body,
-      type: dto.deliveryAllowance
-        ? 'BROADCAST_INDIVIDUAL_WITH_ALLOWANCE'
-        : 'BROADCAST_INDIVIDUAL',
+      type: NotificationTypes.BROADCAST,
       data: { broadcastId: broadcast.id },
     });
 

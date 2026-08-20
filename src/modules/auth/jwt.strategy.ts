@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { DEACTIVATED_ACCOUNT_MESSAGE } from './auth.constants';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -11,7 +12,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private readonly prisma: PrismaService,
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      // Two sources, in priority order:
+      //   1. Authorization: Bearer — every client, every route
+      //   2. ?token= — browser EventSource on GET /realtime/stream, which
+      //      cannot set request headers. Same token, same validation.
+      jwtFromRequest: ExtractJwt.fromExtractors([
+        ExtractJwt.fromAuthHeaderAsBearerToken(),
+        ExtractJwt.fromUrlQueryParameter('token'),
+      ]),
       ignoreExpiration: false,
       secretOrKey: configService.get<string>(
         'JWT_SECRET',
@@ -38,9 +46,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('User not found');
     }
 
-    // Check staff active status
+    // US-15.5: a deactivated officer's live session must die. The access
+    // token stays cryptographically valid until it expires, so the check has
+    // to happen here, on every request, not only at login.
     if (payload.type === 'STAFF' && user.isActive === false) {
-      throw new UnauthorizedException('Staff account is inactive');
+      throw new UnauthorizedException(DEACTIVATED_ACCOUNT_MESSAGE);
     }
 
     // Check customer account status

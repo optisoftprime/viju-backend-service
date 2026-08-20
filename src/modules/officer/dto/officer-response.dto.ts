@@ -163,7 +163,12 @@ export class CustomerOverviewDto {
   @ApiProperty({ type: [AssignedOfficerDto] })
   assignedOfficers: AssignedOfficerDto[];
 
-  @ApiProperty({ example: '2026-06-09T08:16:56.533Z', format: 'date-time' })
+  @ApiProperty({
+    example: '2026-08-19T09:15:00.000Z',
+    format: 'date-time',
+    description:
+      'PRD §7 / US-10.7 — when this ERP-backed dataset was last synced.',
+  })
   lastUpdated: Date;
 }
 
@@ -226,6 +231,16 @@ export class PurchaseDto {
 // GET /officers/customers/:id/orders  -> OfficerService.getCustomerOrders
 // ---------------------------------------------------------------------------
 export class PaginatedCustomerOrdersResponseDto {
+  @ApiProperty({
+    example: '2026-08-19T09:15:00.000Z',
+    format: 'date-time',
+    description:
+      'PRD §7 / US-10.7 — when this ERP-backed dataset was last synced. NOT ' +
+      'the time of the request: it reflects the most recent sync of the rows ' +
+      'below, so the UI can render an honest "Last updated" stamp.',
+  })
+  lastUpdated: Date;
+
   @ApiProperty({ type: [PurchaseDto] })
   data: PurchaseDto[];
 
@@ -271,6 +286,16 @@ export class PaymentDto {
 }
 
 export class CustomerInvoicesDto {
+  @ApiProperty({
+    example: '2026-08-19T09:15:00.000Z',
+    format: 'date-time',
+    description:
+      'PRD §7 / US-10.7 — when this ERP-backed dataset was last synced. NOT ' +
+      'the time of the request: it reflects the most recent sync of the rows ' +
+      'below, so the UI can render an honest "Last updated" stamp.',
+  })
+  lastUpdated: Date;
+
   @ApiProperty({
     example: -50000.5,
     description: 'Outstanding balance, defaults to 0 if customer not found',
@@ -338,6 +363,16 @@ export class CustomerStockItemDto {
 }
 
 export class CustomerStockDto {
+  @ApiProperty({
+    example: '2026-08-19T09:15:00.000Z',
+    format: 'date-time',
+    description:
+      'PRD §7 / US-10.7 — when this ERP-backed dataset was last synced. NOT ' +
+      'the time of the request: it reflects the most recent sync of the rows ' +
+      'below, so the UI can render an honest "Last updated" stamp.',
+  })
+  lastUpdated: Date;
+
   @ApiProperty({
     type: [CustomerStockItemDto],
     description: 'Per-product stock rows for the customer Stock tab',
@@ -518,6 +553,16 @@ export class LoadingRequestDto {
 }
 
 export class PaginatedCustomerWaybillsResponseDto {
+  @ApiProperty({
+    example: '2026-08-19T09:15:00.000Z',
+    format: 'date-time',
+    description:
+      'PRD §7 / US-10.7 — when this ERP-backed dataset was last synced. NOT ' +
+      'the time of the request: it reflects the most recent sync of the rows ' +
+      'below, so the UI can render an honest "Last updated" stamp.',
+  })
+  lastUpdated: Date;
+
   @ApiProperty({ type: [LoadingRequestDto] })
   data: LoadingRequestDto[];
 

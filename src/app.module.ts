@@ -15,6 +15,10 @@ import { BroadcastModule } from './modules/broadcast/broadcast.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { NotificationsApiModule } from './modules/notifications/notifications.module';
 import { UploadsModule } from './modules/uploads/uploads.module';
+import { UsersModule } from './modules/users/users.module';
+import { LoadingModule } from './modules/loading/loading.module';
+import { ContactModule } from './modules/contact/contact.module';
+import { RealtimeApiModule } from './modules/realtime/realtime.module';
 
 @Module({
   imports: [
@@ -36,6 +40,10 @@ import { UploadsModule } from './modules/uploads/uploads.module';
     AuditModule,
     NotificationsApiModule,
     UploadsModule,
+    UsersModule,
+    LoadingModule,
+    ContactModule,
+    RealtimeApiModule,
   ],
   controllers: [],
   providers: [],

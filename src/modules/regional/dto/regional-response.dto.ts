@@ -1,6 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
 import { Region, REGION_VALUES } from '../../../common/region/region.constants';
+import {
+  API_LOADING_STATUS_VALUES,
+  ApiLoadingStatus,
+} from '../../loading/loading-status';
 
 const LOADING_REQUEST_STATUS_VALUES = [
   'PENDING_ASSIGNMENT',
@@ -10,6 +14,91 @@ const LOADING_REQUEST_STATUS_VALUES = [
   'CANCELLED',
 ] as const;
 type LoadingRequestStatus = (typeof LOADING_REQUEST_STATUS_VALUES)[number];
+
+// ─── Shared row shape for the regional loading screens ─────
+
+/** The loading officer a request is assigned to, when there is one. */
+export class RegionalAssignedOfficerDto {
+  @ApiProperty({ example: 'staff-uuid-11' })
+  id: string;
+
+  @ApiProperty({ example: 'Ifeanyi Okon' })
+  name: string;
+}
+
+/**
+ * One loading request as the regional screens render it (RA-02, RA-06).
+ *
+ * Returned by the dashboard's pending queue, the loading-requests list, the
+ * assign mutation and the status mutation, so the FE has a single row shape
+ * to bind to.
+ */
+export class RegionalLoadingRequestDto {
+  @ApiProperty({ example: 'loading-request-uuid-1' })
+  id: string;
+
+  @ApiProperty({
+    example: 'WB-19045',
+    description: 'Waybill reference issued by this platform',
+  })
+  waybill: string;
+
+  @ApiProperty({
+    example: 'ORD-00294',
+    description:
+      'ERP reference of the order being loaded. Falls back to the waybill ' +
+      'reference when the request is not linked to an order.',
+  })
+  reference: string;
+
+  @ApiProperty({ example: 'Bello & Sons LTD' })
+  distributorName: string;
+
+  @ApiProperty({
+    example: 'purchase-uuid-1',
+    nullable: true,
+    description: 'Id of the linked order, null when there is none',
+  })
+  orderId: string | null;
+
+  @ApiProperty({ example: 'LAG-234-XY' })
+  truckPlateNumber: string;
+
+  @ApiProperty({ example: 'John Dare' })
+  driverName: string;
+
+  @ApiProperty({ example: '+2348012345678' })
+  driverPhone: string;
+
+  @ApiProperty({ example: 320, nullable: true })
+  quantityCartons: number | null;
+
+  @ApiProperty({
+    example: '2026-08-20T14:00:00.000Z',
+    format: 'date-time',
+    description: 'Loading date the distributor requested',
+  })
+  loadingDate: Date;
+
+  @ApiProperty({
+    example: '2026-08-19T09:00:00.000Z',
+    format: 'date-time',
+    description: 'When the request was submitted',
+  })
+  submittedAt: Date;
+
+  @ApiProperty({
+    enum: API_LOADING_STATUS_VALUES,
+    example: 'PENDING',
+    description:
+      'Portal vocabulary, matching the filter tabs. PENDING is stored as ' +
+      'PENDING_ASSIGNMENT and IN_PROGRESS as LOADING_IN_PROGRESS.',
+  })
+  status: ApiLoadingStatus;
+
+  @ApiProperty({ type: RegionalAssignedOfficerDto, nullable: true })
+  assignedOfficer: RegionalAssignedOfficerDto | null;
+}
 
 // ─── Dashboard (GET /regional/dashboard) ───────────────────
 
@@ -79,8 +168,14 @@ export class RegionalDashboardResponseDto {
   @ApiProperty({ type: RegionalDashboardSummaryDto })
   summary: RegionalDashboardSummaryDto;
 
-  @ApiProperty({ type: [PendingLoadingRequestDto] })
-  pendingLoadingRequests: PendingLoadingRequestDto[];
+  @ApiProperty({
+    type: [RegionalLoadingRequestDto],
+    description:
+      'Requests still awaiting assignment in this region, oldest first ' +
+      '(capped at 50). Empty until distributors start submitting loading ' +
+      'requests.',
+  })
+  pendingLoadingRequests: RegionalLoadingRequestDto[];
 }
 
 // ─── Full LoadingRequest (PATCH assign / PATCH status) ─────
@@ -198,24 +293,9 @@ export class LinkedPurchaseErpDto {
   erpId: string;
 }
 
-/**
- * LoadingRequest list item: all scalar fields plus the selected
- * relation slivers (customer.name, assignedOfficer.name, linkedPurchase.erpId).
- */
-export class LoadingRequestListItemDto extends LoadingRequestDto {
-  @ApiProperty({ type: CustomerNameDto })
-  customer: CustomerNameDto;
-
-  @ApiProperty({ type: AssignedOfficerNameDto, nullable: true })
-  assignedOfficer: AssignedOfficerNameDto | null;
-
-  @ApiProperty({ type: LinkedPurchaseErpDto, nullable: true })
-  linkedPurchase: LinkedPurchaseErpDto | null;
-}
-
 export class PaginatedLoadingRequestsResponseDto {
-  @ApiProperty({ type: [LoadingRequestListItemDto] })
-  data: LoadingRequestListItemDto[];
+  @ApiProperty({ type: [RegionalLoadingRequestDto] })
+  data: RegionalLoadingRequestDto[];
 
   @ApiProperty({ type: PaginationMetaDto })
   meta: PaginationMetaDto;

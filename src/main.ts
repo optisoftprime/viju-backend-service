@@ -21,9 +21,12 @@ async function bootstrap() {
   // Serve locally-stored uploads as publicly accessible files at /uploads/*
   // (outside the api/v1 prefix). No-op when STORAGE_PROVIDER=cloudinary, which
   // returns its own public secure_url.
-  app.useStaticAssets(join(process.cwd(), process.env.UPLOAD_DIR || 'uploads'), {
-    prefix: '/uploads/',
-  });
+  app.useStaticAssets(
+    join(process.cwd(), process.env.UPLOAD_DIR || 'uploads'),
+    {
+      prefix: '/uploads/',
+    },
+  );
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -51,6 +54,8 @@ async function bootstrap() {
         'Auth: pass `Authorization: Bearer <jwt>` after logging in via /auth/customer/login (mobile) or /auth/staff/web-login (web).',
         '',
         'External data: balance, stock, invoices, orders, and payments are read from Viju ERP via an internal abstraction. The dev environment uses a mock that returns shaped sample data.',
+        '',
+        'Live updates: subscribe to GET /realtime/stream for chat, ticket and notification frames instead of polling. Writes always go through the REST routes.',
       ].join('\n'),
     )
     .setVersion('1.0')
@@ -98,7 +103,24 @@ async function bootstrap() {
       'Direct Messages',
       "Customer-officer chat. Customer sees only 'Viju Account Officer' label (PRD F6).",
     )
-    .addTag('Support', 'Support tickets (PRD F7, F11)')
+    .addTag('Support Tickets', 'Support tickets (PRD F7, F11)')
+    .addTag(
+      'Loading Officer Portal',
+      "A loading officer's own queue, status updates and waybill capture (PRD F13)",
+    )
+    .addTag(
+      'Notifications',
+      'In-app bell — list, mark read, mark all read (mobile + web)',
+    )
+    .addTag(
+      'Realtime',
+      'Server-sent events for chat, tickets and the bell (server-to-client only)',
+    )
+    .addTag(
+      'File Uploads',
+      'Single-file uploads to the configured storage backend',
+    )
+    .addTag('Public', 'Unauthenticated public routes (contact form)')
     .addTag(
       'ERP Webhooks',
       'Inbound webhooks from Viju ERP for balance/stock/purchase/payment sync',
@@ -113,8 +135,6 @@ async function bootstrap() {
       operationsSorter: 'alpha',
     },
   });
-
-  console.log('checks')
 
   const port = process.env.PORT || 3000;
   await app.listen(port);

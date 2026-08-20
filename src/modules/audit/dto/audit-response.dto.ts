@@ -36,22 +36,16 @@ export class AuditStaffDto {
   name: string;
 }
 
-/** Single chat message returned by the chat audit search. */
+/** One message inside an audited chat thread. */
 export class AuditChatMessageDto {
   @ApiProperty({ example: 'm1f2e3d4-5678-90ab-cdef-1234567890ab' })
   id: string;
-
-  @ApiProperty({ example: 'c1f2e3d4-5678-90ab-cdef-1234567890ab' })
-  customerId: string;
-
-  @ApiProperty({ example: 's1f2e3d4-5678-90ab-cdef-1234567890ab' })
-  staffId: string;
 
   @ApiProperty({ enum: ['CUSTOMER', 'STAFF'], example: 'CUSTOMER' })
   senderType: string;
 
   @ApiProperty({
-    example: 'When will my September order be delivered?',
+    example: 'When is my waybill ready?',
     nullable: true,
   })
   content: string | null;
@@ -62,27 +56,61 @@ export class AuditChatMessageDto {
   })
   attachmentUrl: string | null;
 
-  @ApiProperty({ example: '2026-06-09T08:16:56.533Z', format: 'date-time' })
+  @ApiProperty({ example: '2026-08-18T16:38:00.000Z', format: 'date-time' })
   createdAt: Date;
+}
+
+/**
+ * One customer/officer conversation (US-14.2). Mirrors the ticket audit row:
+ * participants, a count, a recency stamp and the thread itself.
+ */
+export class AuditChatThreadDto {
+  @ApiProperty({
+    example:
+      'c1f2e3d4-5678-90ab-cdef-1234567890ab:s1f2e3d4-5678-90ab-cdef-1234567890ab',
+    description:
+      'Thread identifier, `customerId:officerId`. Stable across requests.',
+  })
+  id: string;
+
+  @ApiProperty({ type: AuditCustomerDto, nullable: true })
+  customer: AuditCustomerDto | null;
 
   @ApiProperty({
-    example: '2026-06-09T08:20:11.000Z',
+    type: AuditStaffDto,
+    nullable: true,
+    description: 'The officer on this thread.',
+  })
+  officer: AuditStaffDto | null;
+
+  @ApiProperty({
+    example: 24,
+    description:
+      'Total messages on this thread that match the filter — not the length ' +
+      'of the `messages` preview below.',
+  })
+  messageCount: number;
+
+  @ApiProperty({
+    example: '2026-08-18T16:40:00.000Z',
     format: 'date-time',
     nullable: true,
   })
-  readAt: Date | null;
+  lastMessageAt: Date | null;
 
-  @ApiProperty({ type: AuditCustomerDto })
-  customer: AuditCustomerDto;
-
-  @ApiProperty({ type: AuditStaffDto })
-  staff: AuditStaffDto;
+  @ApiProperty({
+    type: [AuditChatMessageDto],
+    description:
+      'Matching messages in chronological order, capped at the 200 most ' +
+      'recent. Read-only — no write route is exposed from this view (US-14.3).',
+  })
+  messages: AuditChatMessageDto[];
 }
 
 /** Paginated chat audit search response. */
 export class PaginatedAuditChatResponseDto {
-  @ApiProperty({ type: [AuditChatMessageDto] })
-  data: AuditChatMessageDto[];
+  @ApiProperty({ type: [AuditChatThreadDto] })
+  data: AuditChatThreadDto[];
 
   @ApiProperty({ type: PaginationMetaDto })
   meta: PaginationMetaDto;

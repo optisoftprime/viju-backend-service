@@ -29,11 +29,21 @@ export class AuthUserDto {
   role: AuthRole;
 
   @ApiProperty({
+    example: 'c.eze@viju.com',
+    nullable: true,
+    description: "The user's email. Null for customers who have none on file.",
+  })
+  email: string | null;
+
+  @ApiProperty({
     enum: REGION_VALUES,
     nullable: true,
     example: 'WESTERN',
     description:
-      "The user's region. Always set for customers; may be null for staff who have no region assigned.",
+      "The user's region (RA-03). Always set for customers; null for org-wide " +
+      'ADMIN and for staff with no ERP posting. Every region-scoped endpoint ' +
+      'filters by this value server-side — a client-supplied region query ' +
+      'param can never widen it.',
   })
   region: Region | null;
 }
