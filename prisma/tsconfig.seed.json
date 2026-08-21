@@ -10,5 +10,5 @@
     "declaration": false,
     "sourceMap": false
   },
-  "include": ["seed.ts"]
+  "include": ["seed.ts", "seed-staff.ts"]
 }

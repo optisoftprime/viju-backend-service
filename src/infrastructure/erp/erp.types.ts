@@ -78,6 +78,15 @@ export interface ErpPayment {
   runningBalance: number;
 }
 
+/**
+ * A staff credential as reported by the ERP.
+ *
+ * `role` is still typed as the full StaffRole set because that is what the
+ * upstream feed can send, but only roles this service does NOT manage
+ * (today: WAREHOUSE_OFFICER) are honoured. A managed role here is refused at
+ * the auth boundary rather than provisioned - see AuthService.staffWebLogin
+ * and src/common/roles/managed-roles.ts.
+ */
 export interface ErpStaffCredential {
   username: string;
   erpCode: string;

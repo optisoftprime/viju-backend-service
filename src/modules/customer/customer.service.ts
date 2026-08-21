@@ -441,9 +441,20 @@ export class CustomerService {
   private deriveInvoiceStatus(
     orderStatus: string,
   ): 'PAID' | 'PART_PAID' | 'UNPAID' {
-    if (orderStatus === 'DELIVERED') return 'PAID';
-    if (orderStatus === 'PROCESSING' || orderStatus === 'SHIPPED')
-      return 'PART_PAID';
-    return 'UNPAID';
+    switch (orderStatus) {
+      // Settled and closed off in the ERP, or received by the distributor.
+      case 'CLOSED':
+      case 'DELIVERED':
+        return 'PAID';
+      // Approved and somewhere in flight.
+      case 'PROCESSING':
+      case 'LOADED':
+      case 'DISPATCHED':
+      case 'SHIPPED':
+        return 'PART_PAID';
+      // PENDING (raised, not yet approved) and CANCELLED.
+      default:
+        return 'UNPAID';
+    }
   }
 }

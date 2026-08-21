@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import {
   SyncBalanceDto,
@@ -6,10 +6,12 @@ import {
   SyncPaymentDto,
   SyncStockDto,
 } from './dto/erp.dto';
-import { orderStatusFromErp } from './order-status';
+import { isKnownErpOrderState, orderStatusFromErp } from './order-status';
 
 @Injectable()
 export class ErpService {
+  private readonly logger = new Logger(ErpService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async syncBalance(dto: SyncBalanceDto) {
@@ -56,6 +58,14 @@ export class ErpService {
       // B-5.3 — map the ERP state through the published table instead of
       // storing whatever arrived (which defaulted everything to PROCESSING).
       const status = orderStatusFromErp(dto.status);
+      if (!isKnownErpOrderState(dto.status)) {
+        // Read as PENDING rather than refused, but surfaced so the mapping
+        // table can gain the state instead of quietly swallowing it.
+        this.logger.warn(
+          `Unmapped ERP order state "${String(dto.status)}" on ${dto.erpId} — stored as PENDING. ` +
+            'Add it to ORDER_STATUS_BY_ERP_STATE if the ERP now sends it.',
+        );
+      }
       const existing = await prisma.purchase.findUnique({
         where: { erpId: dto.erpId },
         select: { status: true },

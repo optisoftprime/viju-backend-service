@@ -2,7 +2,6 @@ import {
   IsString,
   IsNotEmpty,
   IsNumber,
-  IsEnum,
   IsArray,
   ValidateNested,
   IsOptional,
@@ -86,11 +85,23 @@ export class SyncPurchaseDto {
   @IsNumber()
   totalValue: number;
 
+  // Deliberately a free-form string, not an enum. The published mapping in
+  // `order-status.ts` is the single place that decides what an ERP state
+  // means; pinning a short enum here re-broke that, because a payload
+  // carrying a perfectly valid state such as LOADED or CLOSED was rejected
+  // with a 400 before the mapping was ever consulted. Unrecognised states are
+  // logged and read as PENDING rather than refused.
   @ApiProperty({
-    enum: ['PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'],
+    example: 'DELIVERED',
+    description:
+      'ERP order state. Matched case-insensitively against the published ' +
+      'mapping table (PENDING, PROCESSING, APPROVED, LOADED, DISPATCHED, ' +
+      'IN_TRANSIT, DELIVERED, CLOSED, COMPLETED, CANCELLED, …). An ' +
+      'unrecognised state is accepted and stored as PENDING, never as a ' +
+      'misleading PROCESSING.',
   })
-  @IsEnum(['PENDING', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED'])
-  status: any;
+  @IsString()
+  status: string;
 
   @ApiProperty({ type: [ErpPurchaseItemDto] })
   @IsArray()

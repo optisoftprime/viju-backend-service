@@ -2,17 +2,35 @@ import {
   IsString,
   IsNotEmpty,
   IsEmail,
+  MaxLength,
   MinLength,
   IsEnum,
   IsIn,
   IsOptional,
   IsBoolean,
+  Matches,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { StaffRole } from '@prisma/client';
 import { Region } from '../../../common/region/region.constants';
 import { SortQueryDto } from '../../../common/pagination/sort.dto';
+import {
+  CREATABLE_STAFF_ROLE_VALUES,
+  MANAGED_STAFF_ROLE_VALUES,
+} from '../../../common/roles/managed-roles';
+
+/**
+ * Trims incoming strings so a whitespace-only value fails @IsNotEmpty()
+ * instead of being stored as " ". Non-strings are passed through untouched so
+ * the type validators still see (and reject) them.
+ */
+const trim = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
+
+/** Emails are stored and compared lower-cased, so duplicates cannot differ by case. */
+const trimLower = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim().toLowerCase() : value;
 
 /**
  * Query-string booleans arrive as strings. Anything unrecognised is left
@@ -86,6 +104,25 @@ export class CustomerFilterDto extends SortQueryDto {
   @Transform(toOptionalBool)
   @IsBoolean()
   hasOfficer?: boolean;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    default: false,
+    description:
+      'Include ERP customers that have not been projected into the portal ' +
+      'yet. Default `false`, so existing callers are unaffected.\n\n' +
+      'With `true`, `meta.total` becomes the size of the union (projected + ' +
+      'unprojected) so paging stays arithmetically correct, `meta` gains ' +
+      '`projectedTotal` / `unprojectedTotal`, and each row carries ' +
+      '`isProjected`. Unprojected rows have `id: null` and null for every ' +
+      'field the ERP customer master does not carry.\n\n' +
+      'Rows whose BP_CLUSTER_CODE is not a Viju region (1-5) are excluded in ' +
+      'both modes. Any value other than true/false is rejected with 400.',
+  })
+  @IsOptional()
+  @Transform(toOptionalBool)
+  @IsBoolean()
+  includeUnprojected?: boolean;
 }
 
 /**
@@ -115,11 +152,36 @@ export class OfficerFilterDto extends SortQueryDto {
     description:
       'Staff role to list. Defaults to OFFICER. Pass LOADING_OFFICER to ' +
       'populate the assign-loading-officer picker on the regional admin ' +
-      'portal (RA-06).',
+      'portal (RA-06), or ADMIN / REGIONAL_ADMIN to list those internally ' +
+      'managed users. Pass `managed` instead to list all four managed roles ' +
+      'at once.',
   })
   @IsOptional()
   @IsEnum(StaffRole)
   role?: StaffRole;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'When set, lists every internally managed role (' +
+      MANAGED_STAFF_ROLE_VALUES.join(', ') +
+      ') in one page instead of a single role. Overrides `role`.',
+  })
+  @IsOptional()
+  @Transform(toOptionalBool)
+  @IsBoolean()
+  managed?: boolean;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'Filter on account status. `true` returns only active users, `false` ' +
+      'only deactivated ones. Omit for both (unchanged default).',
+  })
+  @IsOptional()
+  @Transform(toOptionalBool)
+  @IsBoolean()
+  isActive?: boolean;
 
   @ApiPropertyOptional({
     enum: OFFICER_SORT_FIELDS,
@@ -141,10 +203,11 @@ export class UpdateOfficerStatusDto {
   @ApiProperty({
     example: false,
     description:
-      'false deactivates the officer (refused with 409 while they still ' +
-      'hold customers); true reactivates them.',
+      'false deactivates the user (refused with 409 while an account officer ' +
+      'still holds customers); true reactivates them. Idempotent — sending ' +
+      'the status the user already has returns 200 with `changed: false`.',
   })
-  @IsBoolean()
+  @IsBoolean({ message: 'isActive is required and must be a boolean' })
   isActive: boolean;
 }
 
@@ -158,29 +221,66 @@ export class ReassignOfficerDto {
   newOfficerId: string;
 }
 
+/**
+ * Body for POST /admin/officers — an ADMIN provisions one internally managed
+ * staff account (PRD "Change in User Source").
+ *
+ * Only the fields declared here are accepted: the global ValidationPipe runs
+ * with `whitelist` + `forbidNonWhitelisted`, so a client cannot smuggle in
+ * `id`, `isActive`, `erpCode`, `createdById` or any other privileged column.
+ */
 export class CreateOfficerDto {
-  @ApiProperty({ example: 'Ifeanyi Okon' })
+  @ApiProperty({ example: 'Ifeanyi Okon', minLength: 2, maxLength: 120 })
+  @Transform(trim)
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'name is required' })
+  @MinLength(2)
+  @MaxLength(120)
   name: string;
 
-  @ApiProperty({ example: 'i.okon@viju.com' })
-  @IsEmail()
+  @ApiProperty({ example: 'i.okon@viju.com', maxLength: 255 })
+  @Transform(trimLower)
+  @IsString()
+  @IsNotEmpty({ message: 'email is required' })
+  @IsEmail({}, { message: 'email must be a valid email address' })
+  @MaxLength(255)
   email: string;
 
   @ApiProperty({
     description: 'Officer phone number - fixed once set (PRD F18 #3)',
     example: '+2348012345678',
   })
+  @Transform(trim)
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'phone is required' })
+  @Matches(/^\+?[0-9][0-9\s-]{6,19}$/, {
+    message: 'phone must be 7-20 digits, optionally prefixed with +',
+  })
   phone: string;
+
+  @ApiPropertyOptional({
+    enum: CREATABLE_STAFF_ROLE_VALUES,
+    default: StaffRole.OFFICER,
+    description:
+      'Role to provision. Defaults to OFFICER (account officer) so existing ' +
+      'clients that omit it are unaffected. `ACCOUNT_OFFICER` is accepted as ' +
+      'an alias for OFFICER. Any other value — including WAREHOUSE_OFFICER, ' +
+      'which the ERP still owns — is rejected with 400.',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsIn(CREATABLE_STAFF_ROLE_VALUES, {
+    message: `role must be one of: ${CREATABLE_STAFF_ROLE_VALUES.join(', ')}`,
+  })
+  role?: string;
 
   @ApiProperty({
     enum: Region,
     required: false,
     example: Region.LAGOS,
-    description: 'Required for all non-admin staff',
+    description:
+      'Required for REGIONAL_ADMIN, OFFICER and LOADING_OFFICER. ADMIN is ' +
+      'org-wide and must NOT carry a region.',
   })
   @IsOptional()
   @IsEnum(Region)
@@ -188,14 +288,17 @@ export class CreateOfficerDto {
 
   @ApiProperty({
     description:
-      'Temporary password for the new officer. It is emailed to them ' +
+      'Temporary password for the new user. It is emailed to them ' +
       'verbatim (US-15.3), so treat it as one-time.',
     example: 'TempPass123',
     minLength: 8,
+    maxLength: 72,
   })
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'password is required' })
   @MinLength(8)
+  // bcrypt silently ignores bytes past 72; refuse rather than truncate.
+  @MaxLength(72)
   password: string;
 }
 

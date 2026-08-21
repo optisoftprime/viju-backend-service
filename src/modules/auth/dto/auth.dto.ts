@@ -62,16 +62,21 @@ export class StaffLoginDto {
 
 export class StaffWebLoginDto {
   @ApiProperty({
-    description: 'ERP username (PRD F11 - replaces email/password for web)',
-    example: 'james.o',
+    description:
+      'Email address for an internally managed user (ADMIN, REGIONAL_ADMIN, ' +
+      'OFFICER, LOADING_OFFICER), or the ERP username for an ERP-mirrored ' +
+      'one (PRD F11).',
+    example: 'i.okon@viju.com',
   })
   @IsString()
   @IsNotEmpty()
   username: string;
 
   @ApiProperty({
-    description: 'ERP-issued code (acts as password for web portal)',
-    example: 'twye79woe88',
+    description:
+      'Password for an internally managed user, or the ERP-issued code for ' +
+      'an ERP-mirrored one.',
+    example: 'TempPass123',
   })
   @IsString()
   @IsNotEmpty()

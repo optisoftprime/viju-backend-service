@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   UnauthorizedException,
   NotFoundException,
   BadRequestException,
@@ -23,16 +24,49 @@ import { SmsService } from '../../infrastructure/sms/sms.service';
 import { OtpService } from '../../infrastructure/otp/otp.service';
 import { ErpService } from '../../infrastructure/erp/erp.types';
 import { EmailService } from '../../infrastructure/email/email.types';
-import { StaffRole } from '@prisma/client';
+import { Prisma, Staff, StaffRole } from '@prisma/client';
 import { isDevMode } from '../../common/utils/env';
-import { tryRegionFromBpClusterCode } from '../../common/region/region.constants';
-import { DEACTIVATED_ACCOUNT_MESSAGE } from './auth.constants';
+import {
+  Region,
+  tryRegionFromBpClusterCode,
+} from '../../common/region/region.constants';
+import {
+  DEACTIVATED_ACCOUNT_MESSAGE,
+  NOT_PROVISIONED_MESSAGE,
+  PASSWORD_NOT_SET_MESSAGE,
+} from './auth.constants';
+import { isManagedStaffRole } from '../../common/roles/managed-roles';
 
 const PASSWORD_MAX_ATTEMPTS = 5;
 const PASSWORD_LOCK_MINUTES = 30;
 
+/**
+ * The Staff columns the ERP owns and the portal only mirrors — and ONLY for
+ * roles this service does not manage (today: WAREHOUSE_OFFICER).
+ *
+ * Everything absent from this type - `password`, `isActive`,
+ * `failedLoginAttempts`, `lockedUntil` - belongs to the portal and is never
+ * written by an ERP sync, so a sync can neither resurrect an account an admin
+ * deactivated (US-15.5) nor clear a locally-set password.
+ *
+ * For an internally managed role (ADMIN, REGIONAL_ADMIN, OFFICER,
+ * LOADING_OFFICER) none of these columns are written at all: the service
+ * database is the source of truth, so the ERP cannot rename, re-region or
+ * re-role the account either. See src/common/roles/managed-roles.ts.
+ */
+type ErpOwnedStaffFields = {
+  name: string;
+  phone: string;
+  username: string;
+  erpCode: string;
+  role: StaffRole;
+  region: Region | null;
+};
+
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger('AuthService');
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
@@ -133,13 +167,51 @@ export class AuthService {
     return this.generateToken(customer, 'CUSTOMER');
   }
 
+  /**
+   * Web-portal login.
+   *
+   * Two populations reach this route and they are resolved in this order:
+   *
+   *   1. INTERNALLY MANAGED accounts (ADMIN, REGIONAL_ADMIN, OFFICER,
+   *      LOADING_OFFICER). An ADMIN created them through POST /admin/officers
+   *      and this database owns them. `code` is their local password; the ERP
+   *      is never consulted. Resolved FIRST and never falls through to the
+   *      ERP on a bad password — otherwise a permissive ERP credential check
+   *      would be a way around the local one.
+   *
+   *   2. ERP-mirrored accounts (WAREHOUSE_OFFICER). Unchanged behaviour:
+   *      validate against the ERP, mirror the ERP-owned columns, create the
+   *      row on first login.
+   *
+   * The ERP can no longer provision, re-role or re-region population 1 — see
+   * src/common/roles/managed-roles.ts.
+   */
   async staffWebLogin(dto: StaffWebLoginDto) {
+    const identifier = dto.username.trim();
+
+    const local = await this.findStaffByUsernameOrEmail(identifier);
+    if (local && isManagedStaffRole(local.role)) {
+      return this.managedStaffLogin(local, dto.code);
+    }
+
     const erpStaff = await this.erp.validateStaffCredentials(
-      dto.username,
+      identifier,
       dto.code,
     );
     if (!erpStaff) {
       throw new UnauthorizedException('Invalid username or code.');
+    }
+
+    // The ERP may not hand out a role this service manages. If it starts
+    // reporting one, the login is refused rather than silently creating or
+    // promoting an internally managed account.
+    if (isManagedStaffRole(erpStaff.role)) {
+      this.logger.warn(
+        `ERP reported managed role ${erpStaff.role} for "${identifier}". ` +
+          'Internally managed accounts are created by an ADMIN through ' +
+          'POST /admin/officers — the ERP credential was refused.',
+      );
+      throw new UnauthorizedException(NOT_PROVISIONED_MESSAGE);
     }
 
     // The ERP reports the posting as a numeric BP_CLUSTER_CODE; translate it
@@ -147,50 +219,163 @@ export class AuthService {
     // nullable, so an absent or unrecognised code degrades to null rather than
     // blocking the login - a regionless staff member is already handled by
     // RegionalController.resolveRegion().
-    const region = tryRegionFromBpClusterCode(erpStaff.bpClusterCode);
+    const erpOwned: ErpOwnedStaffFields = {
+      name: erpStaff.name,
+      phone: erpStaff.phone,
+      username: erpStaff.username,
+      erpCode: erpStaff.erpCode,
+      role: erpStaff.role,
+      region: tryRegionFromBpClusterCode(erpStaff.bpClusterCode),
+    };
 
-    let staff = await this.prisma.staff.findUnique({
-      where: { username: erpStaff.username },
-    });
+    // `local` was looked up by the submitted identifier; the ERP may report a
+    // different email for the same person, so re-resolve on it before
+    // deciding whether this is a first login.
+    let staff =
+      local ??
+      (await this.prisma.staff.findUnique({
+        where: { email: erpStaff.email },
+      }));
 
     if (!staff) {
-      staff = await this.prisma.staff.upsert({
-        where: { email: erpStaff.email },
-        update: {
-          username: erpStaff.username,
-          erpCode: erpStaff.erpCode,
-          phone: erpStaff.phone,
-          role: erpStaff.role,
-          region,
-        },
-        create: {
-          name: erpStaff.name,
-          email: erpStaff.email,
-          phone: erpStaff.phone,
-          username: erpStaff.username,
-          erpCode: erpStaff.erpCode,
-          role: erpStaff.role,
-          region,
-        },
+      staff = await this.prisma.staff.create({
+        data: { ...erpOwned, email: erpStaff.email },
       });
+    } else if (isManagedStaffRole(staff.role)) {
+      // The row resolved from the ERP email turns out to be internally
+      // managed. ERP credentials must not authenticate it, and the ERP must
+      // not overwrite it.
+      throw new UnauthorizedException(NOT_PROVISIONED_MESSAGE);
     }
 
-    // US-15.5 — a deactivated account cannot authenticate.
+    // US-15.5 — a deactivated account cannot authenticate. Checked before
+    // the sync below so a rejected login never rewrites the row.
     if (!staff.isActive) {
       throw new ForbiddenException(DEACTIVATED_ACCOUNT_MESSAGE);
     }
 
-    await this.prisma.staff.update({
-      where: { id: staff.id },
-      data: { lastLoginAt: new Date() },
-    });
+    // Re-apply the ERP's view on EVERY login, not just the first, so a phone
+    // change or a regional transfer in the ERP reaches the portal. `staff` is
+    // reassigned to the updated row because generateToken() reads `role` and
+    // `region` off it.
+    staff = await this.syncStaffFromErp(staff, erpOwned, erpStaff.email);
 
     return this.generateToken(staff, 'STAFF');
   }
 
+  /**
+   * Password login for an account this service owns. Same rules as
+   * POST /auth/staff/login — the web portal just posts the password in the
+   * `code` field, so both routes work for a managed user.
+   */
+  private async managedStaffLogin(staff: Staff, password: string) {
+    if (!staff.password) {
+      // A managed row that predates local provisioning: it used to
+      // authenticate straight against the ERP and has no local secret. Point
+      // them at the reset flow rather than at the ERP.
+      throw new UnauthorizedException(PASSWORD_NOT_SET_MESSAGE);
+    }
+
+    const isMatch = await bcrypt.compare(password, staff.password);
+    if (!isMatch) {
+      // Deliberately NOT falling through to the ERP: the local credential is
+      // the only one that opens a managed account.
+      throw new UnauthorizedException('Invalid username or code.');
+    }
+
+    // Checked after the password so the route cannot be used to probe which
+    // accounts are deactivated.
+    if (!staff.isActive) {
+      throw new ForbiddenException(DEACTIVATED_ACCOUNT_MESSAGE);
+    }
+
+    const updated = await this.prisma.staff.update({
+      where: { id: staff.id },
+      data: { lastLoginAt: new Date() },
+    });
+
+    return this.generateToken(updated, 'STAFF');
+  }
+
+  /**
+   * Resolve a staff row from whatever the web portal put in the username
+   * field — an ERP username or an email address, since internally managed
+   * accounts are created with an email and no username.
+   */
+  private async findStaffByUsernameOrEmail(
+    identifier: string,
+  ): Promise<Staff | null> {
+    if (!identifier) return null;
+    return this.prisma.staff.findFirst({
+      where: {
+        OR: [
+          { username: identifier },
+          { email: { equals: identifier, mode: 'insensitive' } },
+        ],
+      },
+    });
+  }
+
+  /**
+   * Mirror the ERP-owned fields onto an existing Staff row and stamp the
+   * login, returning the updated row.
+   *
+   * Only reached for roles this service does not manage; callers must have
+   * ruled out a managed role first.
+   *
+   * `username`, `email` and `phone` are unique. If the ERP hands us a value
+   * another Staff row already holds the write fails with P2002 — and an
+   * upstream data collision must not lock a legitimate user out of the portal.
+   * That case is retried with only the collision-free columns, so the login
+   * still proceeds on a correct role and region while the clash is logged for
+   * ops to reconcile.
+   */
+  private async syncStaffFromErp(
+    staff: Staff,
+    erpOwned: ErpOwnedStaffFields,
+    email: string,
+  ): Promise<Staff> {
+    const lastLoginAt = new Date();
+    try {
+      return await this.prisma.staff.update({
+        where: { id: staff.id },
+        data: { ...erpOwned, email, lastLoginAt },
+      });
+    } catch (e) {
+      if (
+        !(e instanceof Prisma.PrismaClientKnownRequestError) ||
+        e.code !== 'P2002'
+      ) {
+        throw e;
+      }
+      // P2002's `meta.target` is untyped and shaped differently per driver:
+      // a column array on Postgres, a bare string elsewhere, absent at worst.
+      const target: unknown = e.meta?.target;
+      const named = Array.isArray(target)
+        ? target.filter((t): t is string => typeof t === 'string').join(', ')
+        : typeof target === 'string'
+          ? target
+          : '';
+      const fields = named || 'an unnamed field';
+      this.logger.warn(
+        `ERP sync for staff ${staff.id} hit a unique conflict on ${fields}. ` +
+          'Role and region were still applied; the conflicting identity ' +
+          'fields were left unchanged. Two ERP staff records most likely ' +
+          'share a value — ops should reconcile it.',
+      );
+      const { name, erpCode, role, region } = erpOwned;
+      return this.prisma.staff.update({
+        where: { id: staff.id },
+        data: { name, erpCode, role, region, lastLoginAt },
+      });
+    }
+  }
+
   async staffLogin(dto: StaffLoginDto) {
+    // Case-insensitive: emails are stored lower-cased by admin provisioning,
+    // and a staff member typing "I.Okon@viju.com" must still get in.
     const staff = await this.prisma.staff.findFirst({
-      where: { email: dto.email },
+      where: { email: { equals: dto.email.trim(), mode: 'insensitive' } },
     });
 
     if (!staff || !staff.password)
@@ -403,10 +588,11 @@ export class AuthService {
   }
 
   private findStaffByIdentifier(identifier: string) {
+    const trimmed = identifier.trim();
     return this.prisma.staff.findFirst({
-      where: identifier.includes('@')
-        ? { email: identifier }
-        : { phone: identifier },
+      where: trimmed.includes('@')
+        ? { email: { equals: trimmed, mode: 'insensitive' } }
+        : { phone: trimmed },
     });
   }
 
