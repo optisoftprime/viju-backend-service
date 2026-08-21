@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
 import { CustomerOpenTicketCountDto } from './customer-response.dto';
 import { Region, REGION_VALUES } from '../../../common/region/region.constants';
+import { MANAGED_STAFF_ROLE_VALUES } from '../../../common/roles/managed-roles';
 
 const STAFF_ROLE_VALUES = [
   'ADMIN',
@@ -11,6 +12,22 @@ const STAFF_ROLE_VALUES = [
   'WAREHOUSE_OFFICER',
 ] as const;
 type StaffRole = (typeof STAFF_ROLE_VALUES)[number];
+
+/**
+ * The admin behind a lifecycle action (PRD 12). Null when the account
+ * predates admin-managed provisioning, or when the admin row has since been
+ * removed — the FK is ON DELETE SET NULL so the audit row still survives.
+ */
+export class StaffAuditActorDto {
+  @ApiProperty({ example: 'admin-uuid-1' })
+  id: string;
+
+  @ApiProperty({ example: 'Grace Adeyemi' })
+  name: string;
+
+  @ApiProperty({ example: 'grace@viju.com' })
+  email: string;
+}
 
 // ─── Officer detail (GET /admin/officers/:id) ──────────────
 
@@ -74,6 +91,44 @@ export class OfficerDetailDto {
 
   @ApiProperty({ example: '2026-01-12T08:00:00.000Z', format: 'date-time' })
   createdAt: Date;
+
+  @ApiProperty({
+    example: true,
+    description:
+      'True when this service owns the account lifecycle (ADMIN, ' +
+      'REGIONAL_ADMIN, OFFICER, LOADING_OFFICER). False for ERP-mirrored ' +
+      'roles, whose status cannot be changed here.',
+  })
+  isManaged: boolean;
+
+  @ApiProperty({
+    type: StaffAuditActorDto,
+    nullable: true,
+    description: 'PRD 12 — the admin who created this account.',
+  })
+  createdBy: StaffAuditActorDto | null;
+
+  @ApiProperty({
+    example: '2026-08-20T14:02:00.000Z',
+    format: 'date-time',
+    nullable: true,
+    description: 'When the account was last deactivated; null if never.',
+  })
+  deactivatedAt: Date | null;
+
+  @ApiProperty({ type: StaffAuditActorDto, nullable: true })
+  deactivatedBy: StaffAuditActorDto | null;
+
+  @ApiProperty({
+    example: '2026-08-21T09:10:00.000Z',
+    format: 'date-time',
+    nullable: true,
+    description: 'When the account was last reactivated; null if never.',
+  })
+  reactivatedAt: Date | null;
+
+  @ApiProperty({ type: StaffAuditActorDto, nullable: true })
+  reactivatedBy: StaffAuditActorDto | null;
 
   @ApiProperty({ type: OfficerDetailCountDto })
   _count: OfficerDetailCountDto;
@@ -531,6 +586,31 @@ export class OfficerListItemDto {
   })
   lastLoginAt: Date | null;
 
+  @ApiProperty({
+    enum: STAFF_ROLE_VALUES,
+    example: 'OFFICER',
+    description:
+      'The listed role. Present so `managed=true` pages can mix all four ' +
+      'internally managed roles.',
+  })
+  role: StaffRole;
+
+  @ApiProperty({
+    example: null,
+    format: 'date-time',
+    nullable: true,
+    description: 'When the account was last deactivated; null if never.',
+  })
+  deactivatedAt: Date | null;
+
+  @ApiProperty({
+    example: null,
+    format: 'date-time',
+    nullable: true,
+    description: 'When the account was last reactivated; null if never.',
+  })
+  reactivatedAt: Date | null;
+
   @ApiProperty({ type: OfficerCustomerCountDto })
   _count: OfficerCustomerCountDto;
 }
@@ -563,13 +643,29 @@ export class CreatedOfficerDto {
   @ApiProperty({ example: true })
   isActive: boolean;
 
+  @ApiProperty({
+    enum: MANAGED_STAFF_ROLE_VALUES,
+    example: 'OFFICER',
+    description:
+      'The provisioned role. `ACCOUNT_OFFICER` in the request is stored and ' +
+      'returned as `OFFICER`.',
+  })
+  role: StaffRole;
+
   @ApiProperty({ example: '2026-08-19T10:00:00.000Z', format: 'date-time' })
   createdAt: Date;
 
   @ApiProperty({
+    example: 'admin-uuid-1',
+    nullable: true,
+    description: 'PRD 12 — id of the admin who created this account.',
+  })
+  createdById: string | null;
+
+  @ApiProperty({
     example: true,
     description:
-      'US-15.3 — whether the credentials email was delivered. The officer is ' +
+      'US-15.3 — whether the credentials email was delivered. The user is ' +
       'created either way; false means the admin should pass the password on ' +
       'by another route.',
   })
@@ -595,8 +691,48 @@ export class OfficerStatusDto {
   @ApiProperty({ enum: REGION_VALUES, example: 'LAGOS', nullable: true })
   region: Region | null;
 
+  @ApiProperty({ enum: MANAGED_STAFF_ROLE_VALUES, example: 'OFFICER' })
+  role: StaffRole;
+
   @ApiProperty({ example: false, description: 'False once deactivated' })
   isActive: boolean;
+
+  @ApiProperty({
+    example: true,
+    description:
+      'False when the user was ALREADY in the requested state, so nothing ' +
+      'was written and the audit stamps were left alone. Lets the FE tell a ' +
+      'real change apart from a repeated or concurrent request.',
+  })
+  changed: boolean;
+
+  @ApiProperty({
+    example: '2026-08-21T10:30:00.000Z',
+    format: 'date-time',
+    nullable: true,
+  })
+  deactivatedAt: Date | null;
+
+  @ApiProperty({
+    example: 'admin-uuid-1',
+    nullable: true,
+    description: 'PRD 12 — id of the admin who deactivated this account.',
+  })
+  deactivatedById: string | null;
+
+  @ApiProperty({
+    example: null,
+    format: 'date-time',
+    nullable: true,
+  })
+  reactivatedAt: Date | null;
+
+  @ApiProperty({
+    example: null,
+    nullable: true,
+    description: 'PRD 12 — id of the admin who reactivated this account.',
+  })
+  reactivatedById: string | null;
 
   @ApiProperty({ example: '2026-08-19T10:30:00.000Z', format: 'date-time' })
   updatedAt: Date;

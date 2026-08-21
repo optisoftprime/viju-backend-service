@@ -53,6 +53,23 @@ export interface ErpUnmappedCustomer {
   lastSeenAt: Date | null;
 }
 
+/**
+ * One ERP customer that maps to a Viju region but has no row in the
+ * application `Customer` table yet — i.e. ingested but not projected.
+ *
+ * Only the fields the ERP customer master actually carries are present.
+ * Everything the portal would normally add (balance, account status, officer
+ * assignments) has no source here and is reported as null by the caller.
+ */
+export interface ErpUnprojectedCustomer {
+  erpId: string;
+  name: string | null;
+  phone: string | null;
+  /** Always set: the query only selects rows whose BP_CLUSTER_CODE maps. */
+  region: Region;
+  lastSeenAt: Date | null;
+}
+
 /** ERP-side detail for one customer, for parity on the detail screen. */
 export interface ErpCustomerDetail {
   erpId: string;

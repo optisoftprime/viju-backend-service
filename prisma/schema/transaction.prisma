@@ -17,18 +17,18 @@ enum OrderStatus {
 }
 
 model Purchase {
-  id         String      @id @default(uuid())
-  erpId      String      @unique
-  customerId String
-  customer   Customer    @relation(fields: [customerId], references: [id])
-  orderDate  DateTime
-  totalItems Int
-  totalValue Float
-  status     OrderStatus
+  id              String      @id @default(uuid())
+  erpId           String      @unique
+  customerId      String
+  customer        Customer    @relation(fields: [customerId], references: [id])
+  orderDate       DateTime
+  totalItems      Int
+  totalValue      Float
+  status          OrderStatus
   /// When `status` last changed, so the app can show how current it is (B-5.3).
   statusUpdatedAt DateTime?
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 
   items           PurchaseItem[]
   loadingRequests LoadingRequest[]

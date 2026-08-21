@@ -1,8 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../database/prisma.service';
 import {
   BP_CLUSTER_CODE_VALUES,
   Region,
+  bpClusterCodeForRegion,
   tryRegionFromBpClusterCode,
 } from '../../common/region/region.constants';
 import {
@@ -10,6 +12,7 @@ import {
   ErpCustomerDetail,
   ErpSyncStatus,
   ErpUnmappedCustomer,
+  ErpUnprojectedCustomer,
 } from './erp-raw.types';
 
 /**
@@ -212,6 +215,118 @@ export class ErpRawService {
         `listUnmappedCustomers failed: ${(e as Error).message}`,
       );
       return { rows: [], total: 0 };
+    }
+  }
+
+  /**
+   * Shared FROM/WHERE for the "ingested but not projected" set.
+   *
+   * A row qualifies when its BP_CLUSTER_CODE maps to a Viju region (1-5) and
+   * no `Customer` row carries the same erpId. `DISTINCT ON` collapses repeated
+   * feed rows for one CUSTOMER_CODE to the freshest, so a customer cannot be
+   * counted twice.
+   *
+   * `search` is parameterised — it is user input from the query string.
+   */
+  private unprojectedFrom(filter: {
+    region?: Region;
+    search?: string;
+  }): Prisma.Sql {
+    const codes = (
+      filter.region
+        ? [bpClusterCodeForRegion(filter.region)]
+        : BP_CLUSTER_CODE_VALUES
+    ).map((c) => String(c));
+
+    const term = filter.search?.trim();
+    const search = term
+      ? Prisma.sql`AND (v.name ILIKE ${`%${term}%`} OR v.erp_id ILIKE ${`%${term}%`})`
+      : Prisma.empty;
+
+    return Prisma.sql`
+      FROM (
+        SELECT DISTINCT ON (payload->>'CUSTOMER_CODE')
+               payload->>'CUSTOMER_CODE'   AS erp_id,
+               payload->>'CUSTOMER_NAME'   AS name,
+               payload->>'PhoneNumber'     AS phone,
+               payload->>'BP_CLUSTER_CODE' AS code,
+               last_seen_at
+          FROM erp_raw.raw_customer
+         WHERE payload->>'BP_CLUSTER_CODE' IN (${Prisma.join(codes)})
+           AND coalesce(payload->>'CUSTOMER_CODE', '') <> ''
+         ORDER BY payload->>'CUSTOMER_CODE', last_seen_at DESC NULLS LAST
+      ) v
+     WHERE NOT EXISTS (
+       SELECT 1 FROM "Customer" c WHERE c."erpId" = v.erp_id
+     )
+     ${search}`;
+  }
+
+  /** How many ERP customers match `filter` and have not been projected yet. */
+  async countUnprojectedCustomers(
+    filter: { region?: Region; search?: string } = {},
+  ): Promise<number> {
+    if (!(await this.isAvailable())) return 0;
+    try {
+      const rows = await this.prisma.$queryRaw<{ n: number }[]>(
+        Prisma.sql`SELECT count(*)::int AS n ${this.unprojectedFrom(filter)}`,
+      );
+      return rows[0]?.n ?? 0;
+    } catch (e) {
+      this.logger.error(
+        `countUnprojectedCustomers failed: ${(e as Error).message}`,
+      );
+      return 0;
+    }
+  }
+
+  /**
+   * One window of unprojected ERP customers, ordered by erpId so paging is
+   * stable. `skip`/`take` are absolute offsets within this set — the caller
+   * works out where the window falls relative to the projected rows.
+   */
+  async listUnprojectedCustomers(
+    filter: { region?: Region; search?: string } = {},
+    window: { skip: number; take: number },
+  ): Promise<ErpUnprojectedCustomer[]> {
+    const take = Math.max(0, Math.floor(window.take));
+    const skip = Math.max(0, Math.floor(window.skip));
+    if (take === 0 || !(await this.isAvailable())) return [];
+    try {
+      const rows = await this.prisma.$queryRaw<
+        {
+          erp_id: string;
+          name: string | null;
+          phone: string | null;
+          code: string | null;
+          last_seen_at: Date | null;
+        }[]
+      >(
+        Prisma.sql`SELECT v.erp_id, v.name, v.phone, v.code, v.last_seen_at
+                   ${this.unprojectedFrom(filter)}
+                   ORDER BY v.erp_id ASC
+                   LIMIT ${take} OFFSET ${skip}`,
+      );
+      return rows.flatMap((r) => {
+        const region = tryRegionFromBpClusterCode(r.code);
+        // The WHERE clause already restricts to mappable codes; this guard is
+        // for the type system and for a feed that changes under us mid-page.
+        if (region === null) return [];
+        return [
+          {
+            erpId: r.erp_id,
+            name: r.name,
+            phone: r.phone,
+            region,
+            lastSeenAt: r.last_seen_at,
+          },
+        ];
+      });
+    } catch (e) {
+      this.logger.error(
+        `listUnprojectedCustomers failed: ${(e as Error).message}`,
+      );
+      return [];
     }
   }
 

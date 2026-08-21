@@ -20,8 +20,16 @@ import {
   SyncPaymentDto,
   SyncStockDto,
 } from './dto/erp.dto';
-import { ErpSyncResponseDto } from './dto/erp-response.dto';
+import {
+  ErpAccountBalanceSyncResponseDto,
+  ErpDefaultOfficerSyncResponseDto,
+  ErpOrderStatusSyncResponseDto,
+  ErpSyncResponseDto,
+} from './dto/erp-response.dto';
 import { ErpApiKeyGuard } from '../../common/guards/erp-api-key.guard';
+import { ErpOrderStatusService } from './erp-order-status.service';
+import { ErpAccountBalanceService } from './erp-account-balance.service';
+import { DefaultOfficerService } from './default-officer.service';
 
 // ERP→app sync is server-to-server: authenticated via the x-api-key header
 // (ERP_API_KEY), not JWT. Fail-closed in production.
@@ -31,7 +39,12 @@ import { ErpApiKeyGuard } from '../../common/guards/erp-api-key.guard';
 @UseGuards(ErpApiKeyGuard)
 @Controller('erp')
 export class ErpController {
-  constructor(private readonly erpService: ErpService) {}
+  constructor(
+    private readonly erpService: ErpService,
+    private readonly orderStatusService: ErpOrderStatusService,
+    private readonly accountBalanceService: ErpAccountBalanceService,
+    private readonly defaultOfficerService: DefaultOfficerService,
+  ) {}
 
   @Post('sync/balance')
   @HttpCode(HttpStatus.OK)
@@ -69,5 +82,110 @@ export class ErpController {
   async syncPayment(@Body() dto: SyncPaymentDto) {
     await this.erpService.syncPayment(dto);
     return { success: true, message: 'Payment synced successfully' };
+  }
+
+  @Post('sync/order-status')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Re-derive order statuses from the ERP sales-order feed',
+    description:
+      'B-5.5 — takes no body. Rolls `erp_raw.raw_sales_order` up per order and ' +
+      'corrects `Purchase.status` where it disagrees with the ERP, which is how ' +
+      'orders stop being reported as "Processing" forever. The app also runs ' +
+      'this on a timer; the ingest service should additionally call it as soon ' +
+      'as a projector run finishes, so the app reflects the ERP without waiting ' +
+      'for the next tick. Safe to call repeatedly — it changes only the orders ' +
+      'whose derived status differs.',
+  })
+  @ApiOkResponse({ type: ErpOrderStatusSyncResponseDto })
+  async syncOrderStatus(): Promise<ErpOrderStatusSyncResponseDto> {
+    const result = await this.orderStatusService.reconcile();
+    return {
+      success: true,
+      message: !result.available
+        ? 'ERP feed (erp_raw) is not present on this database — nothing to reconcile'
+        : result.skipped
+          ? 'Another instance is already reconciling — nothing done'
+          : `Order statuses reconciled with the ERP (${result.updated} changed)`,
+      updated: result.updated,
+      available: result.available,
+      skipped: result.skipped,
+    };
+  }
+
+  @Post('sync/account-balance')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Re-derive customer account balances from the ERP credit feed',
+    description:
+      'Takes no body. Reads `erp_raw.raw_customer_credit` and recomputes ' +
+      '`Customer.outstandingBalance` as:\n\n' +
+      '    Running Balance = CREDIT_AMT + CREDIT_AMT1 − CREDIT_PAY\n\n' +
+      'where CREDIT_AMT is the approved credit limit, CREDIT_AMT1 the ' +
+      'supplementary allocation granted per FUND_DESC, and CREDIT_PAY the ' +
+      'credit consumed (positive = owing, negative = in credit). The newest ' +
+      'credit record per customer by EFFECTIVE_DATE governs.\n\n' +
+      'This corrects a projector defect: the ingest copies raw CREDIT_PAY ' +
+      'into the balance column, which inverts the sign for every customer ' +
+      'holding credit. Customers with no credit record in the feed are left ' +
+      'untouched rather than zeroed.\n\n' +
+      'The ingest service should call this once its customer-credit projector ' +
+      'run finishes. Safe to call repeatedly — it changes only the customers ' +
+      'whose derived balance differs.',
+  })
+  @ApiOkResponse({ type: ErpAccountBalanceSyncResponseDto })
+  async syncAccountBalance(): Promise<ErpAccountBalanceSyncResponseDto> {
+    const result = await this.accountBalanceService.reconcile();
+    return {
+      success: true,
+      message: !result.available
+        ? 'ERP credit feed (erp_raw.raw_customer_credit) is not present on this database — nothing to reconcile'
+        : result.skipped
+          ? 'Another instance is already reconciling — nothing done'
+          : `Account balances reconciled with the ERP (${result.updated} changed)`,
+      updated: result.updated,
+      available: result.available,
+      skipped: result.skipped,
+    };
+  }
+
+  @Post('sync/default-officer')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Park LAGOS customers with no account officer on the default officer',
+    description:
+      'Takes no body. Assigns every LAGOS customer whose `assignedOfficerId` ' +
+      'is NULL to the default account officer (DEFAULT_ACCOUNT_OFFICER_EMAIL, ' +
+      'defaulting to james.o@viju.example), writing both the primary pointer ' +
+      'and the CustomerOfficer join row so chat, tickets and notifications ' +
+      'reach them.\n\n' +
+      'Customers arrive from the ERP with no officer because the ingest ' +
+      'projector does not know about staff. The app also runs this on a ' +
+      'timer; the ingest service should additionally call it as soon as a ' +
+      'customer projector run finishes, so new distributors get an officer ' +
+      'without waiting for the next tick.\n\n' +
+      'SCOPED TO ONE REGION (DEFAULT_ACCOUNT_OFFICER_REGION, LAGOS by ' +
+      'default). Customers in EASTERN, SOUTH_SOUTH, WESTERN and NORTH are ' +
+      'left unassigned for a regional officer to pick up.\n\n' +
+      'Never overrides an admin reassignment — a customer who already has an ' +
+      'officer is skipped, so this is safe to call repeatedly.',
+  })
+  @ApiOkResponse({ type: ErpDefaultOfficerSyncResponseDto })
+  async syncDefaultOfficer(): Promise<ErpDefaultOfficerSyncResponseDto> {
+    const result = await this.defaultOfficerService.reconcile();
+    return {
+      success: true,
+      message: !result.available
+        ? `No active officer with email ${result.officerEmail} — nothing was assigned`
+        : result.skipped
+          ? 'Another instance is already assigning — nothing done'
+          : `Parked ${result.assigned} unassigned ${result.region} customer(s) on ${result.officerEmail}`,
+      assigned: result.assigned,
+      officerEmail: result.officerEmail,
+      region: result.region,
+      available: result.available,
+      skipped: result.skipped,
+    };
   }
 }

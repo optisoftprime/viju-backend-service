@@ -42,6 +42,7 @@ import {
 } from './dto/admin.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Region } from '../../common/region/region.constants';
+import { StaffRole } from '@prisma/client';
 import { PaginatedCustomersResponseDto } from './dto/customer-response.dto';
 import { MessageResponseDto } from '../../common/dto/message-response.dto';
 import {
@@ -114,7 +115,16 @@ export class AdminController {
       'than rejected — read `meta.pageSize` for the value actually applied.\n\n' +
       '`meta.total` counts the rows this filter matches, so pagination stays ' +
       'correct. For the ERP-reconciled distributor count use ' +
-      'GET /admin/dashboard (`totalCustomers` / `erpReconciliation`).',
+      'GET /admin/dashboard (`totalCustomers` / `erpReconciliation`).\n\n' +
+      '`includeUnprojected=true` closes the gap between the two: the result ' +
+      'set becomes the union of projected customers and ERP customers not ' +
+      'yet copied into the portal, `meta.total` is the size of that union, ' +
+      'and `meta` gains `projectedTotal` / `unprojectedTotal`. Rows carry ' +
+      '`isProjected`; an unprojected row has `id: null` and null for every ' +
+      'field the ERP customer master does not carry, so actions that need a ' +
+      'local record must be disabled for it. Projected rows come first in ' +
+      'the requested sort order, then unprojected rows by erpId. Default is ' +
+      'false, so existing callers see no change.',
   })
   @ApiOkResponse({
     description: 'Paginated list of customers',
@@ -251,7 +261,12 @@ export class AdminController {
       '`region` is ignored (RA-05) — a user cannot widen their scope by ' +
       'editing the query string.\n\n' +
       'Pass `role=LOADING_OFFICER` to list loading officers for the ' +
-      'assign-loading-officer picker (RA-06); it defaults to OFFICER.\n\n' +
+      'assign-loading-officer picker (RA-06); it defaults to OFFICER. ' +
+      '`role=ADMIN` / `role=REGIONAL_ADMIN` list those internally managed ' +
+      'users, and `managed=true` returns all four managed roles in one page. ' +
+      'Each row carries `role`, `isActive`, `deactivatedAt` and ' +
+      '`reactivatedAt`. Add `isActive=true|false` to filter on status ' +
+      '(omit for both, which is the unchanged default).\n\n' +
       'Sortable (US-09.3): `sortBy` accepts name | email | region | ' +
       'customers | createdAt | lastLoginAt | supportTickets with `sortOrder` ' +
       '(asc | desc, default desc). Default ordering (no `sortBy`) is name ' +
@@ -265,28 +280,63 @@ export class AdminController {
     @CurrentUser() user: { role: string; region?: Region | null },
     @Query() query: OfficerFilterDto,
   ) {
+    const isAdmin = user.role === 'ADMIN';
+
     // RA-03: region-scoped roles filter by the TOKEN's region, never by the
     // query param, which the caller controls.
-    const region =
-      user.role === 'REGIONAL_ADMIN'
-        ? (user.region ?? undefined)
-        : query.region;
-    return this.adminService.getOfficers({ ...query, region }, query);
+    const region = isAdmin ? query.region : (user.region ?? undefined);
+
+    // Only an ADMIN manages users, so only an ADMIN may enumerate the
+    // administrative roles. A REGIONAL_ADMIN reaches this route for the
+    // operational pickers (RA-05 officers, RA-06 loading officers) and is
+    // held to those two roles no matter what the query string says.
+    const role =
+      isAdmin || query.role === StaffRole.LOADING_OFFICER
+        ? query.role
+        : StaffRole.OFFICER;
+
+    return this.adminService.getOfficers(
+      { ...query, region, role, managed: isAdmin ? query.managed : false },
+      query,
+    );
   }
 
   @Post('officers')
   @ApiOperation({
-    summary: 'Create a new account officer',
+    summary: 'Create an internally managed staff user',
     description:
-      'Side effect (US-15.3): the officer is emailed their login ' +
-      'credentials. `emailSent` reports whether delivery succeeded — the ' +
-      'officer record is created either way, so the FE can soften its ' +
-      'success wording instead of promising an email that never arrived.',
+      'ADMIN-only. Provisions one of the four roles this service owns — ' +
+      '`OFFICER` (account officer, the default and the pre-existing ' +
+      'behaviour), `LOADING_OFFICER`, `REGIONAL_ADMIN` or `ADMIN`. ' +
+      '`ACCOUNT_OFFICER` is accepted as an alias for `OFFICER`. Any other ' +
+      'value — including `WAREHOUSE_OFFICER`, which the ERP still owns — is ' +
+      'rejected with 400, so a role cannot be smuggled in by editing the ' +
+      'request body.\n\n' +
+      'The ERP no longer creates these users; this database is the source of ' +
+      'truth for them.\n\n' +
+      '`region` is REQUIRED for OFFICER, LOADING_OFFICER and REGIONAL_ADMIN ' +
+      'and must be OMITTED for ADMIN (organisation-wide).\n\n' +
+      'Privileged columns (`id`, `isActive`, `erpCode`, `createdById`, …) are ' +
+      'never taken from the body — unknown properties are rejected outright.\n\n' +
+      'Side effect (US-15.3): the user is emailed their login credentials. ' +
+      '`emailSent` reports whether delivery succeeded — the record is created ' +
+      'either way, so the FE can soften its success wording instead of ' +
+      'promising an email that never arrived.',
   })
   @ApiCreatedResponse({ type: CreatedOfficerDto })
-  @ApiBadRequestResponse({ description: 'Email already in use' })
-  async createOfficer(@Body() dto: CreateOfficerDto) {
-    return this.adminService.createOfficer(dto);
+  @ApiBadRequestResponse({
+    description:
+      'Validation failure, or a duplicate: `Email already in use` ' +
+      '(`code: EMAIL_IN_USE`) / `Phone number already in use` ' +
+      '(`code: PHONE_IN_USE`). Also `ROLE_NOT_SUPPORTED`, `REGION_REQUIRED` ' +
+      'and `REGION_NOT_ALLOWED`.',
+  })
+  async createOfficer(
+    @Body() dto: CreateOfficerDto,
+    @CurrentUser() user: { id: string },
+  ) {
+    // The acting admin comes from the verified JWT, never from the body.
+    return this.adminService.createOfficer(dto, { id: user.id });
   }
 
   @Get('officers/:id')
@@ -314,30 +364,50 @@ export class AdminController {
 
   @Patch('officers/:id')
   @ApiOperation({
-    summary: 'Deactivate or reactivate an officer',
+    summary: 'Deactivate or reactivate an internally managed user',
     description:
-      'US-15.4. `{"isActive": false}` deactivates, `{"isActive": true}` ' +
-      'reactivates. Deactivation is REFUSED with 409 while the officer still ' +
-      'holds customers; the error body carries `code` and the exact ' +
+      'ADMIN-only. `{"isActive": false}` deactivates, `{"isActive": true}` ' +
+      'reactivates (US-15.4). Works for all four managed roles; a role this ' +
+      'service does not own (WAREHOUSE_OFFICER) is refused with 400 ' +
+      '`ROLE_NOT_MANAGED`.\n\n' +
+      'IDEMPOTENT: sending the status the user already has returns 200 with ' +
+      '`changed: false` and leaves the audit stamps alone, so a double-click ' +
+      'or a concurrent retry is safe.\n\n' +
+      'Deactivating an account officer is REFUSED with 409 while they still ' +
+      'hold customers; the error body carries `code` and the exact ' +
       '`assignedCustomers` count so the admin can be told how many to move, ' +
-      'then call PATCH /admin/officers/{id}/reassign-customers and retry.\n\n' +
-      'A deactivated officer can no longer log in or refresh a session ' +
-      '(US-15.5), but their chat and ticket history stays readable in the ' +
-      'admin audit views.',
+      'then call PATCH /admin/officers/{id}/reassign-customers and retry. ' +
+      'Deactivating the last active ADMIN is refused with 409 ' +
+      '`LAST_ACTIVE_ADMIN`, and deactivating yourself with 400 ' +
+      '`SELF_DEACTIVATION`.\n\n' +
+      'On deactivation every outstanding refresh token is revoked in the same ' +
+      'transaction and the still-valid access token stops working on the next ' +
+      'request (US-15.5). Nothing is deleted — the account, its role, its ' +
+      'region and its chat/ticket history all survive, and reactivation ' +
+      'restores access with the same permissions.',
   })
   @ApiOkResponse({ type: OfficerStatusDto })
-  @ApiNotFoundResponse({ description: 'Officer not found' })
+  @ApiNotFoundResponse({ description: 'User not found' })
+  @ApiBadRequestResponse({
+    description:
+      '`ROLE_NOT_MANAGED` (ERP-owned role) or `SELF_DEACTIVATION`, or a ' +
+      'missing / non-boolean `isActive`',
+  })
   @ApiConflictResponse({
     description:
       'Officer still has assigned customers: `{ "message": "Reassign this ' +
       'officer\'s 14 customers before deactivating.", "code": ' +
-      '"OFFICER_HAS_CUSTOMERS", "assignedCustomers": 14, "statusCode": 409 }`',
+      '"OFFICER_HAS_CUSTOMERS", "assignedCustomers": 14, "statusCode": 409 }` ' +
+      '— or `LAST_ACTIVE_ADMIN`.',
   })
   async updateOfficerStatus(
     @Param('id') id: string,
     @Body() dto: UpdateOfficerStatusDto,
+    @CurrentUser() user: { id: string },
   ) {
-    return this.adminService.setOfficerActive(id, dto.isActive);
+    return this.adminService.setOfficerActive(id, dto.isActive, {
+      id: user.id,
+    });
   }
 
   @Patch('officers/:id/reassign-customers')
@@ -424,8 +494,11 @@ export class AdminController {
   @ApiConflictResponse({
     description: 'Officer still has assigned customers (OFFICER_HAS_CUSTOMERS)',
   })
-  async deactivateOfficer(@Param('id') id: string) {
-    await this.adminService.setOfficerActive(id, false);
+  async deactivateOfficer(
+    @Param('id') id: string,
+    @CurrentUser() user: { id: string },
+  ) {
+    await this.adminService.setOfficerActive(id, false, { id: user.id });
     return { message: 'Officer deactivated successfully' };
   }
 }

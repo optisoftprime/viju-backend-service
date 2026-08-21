@@ -47,6 +47,15 @@ model Customer {
   refreshTokens    RefreshToken[]
 }
 
+/// Staff accounts.
+///
+/// ADMIN, REGIONAL_ADMIN, OFFICER (account officer) and LOADING_OFFICER are
+/// INTERNALLY MANAGED: an ADMIN creates, deactivates and reactivates them
+/// through /admin/officers and this table is the source of truth. An ERP sync
+/// never creates them and never writes their role, region or isActive - see
+/// src/common/roles/managed-roles.ts and AuthService.staffWebLogin.
+///
+/// WAREHOUSE_OFFICER is still mirrored from the ERP at web login.
 model Staff {
   id       String    @id @default(uuid())
   role     StaffRole
@@ -56,12 +65,31 @@ model Staff {
   username String?   @unique
   erpCode  String?
   password String?
+  /// Locally owned account status. Only an ADMIN moves it (US-15.4); an ERP
+  /// sync can neither deactivate nor resurrect an account (US-15.5).
   isActive Boolean   @default(true)
   region   Region?
 
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
   lastLoginAt         DateTime?
+
+  /// Audit trail for the admin-managed lifecycle. Each *ById points at the
+  /// ADMIN who performed the action; SetNull so removing an admin never
+  /// deletes the account they touched.
+  createdById  String?
+  createdBy    Staff?  @relation("StaffCreatedBy", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdStaff Staff[] @relation("StaffCreatedBy")
+
+  deactivatedAt    DateTime?
+  deactivatedById  String?
+  deactivatedBy    Staff?    @relation("StaffDeactivatedBy", fields: [deactivatedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  deactivatedStaff Staff[]   @relation("StaffDeactivatedBy")
+
+  reactivatedAt    DateTime?
+  reactivatedById  String?
+  reactivatedBy    Staff?    @relation("StaffReactivatedBy", fields: [reactivatedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  reactivatedStaff Staff[]   @relation("StaffReactivatedBy")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -75,6 +103,8 @@ model Staff {
   loadingRequests     LoadingRequest[]  @relation("LoadingOfficerToRequest")
   broadcastsSent      Broadcast[]       @relation("StaffToBroadcast")
   refreshTokens       RefreshToken[]
+
+  @@index([role, isActive])
 }
 
 model OtpVerification {

@@ -81,6 +81,92 @@ export function isKnownErpOrderState(state: unknown): boolean {
   return key in ORDER_STATUS_BY_ERP_STATE;
 }
 
+/**
+ * B-5.5 — deriving order status from the `erp_raw` sales-order feed.
+ *
+ * The push webhook above only fires when the ERP calls us. The bulk of the
+ * data arrives the other way: the ingest writes ERP rows into
+ * `erp_raw.raw_sales_order` and a projector (in another service) copies them
+ * into `Purchase`. That projector writes a constant PROCESSING, which is why
+ * every order on the app read "Processing" no matter what the ERP said.
+ *
+ * The feed carries no single status column, so the state is rolled up from the
+ * signals it does carry. `raw_sales_order` is one row PER ORDER LINE, keyed to
+ * an order by DOC_NO, so every signal is aggregated across the lines:
+ *
+ *   ApproveStatus          'Y' approved; anything else ('V') not yet approved
+ *   CLOSE                  '2' the ERP has closed the order off; '0'/null open
+ *   BUSINESS_QTY           quantity ordered on the line
+ *   DELIVERED_BUSINESS_QTY quantity actually delivered against the line
+ *
+ * Rules, in precedence order:
+ *
+ *   any line not approved            -> PENDING
+ *   every line closed                -> CLOSED     (terminal; outranks delivery)
+ *   delivered >= ordered (ordered>0) -> DELIVERED
+ *   otherwise                        -> PROCESSING (approved, in flight)
+ *
+ * Two states are deliberately unreachable from this feed, rather than faked:
+ *
+ *   LOADED / DISPATCHED  DISTRIBUTED_BUS_QTY is 0 on every row in the feed and
+ *                        `raw_sales_delivery` carries no key back to the order,
+ *                        so there is no honest loading/dispatch signal. These
+ *                        stay reachable only via the push webhook.
+ *   CANCELLED            the feed exposes no cancel/void flag. 'V' rows never
+ *                        have deliveries, so they are read as not-yet-approved
+ *                        (PENDING), not as cancelled.
+ */
+export const ERP_ORDER_STATUS_RULES_SQL = `
+      CASE
+        WHEN NOT a.approved                                          THEN 'PENDING'
+        WHEN a.closed                                                THEN 'CLOSED'
+        WHEN a.ordered_qty > 0 AND a.delivered_qty >= a.ordered_qty   THEN 'DELIVERED'
+        ELSE 'PROCESSING'
+      END`;
+
+/**
+ * Rolls the per-line ERP rows up to one row per order (DOC_NO).
+ *
+ * Restricted to the orders we actually hold, so this stays a 5k-row index
+ * lookup instead of a 350k-row sort over the whole feed.
+ */
+export const ERP_ORDER_ROLLUP_SQL = `
+    SELECT r.payload->>'DOC_NO' AS doc_no,
+           bool_and(coalesce(r.payload->>'ApproveStatus', '') = 'Y') AS approved,
+           bool_and(coalesce(r.payload->>'CLOSE', '0') = '2')        AS closed,
+           sum(coalesce(nullif(r.payload->>'BUSINESS_QTY', '')::numeric, 0))
+             AS ordered_qty,
+           sum(coalesce(nullif(r.payload->>'DELIVERED_BUSINESS_QTY', '')::numeric, 0))
+             AS delivered_qty,
+           max(r.changed_at) AS changed_at
+      FROM erp_raw.raw_sales_order r
+     WHERE r.object_type = 'SALES_ORDER'
+       AND r.payload->>'DOC_NO' IN (SELECT "erpId" FROM "Purchase")
+     GROUP BY 1`;
+
+/**
+ * The whole reconcile as one set-based statement.
+ *
+ * `statusUpdatedAt` moves only when the status actually changes, and it is
+ * stamped with the ERP row's own `changed_at` rather than "now", so the app
+ * shows when the ORDER changed, not when we last looked.
+ */
+export const ERP_ORDER_STATUS_RECONCILE_SQL = `
+WITH agg AS (${ERP_ORDER_ROLLUP_SQL}),
+derived AS (
+  SELECT pu.id,
+         (${ERP_ORDER_STATUS_RULES_SQL})::"OrderStatus" AS status,
+         a.changed_at
+    FROM "Purchase" pu
+    JOIN agg a ON a.doc_no = pu."erpId"
+)
+UPDATE "Purchase" p
+   SET status = d.status,
+       "statusUpdatedAt" = coalesce(d.changed_at, now())
+  FROM derived d
+ WHERE p.id = d.id
+   AND p.status IS DISTINCT FROM d.status`;
+
 /** Display wording, so both clients label a status identically. */
 export const ORDER_STATUS_LABELS: Readonly<Record<OrderStatus, string>> =
   Object.freeze({

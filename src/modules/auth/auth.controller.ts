@@ -78,12 +78,29 @@ export class AuthController {
   @Post('staff/web-login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Staff web-portal login via ERP username + code',
+    summary: 'Staff web-portal login',
     description:
-      'Officers, regional admins and administrators sign in to the web portal using credentials issued by the ERP. The platform validates against ERP, upserts a local Staff row, and returns a JWT.',
+      'One route, two populations.\n\n' +
+      'INTERNALLY MANAGED users (ADMIN, REGIONAL_ADMIN, OFFICER, ' +
+      'LOADING_OFFICER) are created by an ADMIN through POST /admin/officers ' +
+      'and this service owns them. Post their **email** as `username` and ' +
+      'their **password** as `code`; the ERP is never consulted and a wrong ' +
+      'password is never retried against it. An account that predates ' +
+      'admin-managed provisioning and has no local password is told to use ' +
+      '/auth/staff/password-reset/request to set one.\n\n' +
+      'ERP-MIRRORED users (WAREHOUSE_OFFICER) are unchanged: post the ERP ' +
+      'username + code, the platform validates against the ERP, mirrors the ' +
+      'ERP-owned columns onto the local Staff row, and returns a JWT. The ERP ' +
+      'can no longer create, re-role, re-region or resurrect a managed user; ' +
+      'presenting ERP credentials for one is refused.\n\n' +
+      'POST /auth/staff/login (email + password) works for managed users too.',
   })
   @ApiOkResponse({ type: AuthTokenResponseDto })
-  @ApiUnauthorizedResponse({ description: 'Invalid username or code.' })
+  @ApiUnauthorizedResponse({
+    description:
+      'Invalid username or code, an ERP credential presented for an ' +
+      'internally managed role, or a managed account with no password set yet.',
+  })
   @ApiForbiddenResponse({
     description:
       'The staff account has been deactivated (US-15.5): ' +
