@@ -18,7 +18,76 @@ const STAFF_PASSWORD = 'Staff@123';
 const MAIN_TEST_PHONE = '254712345678';
 const SECONDARY_TEST_PHONE = '254787654321';
 
+/**
+ * Destructive-seed guard.
+ *
+ * `main()` opens by deleting every purchase, payment, ticket, message,
+ * broadcast, customer-officer link and Staff row before inserting demo data.
+ * Run against a database fed by the real ERP ingest, that destroys production
+ * data — which is what happened on 2026-08-21, when `npx prisma db seed` was
+ * run against the live vijudb and took the purchase and payment tables with it.
+ *
+ * The decisive test is the `erp_raw` schema: it exists only on databases the
+ * ERP ingest writes to. CI and fresh local databases have no `erp_raw`, so the
+ * seed still runs there exactly as before.
+ *
+ * Deliberate override:
+ *   SEED_FORCE=i-understand-this-deletes-data npx prisma db seed
+ */
+async function assertSeedAllowed(): Promise<void> {
+  const forced = process.env.SEED_FORCE === 'i-understand-this-deletes-data';
+
+  const refuse = (why: string): never => {
+    console.error(
+      [
+        '',
+        '✋  Refusing to seed.',
+        '',
+        `    ${why}`,
+        '',
+        '    This seed DELETES all purchases, payments, tickets, messages,',
+        '    broadcasts, customer-officer links and Staff rows before inserting',
+        '    demo data. It is for local development and CI only.',
+        '',
+        '    If you are certain this is a throwaway database, re-run with:',
+        '      SEED_FORCE=i-understand-this-deletes-data npx prisma db seed',
+        '',
+      ].join('\n'),
+    );
+    process.exit(1);
+  };
+
+  if (process.env.NODE_ENV === 'production' && !forced) {
+    refuse('NODE_ENV is "production".');
+  }
+
+  // A database carrying the ERP landing schema is a real, fed environment.
+  const probe = await prisma.$queryRawUnsafe<{ present: boolean }[]>(
+    `SELECT to_regclass('erp_raw.raw_customer') IS NOT NULL AS present`,
+  );
+  if (probe[0]?.present && !forced) {
+    refuse(
+      'This database has the erp_raw schema — it is fed by the real ERP ingest.',
+    );
+  }
+
+  // Anything that is not obviously a local host is treated as shared.
+  const host = /@([^/:]+)/.exec(process.env.DATABASE_URL ?? '')?.[1] ?? '';
+  const isLocal =
+    host === '' || host === 'localhost' || host === '127.0.0.1' || host === 'db';
+  if (!isLocal && !forced) {
+    refuse(`DATABASE_URL points at a non-local host (${host}).`);
+  }
+
+  if (forced) {
+    console.warn(
+      '⚠️   SEED_FORCE is set — destructive seed proceeding by explicit override.\n',
+    );
+  }
+}
+
 async function main() {
+  await assertSeedAllowed();
   console.log('🌱 Seeding database...\n');
 
   const customerPassword = await bcrypt.hash(CUSTOMER_PASSWORD, 10);
