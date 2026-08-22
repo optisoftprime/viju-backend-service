@@ -14,6 +14,9 @@ export const ASSIGNED_CUSTOMER_SORT_FIELDS = [
   'lastPurchaseDate',
   'openTickets',
   'lastContactDate',
+  // AO-C1 - "who is waiting on me, and for how long".
+  'unreadMessages',
+  'lastMessageAt',
 ] as const;
 export type AssignedCustomerSortField =
   (typeof ASSIGNED_CUSTOMER_SORT_FIELDS)[number];
@@ -52,13 +55,29 @@ export class AssignedCustomersFilterDto extends SortQueryDto {
   activeTickets?: boolean;
 
   @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'AO-C1 - when true, only distributors with at least one UNREAD message ' +
+      'they sent (the "waiting on me" list). Mirrors `activeTickets`. ' +
+      'Counts the same messages as the `unreadMessages` field on each row and ' +
+      'as the Unread Messages tile on GET /officers/dashboard.',
+  })
+  @IsOptional()
+  @Transform(toBool)
+  @IsBoolean()
+  unreadMessages?: boolean;
+
+  @ApiPropertyOptional({
     enum: ASSIGNED_CUSTOMER_SORT_FIELDS,
     description:
       'Column to sort by, matching the dashboard table headers. Omit to keep ' +
       'the default ordering (name ascending). `accountNumber` sorts by erpId, ' +
       '`walletBalance` by outstanding balance; `lastPurchaseDate`, ' +
-      '`openTickets` and `lastContactDate` sort by the derived values shown ' +
-      'in those columns.',
+      '`openTickets`, `lastContactDate`, `unreadMessages` and ' +
+      '`lastMessageAt` sort by the derived values shown in those columns. ' +
+      'Sort by `lastMessageAt` ascending to put the distributor who has been ' +
+      'waiting longest first; rows with no message at all sort last in both ' +
+      'directions.',
   })
   @IsOptional()
   @IsIn(ASSIGNED_CUSTOMER_SORT_FIELDS)

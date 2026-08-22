@@ -85,6 +85,16 @@ export class HomeProductFlyerDto {
 
   @ApiProperty({ example: 'New Viju Chivita 1L' })
   name: string;
+
+  @ApiProperty({
+    example:
+      'Buy 50 cartons of Viju Milk between 1-31 December and get 5 free.',
+    nullable: true,
+    description:
+      'F-1 - the promotion copy, as readable text rather than baked into the ' +
+      'artwork. Null when the admin left it blank.',
+  })
+  description: string | null;
 }
 
 export class HomeRecentPurchaseDto {

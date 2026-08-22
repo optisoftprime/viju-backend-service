@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
+import { StaffSenderDto } from '../../../common/messaging/staff-sender.dto';
 import { Region, REGION_VALUES } from '../../../common/region/region.constants';
 
 const TICKET_CATEGORIES = [
@@ -63,22 +64,41 @@ export class TicketResponseDto {
 }
 
 /**
- * Minimal customer summary attached to officer-facing ticket lists.
- * Mirrors `customer: { select: { name, erpId } }` in `getAssignedTickets`.
+ * Customer summary attached to officer-facing ticket lists (AO-T1).
+ *
+ * Widened from { name, erpId } so the Tickets tab can render the distributor
+ * header straight from the row it already holds.
  */
 export class TicketCustomerSummaryDto {
-  @ApiProperty({ example: 'Jane Doe' })
-  name: string;
+  @ApiProperty({ example: '9f8e7d6c-5b4a-3210-fedc-ba9876543210' })
+  id: string;
 
   @ApiProperty({ example: 'ERP-00123' })
   erpId: string;
+
+  @ApiProperty({ example: 'Jane Doe' })
+  name: string;
+
+  @ApiProperty({ example: '+2348012345678' })
+  phone: string;
+
+  @ApiProperty({ example: 'jane.doe@example.com', nullable: true })
+  email: string | null;
 }
 
 /**
- * SupportTicket with the minimal customer summary, as returned by each item
- * of `getAssignedTickets`.
+ * SupportTicket with the customer summary and reply count, as returned by each
+ * item of `getAssignedTickets`.
  */
 export class OfficerTicketResponseDto extends TicketResponseDto {
+  @ApiProperty({
+    example: 1,
+    description:
+      'AO-T1 - number of replies on the thread, so the list can show a ' +
+      'conversation badge without fetching each thread.',
+  })
+  repliesCount: number;
+
   @ApiProperty({ type: () => TicketCustomerSummaryDto })
   customer: TicketCustomerSummaryDto;
 }
@@ -170,6 +190,17 @@ export class TicketReplyResponseDto {
     nullable: true,
   })
   staffId: string | null;
+
+  @ApiProperty({
+    type: () => StaffSenderDto,
+    nullable: true,
+    description:
+      'S-1 - who wrote this message. Present on every STAFF-authored row; ' +
+      'null on a customer-authored one. Read `staff.role` to label the ' +
+      'sender (Admin / Regional Admin / Account Officer) instead of a flat ' +
+      '"Staff".',
+  })
+  staff: StaffSenderDto | null;
 
   @ApiProperty({ example: 'Thanks, I have escalated this to the team.' })
   content: string;

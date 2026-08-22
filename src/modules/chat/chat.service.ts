@@ -9,6 +9,11 @@ import { NotificationService } from '../../infrastructure/notification/notificat
 import { RealtimeService } from '../../infrastructure/realtime/realtime.service';
 import { NotificationTypes } from '../../common/notifications/notification-types';
 import { SendMessageDto } from './dto/chat.dto';
+import {
+  STAFF_SENDER_SELECT,
+  withStaffSender,
+  withStaffSenders,
+} from '../../common/messaging/staff-sender';
 
 /**
  * The authenticated principal behind a chat call, as the controller reads it
@@ -35,30 +40,6 @@ export class ChatService {
     private readonly notifications: NotificationService,
     private readonly realtime: RealtimeService,
   ) {}
-
-  /**
-   * Every officer who currently manages this customer - the primary
-   * (Customer.assignedOfficerId) plus every CustomerOfficer row.
-   *
-   * US-13.5: derived from the CURRENT assignment on every call, so a
-   * reassignment moves the thread, the notifications and the bell over to the
-   * new officer with nothing copied and nothing orphaned on the old one.
-   */
-  private async currentOfficerIds(customerId: string): Promise<string[]> {
-    const customer = await this.prisma.customer.findUnique({
-      where: { id: customerId },
-      select: {
-        assignedOfficerId: true,
-        officerAssignments: { select: { staffId: true } },
-      },
-    });
-    if (!customer) return [];
-    const ids = new Set<string>(
-      customer.officerAssignments.map((a) => a.staffId),
-    );
-    if (customer.assignedOfficerId) ids.add(customer.assignedOfficerId);
-    return [...ids];
-  }
 
   /** Publishes one `chat.message` frame per live recipient (US-11.2). */
   private publishMessage(
@@ -141,16 +122,42 @@ export class ChatService {
     return (AUDIT_STAFF_ROLES as readonly string[]).includes(role);
   }
 
+  /**
+   * S-1 - the staff-facing thread names its author.
+   *
+   * A CUSTOMER caller is deliberately excluded: PRD F6 says a distributor sees
+   * one label, 'Viju Account Officer', and never an individual staff name.
+   * Returning `staff` to them on this legacy route would leak exactly what F6
+   * hides, so a customer's rows come back with `staff: null` and the label is
+   * still derived on the client.
+   */
+  private maySeeStaffAuthor(role: string): boolean {
+    return role !== 'CUSTOMER';
+  }
+
+  /** Chronological thread for one account, oldest first. */
+  private async threadFor(customerId: string, withAuthors: boolean) {
+    const messages = await this.prisma.message.findMany({
+      where: { customerId },
+      orderBy: { createdAt: 'asc' },
+      ...(withAuthors
+        ? { include: { staff: { select: STAFF_SENDER_SELECT } } }
+        : {}),
+    });
+    // withStaffSender also nulls the block on a CUSTOMER-authored row, whose
+    // `staffId` names the officer it was routed TO rather than its author.
+    return withAuthors
+      ? withStaffSenders(messages as never[])
+      : messages.map((m) => ({ ...m, staff: null }));
+  }
+
   async getMessages(user: ChatActor, otherUserId: string) {
     // AD-C1 - an ADMIN / REGIONAL_ADMIN passes the CUSTOMER id and gets the
     // whole thread for that account, in exactly the shape the officer flow
     // returns, so the same components render it.
     if (this.isAuditStaff(user.role)) {
       await this.resolveAuditedCustomer(user, otherUserId);
-      return this.prisma.message.findMany({
-        where: { customerId: otherUserId },
-        orderBy: { createdAt: 'asc' },
-      });
+      return this.threadFor(otherUserId, true);
     }
     if (user.role === 'CUSTOMER') {
       if (!(await this.isAssignedPair(user.id, otherUserId))) {
@@ -161,10 +168,7 @@ export class ChatService {
       // US-13.5: the whole thread for this account, not only the messages
       // that happen to carry one officer's id. A reassignment must not hide
       // history from either side.
-      return this.prisma.message.findMany({
-        where: { customerId: user.id },
-        orderBy: { createdAt: 'asc' },
-      });
+      return this.threadFor(user.id, this.maySeeStaffAuthor(user.role));
     } else if (user.role === 'OFFICER') {
       if (!(await this.isAssignedPair(otherUserId, user.id))) {
         throw new ForbiddenException(
@@ -174,10 +178,7 @@ export class ChatService {
       // Same guarantee from the officer side: a newly assigned officer sees
       // every pre-existing message, and the previous officer - no longer
       // assigned - is refused by the check above.
-      return this.prisma.message.findMany({
-        where: { customerId: otherUserId },
-        orderBy: { createdAt: 'asc' },
-      });
+      return this.threadFor(otherUserId, true);
     }
   }
 
@@ -229,6 +230,9 @@ export class ChatService {
         content: dto.content?.trim() || null,
         attachmentUrl: dto.attachmentUrl || null,
       },
+      // S-1 - the created row names its author, so the composer can append it
+      // to the thread without a refetch.
+      include: { staff: { select: STAFF_SENDER_SELECT } },
     });
 
     // PRD §6 notification triggers
@@ -246,36 +250,36 @@ export class ChatService {
         { type: 'CUSTOMER', id: customerId },
       ]);
     } else {
-      // US-11.8: notify every officer who currently manages this customer,
-      // primary and secondary. Derived from the live assignment so a
-      // reassigned officer starts receiving these immediately and the
-      // previous one stops.
-      const recipientIds = new Set<string>(
-        await this.currentOfficerIds(customerId),
-      );
-      recipientIds.add(staffId); // the officer the message was addressed to
+      // N-1: exactly ONE recipient - the staff member this conversation
+      // belongs to, which is the `staffId` stored on the message itself. If
+      // officer A is chatting with customer B, only officer A is notified;
+      // another officer on the same account, an admin and a regional admin
+      // must not see the row at all.
+      //
+      // This deliberately narrows US-11.8, which fanned the row out to every
+      // officer currently managing the customer. A row addressed to someone
+      // with no part in the conversation cannot be un-sent, and the reader
+      // cannot tell it apart from one meant for them.
       const customer = await this.prisma.customer.findUnique({
         where: { id: customerId },
         select: { name: true },
       });
-      for (const recipientId of recipientIds) {
-        await this.notifications.notify({
-          recipientType: 'STAFF',
-          recipientId,
-          title: `New message from ${customer?.name ?? 'distributor'}`,
-          body: (dto.content ?? '').slice(0, 120),
-          type: NotificationTypes.CHAT_MESSAGE,
-          data: { messageId: message.id, customerId },
-        });
-      }
-      this.publishMessage(
-        message,
-        customerId,
-        [...recipientIds].map((id) => ({ type: 'STAFF' as const, id })),
-      );
+      await this.notifications.notify({
+        recipientType: 'STAFF',
+        recipientId: staffId,
+        subjectCustomerId: customerId,
+        title: `New message from ${customer?.name ?? 'distributor'}`,
+        body: (dto.content ?? '').slice(0, 120),
+        type: NotificationTypes.CHAT_MESSAGE,
+        data: { messageId: message.id, customerId },
+      });
+      // The live frame follows the notification: one recipient, not a fan-out.
+      this.publishMessage(message, customerId, [
+        { type: 'STAFF', id: staffId },
+      ]);
     }
 
-    return message;
+    return withStaffSender(message);
   }
 
   /**
@@ -285,10 +289,7 @@ export class ChatService {
    */
   async getAudits(user: ChatActor, customerId: string) {
     await this.resolveAuditedCustomer(user, customerId);
-    return this.prisma.message.findMany({
-      where: { customerId },
-      orderBy: { createdAt: 'asc' },
-    });
+    return this.threadFor(customerId, true);
   }
 
   /**
@@ -357,27 +358,22 @@ export class ChatService {
       where: { id: customerId },
       select: { name: true },
     });
-    // Union with the live assignment so the officer a reassignment just
-    // pointed at is notified even before a CustomerOfficer row exists.
-    const recipientIds = new Set<string>([
-      ...assignments.map((a) => a.staffId),
-      ...(await this.currentOfficerIds(customerId)),
+    // N-1: one recipient - the primary officer, who is the staff member this
+    // conversation belongs to and the one the message was recorded against.
+    // A secondary officer or an admin has no part in it and must not receive
+    // the row.
+    await this.notifications.notify({
+      recipientType: 'STAFF',
+      recipientId: primary.staffId,
+      subjectCustomerId: customerId,
+      title: `New message from ${customer?.name ?? 'distributor'}`,
+      body: (dto.content ?? '').slice(0, 120),
+      type: NotificationTypes.CHAT_MESSAGE,
+      data: { messageId: message.id, customerId },
+    });
+    this.publishMessage(message, customerId, [
+      { type: 'STAFF', id: primary.staffId },
     ]);
-    for (const recipientId of recipientIds) {
-      await this.notifications.notify({
-        recipientType: 'STAFF',
-        recipientId,
-        title: `New message from ${customer?.name ?? 'distributor'}`,
-        body: (dto.content ?? '').slice(0, 120),
-        type: NotificationTypes.CHAT_MESSAGE,
-        data: { messageId: message.id, customerId },
-      });
-    }
-    this.publishMessage(
-      message,
-      customerId,
-      [...recipientIds].map((id) => ({ type: 'STAFF' as const, id })),
-    );
 
     return {
       ...message,

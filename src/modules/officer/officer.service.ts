@@ -8,6 +8,8 @@ import {
   sortDirection,
 } from '../../common/pagination/sort.dto';
 import { AssignedCustomerSortField } from './dto/officer-request.dto';
+import { stockBalanceByCustomer } from '../../common/customers/stock-balance';
+import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
 
 /**
  * The caller of every officer-portal route. ADMIN is included deliberately:
@@ -31,17 +33,81 @@ function stockStatus(quantity: number): StockStatus {
   return 'AVAILABLE';
 }
 
+/**
+ * A message the distributor sent that the officer has not read yet (AO-C1).
+ * One definition, used by the dashboard tile, the per-row `unreadMessages`
+ * count and the `unreadMessages=true` filter, so the three cannot disagree.
+ */
+const UNREAD_FROM_CUSTOMER = {
+  senderType: 'CUSTOMER',
+  readAt: null,
+} as const;
+
 @Injectable()
 export class OfficerService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly accountBalance: ErpAccountBalanceService,
+  ) {}
+
+  /**
+   * The account balance to show for a set of customers.
+   *
+   * Derived live from the ERP customer-credit feed
+   * (CREDIT_AMT + CREDIT_AMT1 - CREDIT_PAY, see
+   * `src/modules/erp/account-balance.ts`) rather than read from the stored
+   * column, which the projector populates from the ERP's raw CREDIT_PAY and so
+   * inverts for every customer holding credit.
+   *
+   * The SAME derivation GET /customers/me uses, so an officer and the
+   * distributor they are looking at never see two different numbers. An ERP
+   * code with no credit record in the feed falls back to the stored column.
+   */
+  private async balancesFor(
+    rows: { erpId: string; outstandingBalance: number }[],
+  ): Promise<Map<string, number>> {
+    const derived = await this.accountBalance.getRunningBalances(
+      rows.map((r) => r.erpId),
+    );
+    return new Map(
+      rows.map((r) => [r.erpId, derived.get(r.erpId) ?? r.outstandingBalance]),
+    );
+  }
+
+  /** The same derivation for one customer. */
+  private async balanceFor(customer: {
+    erpId: string;
+    outstandingBalance: number;
+  }): Promise<number> {
+    return (await this.balancesFor([customer])).get(customer.erpId)!;
+  }
+
+  /**
+   * The customers one officer manages - primary (assignedOfficerId) OR
+   * secondary (CustomerOfficer). The same definition GET /officers/customers,
+   * the ticket list and chat access all use, so the dashboard tiles count the
+   * rows the list actually shows (AO-C1).
+   */
+  private portfolioOf(officerId: string): Prisma.CustomerWhereInput {
+    return {
+      OR: [
+        { assignedOfficerId: officerId },
+        { officerAssignments: { some: { staffId: officerId } } },
+      ],
+    };
+  }
 
   /**
    * PRD F9: Officer dashboard summary cards.
    * Total distributors, overdue balances, open tickets, unread messages.
+   *
+   * AO-C1: every tile counts over the officer's whole portfolio, so clicking
+   * one and landing on GET /officers/customers shows exactly the customers the
+   * tile counted.
    */
   async getDashboardSummary(officerId: string) {
     const customers = await this.prisma.customer.findMany({
-      where: { assignedOfficerId: officerId },
+      where: this.portfolioOf(officerId),
       select: { id: true, outstandingBalance: true },
     });
     const customerIds = customers.map((c) => c.id);
@@ -54,11 +120,7 @@ export class OfficerService {
         where: { customerId: { in: customerIds }, status: 'OPEN' },
       }),
       this.prisma.message.count({
-        where: {
-          customerId: { in: customerIds },
-          senderType: 'CUSTOMER',
-          readAt: null,
-        },
+        where: { customerId: { in: customerIds }, ...UNREAD_FROM_CUSTOMER },
       }),
     ]);
 
@@ -78,6 +140,7 @@ export class OfficerService {
       search?: string;
       overdue?: boolean;
       activeTickets?: boolean;
+      unreadMessages?: boolean;
       sortBy?: AssignedCustomerSortField;
       sortOrder?: SortOrder;
     } = { page: 1, pageSize: 20 },
@@ -87,14 +150,7 @@ export class OfficerService {
     // Admin sees every customer org-wide (PRD F14). Officers see only
     // customers where they are primary OR secondary assigned (PRD F6).
     const roleScope: Prisma.CustomerWhereInput =
-      user.role === 'ADMIN'
-        ? {}
-        : {
-            OR: [
-              { assignedOfficerId: user.id },
-              { officerAssignments: { some: { staffId: user.id } } },
-            ],
-          };
+      user.role === 'ADMIN' ? {} : this.portfolioOf(user.id);
 
     // Combine role scope with the optional filters via AND, so search can use
     // its own OR without clobbering the assignment OR above.
@@ -121,6 +177,13 @@ export class OfficerService {
       and.push({ supportTickets: { some: { status: 'OPEN' } } });
     }
 
+    // AO-C1: "waiting on me" - at least one unread message FROM the
+    // distributor. Mirrors activeTickets, and uses the same predicate as the
+    // per-row count and the dashboard tile.
+    if (query.unreadMessages) {
+      and.push({ messages: { some: { ...UNREAD_FROM_CUSTOMER } } });
+    }
+
     const where: Prisma.CustomerWhereInput = { AND: and };
 
     // lastPurchaseDate, lastContactDate and openTickets are all derived after
@@ -131,7 +194,9 @@ export class OfficerService {
     const derivedSort =
       query.sortBy === 'lastPurchaseDate' ||
       query.sortBy === 'lastContactDate' ||
-      query.sortBy === 'openTickets';
+      query.sortBy === 'openTickets' ||
+      query.sortBy === 'unreadMessages' ||
+      query.sortBy === 'lastMessageAt';
 
     if (derivedSort) {
       const rows = await this.prisma.customer.findMany({
@@ -140,15 +205,10 @@ export class OfficerService {
         orderBy: { name: 'asc' },
       });
       const mapped = await this.withDerivedColumns(rows);
-      const order = sortDirection(query.sortOrder);
       mapped.sort(
         compareBy(
-          query.sortBy === 'openTickets'
-            ? (c) => c.openTickets
-            : query.sortBy === 'lastPurchaseDate'
-              ? (c) => c.lastPurchaseDate
-              : (c) => c.lastContactDate,
-          order,
+          this.derivedSortValue(query.sortBy),
+          sortDirection(query.sortOrder),
         ),
       );
       return paginateInMemory(mapped, pagination);
@@ -171,6 +231,35 @@ export class OfficerService {
       data: await this.withDerivedColumns(page.data),
       meta: page.meta,
     };
+  }
+
+  /**
+   * Column selector for the sorts that cannot be expressed as a Prisma
+   * `orderBy` - aggregates and filtered relation counts derived after the
+   * query. Nulls sort last in both directions (see `compareBy`), which keeps
+   * "never contacted" and "nothing waiting" at the bottom of the table.
+   */
+  private derivedSortValue(
+    sortBy: AssignedCustomerSortField | undefined,
+  ): (row: {
+    openTickets: number;
+    unreadMessages: number;
+    lastMessageAt: Date | null;
+    lastPurchaseDate: Date | null;
+    lastContactDate: Date;
+  }) => number | Date | null {
+    switch (sortBy) {
+      case 'openTickets':
+        return (c) => c.openTickets;
+      case 'unreadMessages':
+        return (c) => c.unreadMessages;
+      case 'lastMessageAt':
+        return (c) => c.lastMessageAt;
+      case 'lastPurchaseDate':
+        return (c) => c.lastPurchaseDate;
+      default:
+        return (c) => c.lastContactDate;
+    }
   }
 
   private readonly assignedCustomerSelect = {
@@ -208,8 +297,15 @@ export class OfficerService {
   }
 
   /**
-   * Adds last purchase date + last contact date to a set of customer rows.
-   * Two grouped queries regardless of how many rows are passed in.
+   * Adds the derived columns the officer table triages on. Four aggregates
+   * regardless of how many rows are passed in, so the cost does not grow with
+   * page size.
+   *
+   * - `unreadMessages` / `lastMessageAt` (AO-C1) - which distributor is
+   *   waiting, and since when. `unreadMessages` counts the same rows as the
+   *   dashboard tile, so the two agree by construction.
+   * - `stockBalanceCartons` (AO-P2) - the same figure GET /admin/customers
+   *   returns, from the same shared helper.
    */
   private async withDerivedColumns(
     rows: {
@@ -225,7 +321,13 @@ export class OfficerService {
     }[],
   ) {
     const customerIds = rows.map((c) => c.id);
-    const [lastPurchases, lastMessages] = await Promise.all([
+    const [
+      lastPurchases,
+      lastMessages,
+      unread,
+      stockBalances,
+      accountBalances,
+    ] = await Promise.all([
       this.prisma.purchase.groupBy({
         by: ['customerId'],
         where: { customerId: { in: customerIds } },
@@ -236,6 +338,13 @@ export class OfficerService {
         where: { customerId: { in: customerIds } },
         _max: { createdAt: true },
       }),
+      this.prisma.message.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: customerIds }, ...UNREAD_FROM_CUSTOMER },
+        _count: { _all: true },
+      }),
+      stockBalanceByCustomer(this.prisma, customerIds),
+      this.balancesFor(rows),
     ]);
     const lastPurchaseMap = new Map(
       lastPurchases.map((r) => [r.customerId, r._max.orderDate]),
@@ -243,6 +352,7 @@ export class OfficerService {
     const lastMessageMap = new Map(
       lastMessages.map((r) => [r.customerId, r._max.createdAt]),
     );
+    const unreadMap = new Map(unread.map((r) => [r.customerId, r._count._all]));
 
     return rows.map((c) => ({
       id: c.id,
@@ -250,9 +360,16 @@ export class OfficerService {
       accountNumber: c.erpId,
       phone: c.phone,
       region: c.region,
-      walletBalance: c.outstandingBalance,
+      // Derived from the ERP credit feed, exactly as GET /customers/me does.
+      walletBalance: accountBalances.get(c.erpId) ?? c.outstandingBalance,
+      stockBalanceCartons: stockBalances.get(c.id) ?? 0,
       accountStatus: c.accountStatus,
       openTickets: c._count.supportTickets,
+      // Always a number, never omitted - 0 when nothing is waiting.
+      unreadMessages: unreadMap.get(c.id) ?? 0,
+      // Null when the distributor has never messaged, unlike lastContactDate
+      // which falls back to updatedAt.
+      lastMessageAt: lastMessageMap.get(c.id) ?? null,
       lastPurchaseDate: lastPurchaseMap.get(c.id) ?? null,
       lastContactDate: lastMessageMap.get(c.id) ?? c.updatedAt,
     }));
@@ -280,7 +397,7 @@ export class OfficerService {
       email: customer.email,
       region: customer.region,
       accountStatus: customer.accountStatus,
-      walletBalance: customer.outstandingBalance,
+      walletBalance: await this.balanceFor(customer),
       assignedOfficers: assignments.map((a) => ({
         ...a.staff,
         isPrimary: a.isPrimary,
@@ -518,7 +635,15 @@ export class OfficerService {
         orderBy: { createdAt: 'desc' },
       }),
     ]);
-    return { ...customer, purchases, payments, supportTickets };
+    return {
+      ...customer,
+      // Same ERP-derived figure as the list, the overview tab and
+      // GET /customers/me - the stored column is not trustworthy on its own.
+      outstandingBalance: await this.balanceFor(customer),
+      purchases,
+      payments,
+      supportTickets,
+    };
   }
 
   async getStock(

@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { StaffSenderDto } from '../../../common/messaging/staff-sender.dto';
 
 const SENDER_TYPE_VALUES = ['CUSTOMER', 'STAFF'] as const;
 type SenderType = (typeof SENDER_TYPE_VALUES)[number];
@@ -17,13 +18,33 @@ export class MessageDto {
   @ApiProperty({ example: 'customer-uuid-1' })
   customerId: string;
 
-  @ApiProperty({ example: 'staff-uuid-1' })
+  @ApiProperty({
+    example: 'staff-uuid-1',
+    description:
+      'On a STAFF-authored row this is the author. On a CUSTOMER-authored row ' +
+      'it is the officer the message was routed TO, which is why `staff` is ' +
+      'null there rather than naming them as the sender.',
+  })
   staffId: string;
+
+  @ApiProperty({
+    type: () => StaffSenderDto,
+    nullable: true,
+    description:
+      'S-1 - who wrote this message. Present on every STAFF-authored row; ' +
+      'null on a customer-authored one. Read `staff.role` to label the ' +
+      'sender (Admin / Regional Admin / Account Officer) instead of a flat ' +
+      '"Staff".',
+  })
+  staff: StaffSenderDto | null;
 
   @ApiProperty({ enum: SENDER_TYPE_VALUES, example: 'CUSTOMER' })
   senderType: SenderType;
 
-  @ApiProperty({ example: 'Hello, I have a question about my order.', nullable: true })
+  @ApiProperty({
+    example: 'Hello, I have a question about my order.',
+    nullable: true,
+  })
   content: string | null;
 
   @ApiProperty({
@@ -51,7 +72,10 @@ export class CustomerThreadMessageDto {
   @ApiProperty({ example: 'message-uuid-1' })
   id: string;
 
-  @ApiProperty({ example: 'Hello, I have a question about my order.', nullable: true })
+  @ApiProperty({
+    example: 'Hello, I have a question about my order.',
+    nullable: true,
+  })
   content: string | null;
 
   @ApiProperty({

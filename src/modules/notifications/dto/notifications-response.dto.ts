@@ -14,14 +14,25 @@ export class NotificationDto {
   @ApiProperty({
     example: 'customer-uuid-1',
     nullable: true,
-    description: 'Set when the notification targets a customer',
+    description:
+      'The DISTRIBUTOR this row concerns - not necessarily the recipient.\n' +
+      '- `staffId` null: this is the distributor\u2019s own row and they are the ' +
+      'recipient.\n' +
+      '- `staffId` set: the row belongs to that staff member and this names ' +
+      'the distributor it is ABOUT (N-1), so the bell can deep-link to them. ' +
+      'A staff row about a customer never appears in that customer\u2019s feed.\n' +
+      'Null on a staff row with no distributor in play.',
   })
   customerId: string | null;
 
   @ApiProperty({
     example: 'staff-uuid-1',
     nullable: true,
-    description: 'Set when the notification targets a staff member',
+    description:
+      'N-1 - the RECIPIENT when the row is staff-bound, never the sender. ' +
+      'Always populated on a staff row; null on a distributor\u2019s own row. ' +
+      'Every row you receive is addressed to you: the fan-out is decided at ' +
+      'write time, so a row that reaches you was written for you.',
   })
   staffId: string | null;
 
@@ -58,7 +69,10 @@ export class NotificationDto {
 export class PaginatedNotificationsResponseDto {
   @ApiProperty({
     example: 3,
-    description: 'Count of the current user’s unread notifications',
+    description:
+      'Count of the current user’s unread notifications, over the same rows ' +
+      '`data` pages through. Safe to use for the badge directly: the fan-out ' +
+      'is per-recipient, so there is nothing for a client to filter out.',
   })
   unread: number;
 

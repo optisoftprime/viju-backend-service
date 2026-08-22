@@ -1,6 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
 import { Region, REGION_VALUES } from '../../../common/region/region.constants';
+import { StaffRole } from '@prisma/client';
+
+/** S-1 - the wire enum a staff sender's `role` is drawn from. */
+const STAFF_ROLE_VALUES = Object.values(StaffRole);
 
 const TICKET_CATEGORIES = [
   'ACCOUNT_QUERY',
@@ -27,13 +31,27 @@ export class AuditCustomerDto {
   region: Region;
 }
 
-/** Staff summary embedded in audit results (selected: id, name). */
+/**
+ * Staff summary embedded in audit results.
+ *
+ * S-1 - `role` joins the id and name the audit already returned, so a thread
+ * can show that an admin or regional admin stepped in.
+ */
 export class AuditStaffDto {
   @ApiProperty({ example: 's1f2e3d4-5678-90ab-cdef-1234567890ab' })
   id: string;
 
   @ApiProperty({ example: 'Chinedu Okafor' })
   name: string;
+
+  @ApiProperty({
+    enum: STAFF_ROLE_VALUES,
+    example: 'OFFICER',
+    description:
+      'S-1 - the wire enum for the sender role. Absent only on the thread-level ' +
+      '`officer` summary of a conversation whose staff record has since gone.',
+  })
+  role: string;
 }
 
 /** One message inside an audited chat thread. */
@@ -58,6 +76,16 @@ export class AuditChatMessageDto {
 
   @ApiProperty({ example: '2026-08-18T16:38:00.000Z', format: 'date-time' })
   createdAt: Date;
+
+  @ApiProperty({
+    type: () => AuditStaffDto,
+    nullable: true,
+    description:
+      'S-1 - who wrote this message. Present on every STAFF-authored row, ' +
+      'null on a customer-authored one. Read `staff.role` to label the sender ' +
+      'rather than a flat "Staff".',
+  })
+  staff: AuditStaffDto | null;
 }
 
 /**

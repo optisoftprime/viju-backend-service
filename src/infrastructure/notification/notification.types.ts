@@ -14,6 +14,19 @@ export interface NotificationPayload {
    * never be an ad-hoc string.
    */
   type?: NotificationType;
+  /**
+   * N-1 - the distributor this notification is ABOUT, on a staff-bound row.
+   *
+   * Distinct from `recipientId`, which is always the person being notified.
+   * It gives the bell a deep-link target ("open ADLAK's chat") without a
+   * second lookup, and it is what lets a client tell a staff row concerning a
+   * customer apart from a customer's own row.
+   *
+   * Ignored when `recipientType` is CUSTOMER - there the recipient IS the
+   * customer, and setting both would make a staff row indistinguishable from
+   * a customer-feed row.
+   */
+  subjectCustomerId?: string;
   data?: Record<string, string>;
 }
 

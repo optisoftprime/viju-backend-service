@@ -11,6 +11,7 @@ import { Prisma, StaffRole } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { ErpRawService } from '../../infrastructure/erp-raw/erp-raw.service';
 import { DefaultOfficerService } from '../erp/default-officer.service';
+import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
 import { EmailService } from '../../infrastructure/email/email.types';
 import {
@@ -44,6 +45,7 @@ import {
   compareBy,
   sortDirection,
 } from '../../common/pagination/sort.dto';
+import { stockBalanceByCustomer } from '../../common/customers/stock-balance';
 
 /** Filter + sort options shared by the customer list and its CSV export. */
 interface CustomerListFilter {
@@ -100,7 +102,34 @@ export class AdminService {
     private readonly email: EmailService,
     private readonly erpRaw: ErpRawService,
     private readonly defaultOfficer: DefaultOfficerService,
+    private readonly accountBalance: ErpAccountBalanceService,
   ) {}
+
+  /**
+   * The account balance to show for a set of customers.
+   *
+   * Derived live from the ERP customer-credit feed
+   * (CREDIT_AMT + CREDIT_AMT1 - CREDIT_PAY, see
+   * `src/modules/erp/account-balance.ts`) rather than read from the stored
+   * column, because the projector that writes that column copies the ERP's raw
+   * CREDIT_PAY into it - which inverts the sign for every customer holding
+   * credit.
+   *
+   * This is the SAME derivation GET /customers/me uses, so a distributor and
+   * the staff looking at them never see two different numbers. An ERP code the
+   * feed holds no credit record for falls back to the stored column rather
+   * than reporting a zero the ERP never stated.
+   */
+  private async balancesFor(
+    rows: { erpId: string; outstandingBalance: number }[],
+  ): Promise<Map<string, number>> {
+    const derived = await this.accountBalance.getRunningBalances(
+      rows.map((r) => r.erpId),
+    );
+    return new Map(
+      rows.map((r) => [r.erpId, derived.get(r.erpId) ?? r.outstandingBalance]),
+    );
+  }
 
   async getDashboardStats() {
     const [
@@ -527,39 +556,31 @@ export class AdminService {
    * feed lookup, regardless of page size.
    */
   private async withErpColumns<
-    T extends { id: string; erpId: string; assignedOfficerId?: string | null },
+    T extends {
+      id: string;
+      erpId: string;
+      outstandingBalance: number;
+      assignedOfficerId?: string | null;
+    },
   >(rows: T[]) {
     if (rows.length === 0) return [];
     const customerIds = rows.map((r) => r.id);
 
-    const [orderedRows, loadedRows, lastSeen] = await Promise.all([
-      this.prisma.$queryRaw<{ customerId: string; qty: number }[]>`
-        SELECT p."customerId" AS "customerId",
-               COALESCE(SUM(i.quantity), 0)::int AS qty
-          FROM "PurchaseItem" i
-          JOIN "Purchase" p ON p.id = i."purchaseId"
-         WHERE p."customerId" = ANY(${customerIds})
-         GROUP BY 1`,
-      this.prisma.loadingRequest.groupBy({
-        by: ['customerId'],
-        where: { customerId: { in: customerIds }, status: 'COMPLETED' },
-        _sum: { quantityCartons: true },
-      }),
+    // `stockBalanceCartons` is shared with the officer and regional lists, so
+    // the STOCK column means the same number on every screen (AO-P2).
+    const [stockBalances, lastSeen, accountBalances] = await Promise.all([
+      stockBalanceByCustomer(this.prisma, customerIds),
       this.erpRaw.getLastSeenByErpIds(rows.map((r) => r.erpId)),
+      this.balancesFor(rows),
     ]);
-
-    const ordered = new Map(orderedRows.map((r) => [r.customerId, r.qty]));
-    const loaded = new Map(
-      loadedRows.map((r) => [r.customerId, r._sum.quantityCartons ?? 0]),
-    );
 
     return rows.map((row) => ({
       ...row,
+      // Derived from the ERP credit feed, exactly as GET /customers/me does.
+      outstandingBalance:
+        accountBalances.get(row.erpId) ?? row.outstandingBalance,
       hasOfficer: row.assignedOfficerId != null,
-      stockBalanceCartons: Math.max(
-        0,
-        (ordered.get(row.id) ?? 0) - (loaded.get(row.id) ?? 0),
-      ),
+      stockBalanceCartons: stockBalances.get(row.id) ?? 0,
       lastSyncedAt: lastSeen.get(row.erpId) ?? null,
       isProjected: true,
     }));
@@ -622,6 +643,8 @@ export class AdminService {
 
     const [enriched] = await this.withErpColumns([customer]);
     const erp = await this.erpRaw.getCustomerDetail(customer.erpId);
+    // Same ERP-derived figure as the list and as GET /customers/me.
+    const outstandingBalance = enriched.outstandingBalance;
 
     return {
       id: customer.id,
@@ -633,7 +656,7 @@ export class AdminService {
       region: customer.region,
       isActive: customer.accountStatus === 'ACTIVE',
       accountStatus: customer.accountStatus,
-      outstandingBalance: customer.outstandingBalance,
+      outstandingBalance,
       stockBalanceCartons: enriched.stockBalanceCartons,
       creditLimit: erp?.creditLimit ?? null,
       officerAssignments: customer.officerAssignments.map((a) => ({
@@ -761,11 +784,15 @@ export class AdminService {
       dto.newOfficerId,
     );
 
-    // US-13.4 / AD-R1 - the RECEIVING officer must see this in their bell and
-    // on their device, on a first assignment as well as a reassignment.
+    // US-13.4 / AD-R1 / N-4 - the RECEIVING officer must see this in their
+    // bell and on their device, on a first assignment as well as a
+    // reassignment. Exactly one row, addressed to the INCOMING officer: the
+    // outgoing officer, the admin who made the change and the regional admin
+    // are deliberately not notified here.
     await this.notifications.notify({
       recipientType: 'STAFF',
       recipientId: dto.newOfficerId,
+      subjectCustomerId: customerId,
       title: 'Customer assigned',
       body: `${customer.name} has been assigned to you`,
       type: NotificationTypes.ASSIGNMENT,
@@ -1290,6 +1317,9 @@ export class AdminService {
       data: {
         name: dto.name,
         imageUrl: dto.imageUrl,
+        // F-1 - an omitted or blank description is stored as null, so
+        // "never written" stays distinguishable from a real empty value.
+        description: dto.description?.trim() || null,
         sortOrder: (max._max.sortOrder ?? 0) + 1,
         createdById: adminId,
       },
@@ -1307,6 +1337,16 @@ export class AdminService {
         name: dto.name ?? existing.name,
         imageUrl: dto.imageUrl ?? existing.imageUrl,
         isActive: dto.isActive ?? existing.isActive,
+        // F-1 - three cases, and they are deliberately distinct:
+        //   property omitted      -> unchanged
+        //   property is ''        -> cleared to null
+        //   property has text     -> replaced
+        // `??` alone cannot express the middle one, which is how the form
+        // clears the field.
+        description:
+          dto.description === undefined
+            ? existing.description
+            : dto.description.trim() || null,
       },
     });
   }

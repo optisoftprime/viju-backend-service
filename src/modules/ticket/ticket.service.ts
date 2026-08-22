@@ -2,13 +2,20 @@ import {
   Injectable,
   NotFoundException,
   ForbiddenException,
+  BadRequestException,
+  HttpStatus,
 } from '@nestjs/common';
+import { Prisma, TicketStatus } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { Region } from '../../common/region/region.constants';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
 import { RealtimeService } from '../../infrastructure/realtime/realtime.service';
 import { NotificationTypes } from '../../common/notifications/notification-types';
 import { paginate } from '../../common/pagination/paginate';
+import {
+  STAFF_SENDER_SELECT,
+  withStaffSenders,
+} from '../../common/messaging/staff-sender';
 import {
   CreateTicketDto,
   ReplyTicketDto,
@@ -120,6 +127,9 @@ export class TicketService {
       await this.notifications.notify({
         recipientType: 'STAFF',
         recipientId: staffId,
+        // N-1 - names the distributor this row is ABOUT, so the bell can open
+        // their ticket directly. The recipient is `recipientId`, as always.
+        subjectCustomerId: customerId,
         title: `New ticket from ${customer?.name ?? 'distributor'}`,
         body: `${dto.subject}`,
         type: NotificationTypes.TICKET_CREATED,
@@ -149,32 +159,88 @@ export class TicketService {
     );
   }
 
+  /**
+   * AO-T1 — the officer's ticket list, optionally narrowed to one distributor
+   * and/or a set of statuses.
+   *
+   * Both filters are applied in SQL and therefore counted by `meta.total`, so
+   * the Tickets tab inside a distributor detail view and the Open Tickets tile
+   * stop narrowing a page in the browser (which made the pager disagree with
+   * the rows on screen).
+   */
   async getAssignedTickets(
     officerId: string,
-    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+    query: {
+      page: number;
+      pageSize: number;
+      customerId?: string;
+      status?: TicketStatus[];
+    } = { page: 1, pageSize: 20 },
   ) {
     // Tickets for customers this officer manages — primary OR secondary
     // (matches /officers/customers and chat access).
-    const where = {
-      customer: {
-        OR: [
-          { assignedOfficerId: officerId },
-          { officerAssignments: { some: { staffId: officerId } } },
-        ],
-      },
+    const portfolio: Prisma.CustomerWhereInput = {
+      OR: [
+        { assignedOfficerId: officerId },
+        { officerAssignments: { some: { staffId: officerId } } },
+      ],
     };
-    return paginate(
+
+    if (query.customerId) {
+      // A distributor outside the officer's own book is a bad request, not an
+      // empty list — an empty list reads as "no tickets" and hides the mistake.
+      const assigned = await this.prisma.customer.findFirst({
+        where: { AND: [{ id: query.customerId }, portfolio] },
+        select: { id: true },
+      });
+      if (!assigned) {
+        throw new BadRequestException({
+          message: 'customerId does not match a distributor assigned to you',
+          code: 'VALIDATION_ERROR',
+          statusCode: HttpStatus.BAD_REQUEST,
+        });
+      }
+    }
+
+    const where: Prisma.SupportTicketWhereInput = {
+      customer: portfolio,
+      ...(query.customerId ? { customerId: query.customerId } : {}),
+      ...(query.status?.length ? { status: { in: query.status } } : {}),
+    };
+
+    const page = await paginate(
       () => this.prisma.supportTicket.count({ where }),
       (skip, take) =>
         this.prisma.supportTicket.findMany({
           where,
-          include: { customer: { select: { name: true, erpId: true } } },
+          include: {
+            // Widened from { name, erpId }: the Tickets tab renders the
+            // distributor header from the row it already holds.
+            customer: {
+              select: {
+                id: true,
+                erpId: true,
+                name: true,
+                phone: true,
+                email: true,
+              },
+            },
+            _count: { select: { replies: true } },
+          },
           orderBy: { createdAt: 'desc' },
           skip,
           take,
         }),
-      pagination,
+      { page: query.page, pageSize: query.pageSize },
     );
+
+    return {
+      data: page.data.map(({ _count, ...ticket }) => ({
+        ...ticket,
+        repliesCount: _count.replies,
+      })),
+      meta: page.meta,
+    };
   }
 
   /**
@@ -193,7 +259,12 @@ export class TicketService {
     const ticket = await this.prisma.supportTicket.findUnique({
       where: { id: ticketId },
       include: {
-        replies: { orderBy: { createdAt: 'asc' } },
+        replies: {
+          orderBy: { createdAt: 'asc' },
+          // S-1 - who wrote each staff reply, so an admin or regional admin
+          // stepping in is distinguishable from the assigned officer.
+          include: { staff: { select: STAFF_SENDER_SELECT } },
+        },
         // Never surface the customer's auth secrets in the ticket thread.
         customer: {
           omit: {
@@ -227,7 +298,9 @@ export class TicketService {
       throw new ForbiddenException('Access denied');
     }
 
-    return ticket;
+    // S-1 - `staff` is null on a customer-authored reply, whose `staffId` is
+    // null anyway.
+    return { ...ticket, replies: withStaffSenders(ticket.replies) };
   }
 
   /**
@@ -268,6 +341,7 @@ export class TicketService {
         await this.notifications.notify({
           recipientType: 'STAFF',
           recipientId: staffId,
+          subjectCustomerId: ticket.customerId,
           title: `Ticket reply: ${ticket.subject}`,
           body: dto.content.slice(0, 120),
           type: NotificationTypes.TICKET_REPLY,

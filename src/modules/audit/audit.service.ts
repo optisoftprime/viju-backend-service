@@ -7,6 +7,10 @@ import {
 } from './dto/audit.dto';
 import { paginate, paginateInMemory } from '../../common/pagination/paginate';
 import { SortOrder, sortDirection } from '../../common/pagination/sort.dto';
+import {
+  STAFF_SENDER_SELECT,
+  withStaffSenders,
+} from '../../common/messaging/staff-sender';
 
 /**
  * Most recent messages returned per chat thread. A thread is unbounded, and
@@ -168,6 +172,9 @@ export class AuditService {
           content: true,
           attachmentUrl: true,
           createdAt: true,
+          // S-1 - who wrote each staff message, so the audit shows an admin or
+          // regional admin stepping in rather than a flat "Staff".
+          staff: { select: STAFF_SENDER_SELECT },
         },
       }),
     ]);
@@ -192,9 +199,11 @@ export class AuditService {
           officer: officerById.get(t.staffId) ?? null,
           messageCount: t._count._all,
           lastMessageAt: t._max.createdAt,
-          messages: thread
-            .slice(-MAX_MESSAGES_PER_THREAD)
-            .map(({ customerId: _c, staffId: _s, ...m }) => m),
+          messages: withStaffSenders(
+            thread
+              .slice(-MAX_MESSAGES_PER_THREAD)
+              .map(({ customerId: _c, staffId: _s, ...m }) => m),
+          ),
         };
       }),
       meta: page.meta,
@@ -296,7 +305,7 @@ export class AuditService {
     pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
   ) {
     const where = this.buildTicketWhere(filter);
-    return paginate(
+    const page = await paginate(
       () => this.prisma.supportTicket.count({ where }),
       (skip, take) =>
         this.prisma.supportTicket.findMany({
@@ -307,7 +316,9 @@ export class AuditService {
             replies: {
               orderBy: { createdAt: 'asc' },
               include: {
-                staff: { select: { id: true, name: true } },
+                // S-1 - `role` added alongside the id and name the audit
+                // already returned, so the thread can label the author.
+                staff: { select: STAFF_SENDER_SELECT },
               },
             },
           },
@@ -316,6 +327,15 @@ export class AuditService {
         }),
       pagination,
     );
+    return {
+      // S-1 - null the author block on customer-authored replies, matching the
+      // live ticket route.
+      data: page.data.map((ticket) => ({
+        ...ticket,
+        replies: withStaffSenders(ticket.replies),
+      })),
+      meta: page.meta,
+    };
   }
 
   async exportTicketsCsv(filter: InteractionAuditFilterDto): Promise<string> {

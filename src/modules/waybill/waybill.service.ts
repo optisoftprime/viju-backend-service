@@ -143,19 +143,32 @@ export class WaybillService {
       },
     });
 
-    // PRD F5 AC7 + §6: notify the regional admin of the new request.
+    // PRD F5 AC7 + §6 / N-2: one row per REGIONAL_ADMIN OF THIS REGION, and
+    // nobody else. A loading request is raised against one region and only
+    // that region's admin acts on it, so an ADMIN or an OFFICER receiving it
+    // would be reading someone else's queue. `isActive` is checked so a
+    // retired account stops accruing a queue it will never work.
     const regionalAdmins = await this.prisma.staff.findMany({
-      where: { role: 'REGIONAL_ADMIN', region: customer.region },
+      where: {
+        role: 'REGIONAL_ADMIN',
+        region: customer.region,
+        isActive: true,
+      },
       select: { id: true },
     });
     for (const admin of regionalAdmins) {
       await this.notifications.notify({
         recipientType: 'STAFF',
         recipientId: admin.id,
+        subjectCustomerId: customer.id,
         title: 'New loading request',
-        body: `${customer.name} — ${customer.region}`,
+        body: `${customer.name} raised a loading request in ${customer.region}`,
         type: NotificationTypes.WAYBILL_SUBMITTED,
-        data: { waybillId: request.id, region: customer.region },
+        data: {
+          waybillId: request.id,
+          reference: request.reference,
+          region: customer.region,
+        },
       });
     }
 
