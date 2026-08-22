@@ -28,6 +28,9 @@ describe('AdminService', () => {
     customerOfficer: {
       deleteMany: jest.fn(),
       upsert: jest.fn(),
+      // AD-R1 - PATCH /admin/customers/:id/reassign returns the resulting
+      // assignments so the OFFICERS cell refreshes without a refetch.
+      findMany: jest.fn().mockResolvedValue([]),
     },
     staff: {
       findFirst: jest.fn(),
@@ -273,6 +276,46 @@ describe('AdminService', () => {
         search: 'LAT',
       });
     });
+
+    it('applies search to BOTH halves of the union and counts the filtered set (AD-S1)', async () => {
+      // The All Customers modal searches in union mode so `meta.total` can
+      // match the dashboard tile. Dropping `search` on either half would
+      // return unrelated rows under an unfiltered total (the 1851 bug).
+      mockPrisma.customer.count.mockResolvedValue(0);
+      mockErpRaw.countUnprojectedCustomers.mockResolvedValue(1);
+      mockErpRaw.listUnprojectedCustomers.mockResolvedValue([
+        erpRow('10110044'),
+      ]);
+
+      const res = await service.getAllCustomers(
+        { includeUnprojected: true, search: 'latlek' },
+        { page: 1, pageSize: 20 },
+      );
+
+      // Projected half: name OR erpId, case-insensitive.
+      expect(mockPrisma.customer.count).toHaveBeenCalledWith({
+        where: expect.objectContaining({
+          OR: [
+            { name: { contains: 'latlek', mode: 'insensitive' } },
+            { erpId: { contains: 'latlek', mode: 'insensitive' } },
+          ],
+        }),
+      });
+      // Unprojected half: the same term reaches the ERP-feed query.
+      expect(mockErpRaw.countUnprojectedCustomers).toHaveBeenCalledWith(
+        expect.objectContaining({ search: 'latlek' }),
+      );
+      expect(mockErpRaw.listUnprojectedCustomers).toHaveBeenCalledWith(
+        expect.objectContaining({ search: 'latlek' }),
+        expect.anything(),
+      );
+      // meta.total is the size of the FILTERED union, so paging stays
+      // arithmetically correct.
+      expect(res.meta.total).toBe(1);
+      expect(res.meta.projectedTotal).toBe(0);
+      expect(res.meta.unprojectedTotal).toBe(1);
+      expect(res.meta.totalPages).toBe(1);
+    });
   });
 
   describe('reassignOfficer', () => {
@@ -299,21 +342,115 @@ describe('AdminService', () => {
       mockPrisma.customer.findUnique.mockResolvedValue({ id: '1' });
       mockPrisma.staff.findFirst.mockResolvedValue({
         id: 'o-1',
+        name: 'Ifeanyi Okon',
         role: 'OFFICER',
       });
       mockPrisma.customer.update.mockResolvedValue({
         id: '1',
         assignedOfficerId: 'o-1',
       });
+      mockPrisma.customerOfficer.findMany.mockResolvedValue([
+        {
+          id: 'as-1',
+          isPrimary: true,
+          assignedAt: new Date('2026-08-22T09:10:00.000Z'),
+          staff: { id: 'o-1', name: 'Ifeanyi Okon', email: 'i.okon@viju.com' },
+        },
+      ]);
 
       const result = await service.reassignOfficer('1', {
         newOfficerId: 'o-1',
       });
-      expect(result.assignedOfficerId).toBe('o-1');
+      // AD-R1 - the body names the customer and carries the resulting
+      // assignments, so the OFFICERS cell updates without a refetch.
+      expect(result).toMatchObject({
+        message: 'Customer assigned successfully',
+        customerId: '1',
+      });
+      expect(result.officerAssignments[0].staff.id).toBe('o-1');
       expect(mockPrisma.customer.update).toHaveBeenCalledWith({
         where: { id: '1' },
         data: { assignedOfficerId: 'o-1' },
       });
+    });
+
+    it('assigns a customer who has no officer yet (AD-R1)', async () => {
+      // Empty officerAssignments[] and a null pointer - the first-assignment
+      // case the Customers page hits, which must not need a source officer.
+      mockPrisma.customer.findUnique.mockResolvedValue({
+        id: '1',
+        name: 'ADLAK',
+        region: 'LAGOS',
+        assignedOfficerId: null,
+      });
+      mockPrisma.staff.findFirst.mockResolvedValue({
+        id: 'o-1',
+        name: 'Ifeanyi Okon',
+        role: 'OFFICER',
+      });
+      mockPrisma.customer.update.mockResolvedValue({
+        id: '1',
+        assignedOfficerId: 'o-1',
+      });
+      mockPrisma.customerOfficer.findMany.mockResolvedValue([]);
+
+      await service.reassignOfficer('1', { newOfficerId: 'o-1' });
+
+      // Nothing to detach; the join row is created outright.
+      expect(mockPrisma.customerOfficer.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrisma.customerOfficer.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: { customerId: '1', staffId: 'o-1', isPrimary: true },
+        }),
+      );
+      // The incoming officer is notified on a FIRST assignment too. notify()
+      // writes the bell row and dispatches the web push.
+      expect(mockNotifications.notify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          recipientType: 'STAFF',
+          recipientId: 'o-1',
+          type: 'ASSIGNMENT',
+        }),
+      );
+    });
+
+    it('refuses a no-op reassignment with ALREADY_ASSIGNED (AD-R1)', async () => {
+      mockPrisma.customer.findUnique.mockResolvedValue({
+        id: '1',
+        name: 'ADLAK',
+        region: 'LAGOS',
+        assignedOfficerId: 'o-1',
+      });
+      mockPrisma.staff.findFirst.mockResolvedValue({
+        id: 'o-1',
+        name: 'Ifeanyi Okon',
+        role: 'OFFICER',
+      });
+
+      await expect(
+        service.reassignOfficer('1', { newOfficerId: 'o-1' }),
+      ).rejects.toMatchObject({
+        response: {
+          code: 'ALREADY_ASSIGNED',
+          message: 'Ifeanyi Okon is already assigned to this customer',
+        },
+      });
+    });
+
+    it('carries a machine-readable code on both not-found branches (AD-R1)', async () => {
+      mockPrisma.customer.findUnique.mockResolvedValue(null);
+      await expect(
+        service.reassignOfficer('nope', { newOfficerId: 'o-1' }),
+      ).rejects.toMatchObject({ response: { code: 'CUSTOMER_NOT_FOUND' } });
+
+      mockPrisma.customer.findUnique.mockResolvedValue({
+        id: '1',
+        region: 'LAGOS',
+      });
+      mockPrisma.staff.findFirst.mockResolvedValue(null);
+      await expect(
+        service.reassignOfficer('1', { newOfficerId: 'nope' }),
+      ).rejects.toMatchObject({ response: { code: 'OFFICER_NOT_FOUND' } });
     });
 
     it('repoints the CustomerOfficer join so chat and tickets follow (US-13.5)', async () => {

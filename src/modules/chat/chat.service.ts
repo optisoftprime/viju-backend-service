@@ -4,10 +4,29 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { Region } from '../../common/region/region.constants';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
 import { RealtimeService } from '../../infrastructure/realtime/realtime.service';
 import { NotificationTypes } from '../../common/notifications/notification-types';
 import { SendMessageDto } from './dto/chat.dto';
+
+/**
+ * The authenticated principal behind a chat call, as the controller reads it
+ * off the JWT. `region` is populated for region-scoped staff only and is the
+ * ONLY source of a REGIONAL_ADMIN's scope - never a query param or a body.
+ */
+export interface ChatActor {
+  id: string;
+  role: string;
+  region?: Region | null;
+}
+
+/**
+ * AD-C1 - roles that read and write a customer's thread from the Interaction
+ * Audit rather than from an officer assignment. An ADMIN reaches every
+ * customer; a REGIONAL_ADMIN only their own region.
+ */
+const AUDIT_STAFF_ROLES = ['ADMIN', 'REGIONAL_ADMIN'] as const;
 
 @Injectable()
 export class ChatService {
@@ -91,7 +110,48 @@ export class ChatService {
     return !!match;
   }
 
-  async getMessages(user: any, otherUserId: string) {
+  /**
+   * AD-C1 - resolves the customer whose thread an ADMIN / REGIONAL_ADMIN is
+   * asking for, and enforces the region rule.
+   *
+   * The path parameter is the CUSTOMER id for these roles: an admin is not a
+   * participant in the thread, they are auditing one. A REGIONAL_ADMIN is
+   * refused with 403 outside their own region, matching
+   * GET /admin/audit/chats; an ADMIN reaches every region.
+   */
+  private async resolveAuditedCustomer(user: ChatActor, customerId: string) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { id: true, region: true },
+    });
+    if (!customer) throw new NotFoundException('Customer not found');
+    if (
+      user.role === 'REGIONAL_ADMIN' &&
+      customer.region !== (user.region ?? null)
+    ) {
+      throw new ForbiddenException(
+        'You can only access customers in your own region.',
+      );
+    }
+    return customer;
+  }
+
+  /** True for the two roles that read/write a thread through the audit. */
+  private isAuditStaff(role: string): boolean {
+    return (AUDIT_STAFF_ROLES as readonly string[]).includes(role);
+  }
+
+  async getMessages(user: ChatActor, otherUserId: string) {
+    // AD-C1 - an ADMIN / REGIONAL_ADMIN passes the CUSTOMER id and gets the
+    // whole thread for that account, in exactly the shape the officer flow
+    // returns, so the same components render it.
+    if (this.isAuditStaff(user.role)) {
+      await this.resolveAuditedCustomer(user, otherUserId);
+      return this.prisma.message.findMany({
+        where: { customerId: otherUserId },
+        orderBy: { createdAt: 'asc' },
+      });
+    }
     if (user.role === 'CUSTOMER') {
       if (!(await this.isAssignedPair(user.id, otherUserId))) {
         throw new ForbiddenException(
@@ -121,12 +181,27 @@ export class ChatService {
     }
   }
 
-  async sendMessage(user: any, receiverId: string, dto: SendMessageDto) {
+  /**
+   * AD-C1 - a staff or customer message on a customer's thread.
+   *
+   * For an ADMIN / REGIONAL_ADMIN, `receiverId` is the CUSTOMER id and the
+   * message is stored with the REPLYING ADMIN'S OWN `staffId`, so the audit
+   * trail shows who actually answered rather than crediting the assigned
+   * officer. The customer still sees the message under the
+   * 'Viju Account Officer' label (PRD F6) - individual staff names are never
+   * exposed to a distributor.
+   */
+  async sendMessage(user: ChatActor, receiverId: string, dto: SendMessageDto) {
     let customerId = '';
     let staffId = '';
     let senderType = '';
 
-    if (user.role === 'CUSTOMER') {
+    if (this.isAuditStaff(user.role)) {
+      await this.resolveAuditedCustomer(user, receiverId);
+      customerId = receiverId;
+      staffId = user.id;
+      senderType = 'STAFF';
+    } else if (user.role === 'CUSTOMER') {
       if (!(await this.isAssignedPair(user.id, receiverId))) {
         throw new ForbiddenException(
           'You can only send messages to your assigned account officer.',
@@ -203,7 +278,13 @@ export class ChatService {
     return message;
   }
 
-  async getAudits(adminId: string, customerId: string) {
+  /**
+   * Read-only audit of one customer's whole thread. Same region rule as the
+   * live thread: an ADMIN reaches every customer, a REGIONAL_ADMIN only their
+   * own region.
+   */
+  async getAudits(user: ChatActor, customerId: string) {
+    await this.resolveAuditedCustomer(user, customerId);
     return this.prisma.message.findMany({
       where: { customerId },
       orderBy: { createdAt: 'asc' },

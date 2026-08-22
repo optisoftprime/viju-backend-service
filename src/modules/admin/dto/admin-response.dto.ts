@@ -154,6 +154,55 @@ export class OfficerDetailDto {
   openTickets: number;
 }
 
+// ─── Single reassign (PATCH /admin/customers/:id/reassign) ──
+
+/** The officer on one CustomerOfficer row. */
+export class ReassignedOfficerStaffDto {
+  @ApiProperty({ example: '7c2a09d3-6f61-49c2-9a0e-8d5b1f2c3a44' })
+  id: string;
+
+  @ApiProperty({ example: 'Ifeanyi Okon' })
+  name: string;
+
+  @ApiProperty({ example: 'i.okon@viju.com' })
+  email: string;
+}
+
+/** One officer assignment as it stands after the call. */
+export class ReassignedOfficerAssignmentDto {
+  @ApiProperty({ example: 'as1f2e3d-4c5b-6a79-8081-92a3b4c5d6e7' })
+  id: string;
+
+  @ApiProperty({ example: true })
+  isPrimary: boolean;
+
+  @ApiProperty({ example: '2026-08-22T09:10:00.000Z', format: 'date-time' })
+  assignedAt: Date;
+
+  @ApiProperty({ type: ReassignedOfficerStaffDto })
+  staff: ReassignedOfficerStaffDto;
+}
+
+/**
+ * AD-R1 - body of PATCH /admin/customers/:id/reassign.
+ *
+ * Carries the resulting assignments so the OFFICERS cell can be refreshed
+ * straight from the response, primary first.
+ */
+export class ReassignCustomerResponseDto {
+  @ApiProperty({ example: 'Customer assigned successfully' })
+  message: string;
+
+  @ApiProperty({ example: 'bd5dbe51-b00e-4d05-a321-76108e0f3918' })
+  customerId: string;
+
+  @ApiProperty({
+    type: [ReassignedOfficerAssignmentDto],
+    description: 'Every officer on the customer after the call, primary first.',
+  })
+  officerAssignments: ReassignedOfficerAssignmentDto[];
+}
+
 // ─── Bulk reassign (PATCH /admin/officers/:id/reassign-customers) ──
 
 export class BulkReassignResponseDto {

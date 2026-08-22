@@ -197,6 +197,23 @@ export class TicketThreadResponseDto extends TicketResponseDto {
 }
 
 /**
+ * AD-T1 — the body of `POST /tickets/{id}/replies`.
+ *
+ * The complete thread (identical to `GET /tickets/{id}`) with the new reply
+ * already appended, so the caller can re-render from the response instead of
+ * refetching. `reply` echoes the row that was just created.
+ */
+export class TicketThreadWithReplyResponseDto extends TicketThreadResponseDto {
+  @ApiProperty({
+    type: () => TicketReplyResponseDto,
+    description:
+      'The reply just created — the last element of `replies`, echoed for ' +
+      'callers that only need that row.',
+  })
+  reply: TicketReplyResponseDto;
+}
+
+/**
  * Paginated list of bare tickets (customer-facing list).
  */
 export class PaginatedTicketResponseDto {

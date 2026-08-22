@@ -72,6 +72,9 @@ export class AuditService {
     return {
       ...this.buildDateClause(filter),
       ...(filter.customerId ? { customerId: filter.customerId } : {}),
+      // RA-T1 - applied to the COUNT as well as the page, so `meta.total`
+      // reports the filtered set and the pager agrees with the rows shown.
+      ...(filter.status?.length ? { status: { in: filter.status } } : {}),
       ...(filter.keyword
         ? {
             OR: [
@@ -204,8 +207,16 @@ export class AuditService {
   }
 
   /**
-   * US-14.2 — CSV of the chat audit, one row per thread, mirroring the
-   * ticket export.
+   * US-14.2 / AD-X1 — CSV of the chat audit, one row per conversation,
+   * matching the Chat tab exactly.
+   *
+   * Takes the same filters as GET /admin/audit/chats (region, customerName,
+   * officerName, keyword, startDate, endDate, officerId, customerId), so the
+   * export always matches what the operator is looking at. No matches returns
+   * the header row alone — never a 404.
+   *
+   * Columns: Customer, Customer Code, Account Officer, Region, Messages,
+   * Last Message.
    */
   async exportChatsCsv(filter: InteractionAuditFilterDto): Promise<string> {
     const where = this.buildChatWhere(filter);
@@ -223,7 +234,7 @@ export class AuditService {
     const [customers, officers] = await Promise.all([
       this.prisma.customer.findMany({
         where: { id: { in: threads.map((t) => t.customerId) } },
-        select: { id: true, name: true, region: true },
+        select: { id: true, name: true, erpId: true, region: true },
       }),
       this.prisma.staff.findMany({
         where: { id: { in: threads.map((t) => t.staffId) } },
@@ -234,21 +245,21 @@ export class AuditService {
     const officerById = new Map(officers.map((o) => [o.id, o]));
 
     const header = [
-      'threadId',
-      'distributorName',
-      'region',
-      'officerName',
-      'messageCount',
-      'lastMessageAt',
+      'Customer',
+      'Customer Code',
+      'Account Officer',
+      'Region',
+      'Messages',
+      'Last Message',
     ].join(',');
     const lines = threads.map((t) => {
       const customer = customerById.get(t.customerId);
       const officer = officerById.get(t.staffId);
       return [
-        this.threadKey(t.customerId, t.staffId),
         this.csv(customer?.name ?? ''),
-        customer?.region ?? '',
+        this.csv(customer?.erpId ?? ''),
         this.csv(officer?.name ?? ''),
+        customer?.region ?? '',
         t._count._all,
         t._max.createdAt?.toISOString() ?? '',
       ].join(',');

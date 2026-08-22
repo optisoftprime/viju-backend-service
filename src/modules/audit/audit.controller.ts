@@ -1,4 +1,12 @@
-import { Controller, Get, Query, UseGuards, Res } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+  Res,
+  ForbiddenException,
+  HttpStatus,
+} from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
@@ -24,8 +32,13 @@ import {
 
 /**
  * US-14.3: the audit is strictly read-only — every route here is a GET and no
- * write route is exposed from this view. CC-01: ADMIN only, enforced server
- * side.
+ * write route is exposed from this view. CC-01: authorisation is enforced
+ * server side.
+ *
+ * The class default is ADMIN. Both audits (chats and tickets, list and CSV)
+ * additionally admit REGIONAL_ADMIN and are then ALWAYS scoped to that
+ * admin's own region by `scopeToViewer` — whatever `region` the client sends
+ * (B-4.2, RA-T2). No other role reaches this controller.
  */
 @ApiTags('Admin Portal')
 @ApiBearerAuth()
@@ -34,7 +47,7 @@ import {
 })
 @ApiForbiddenResponse({
   description:
-    'Caller is not an ADMIN: ' +
+    'Caller is neither an ADMIN nor a REGIONAL_ADMIN: ' +
     '`{ "message": "You do not have permission to perform this action.", "statusCode": 403 }`',
 })
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -44,15 +57,27 @@ export class AuditController {
   constructor(private readonly auditService: AuditService) {}
 
   /**
-   * B-4.2 — a regional admin sees only their own region, whatever they ask
-   * for. An ADMIN keeps whatever region filter they passed (or none).
+   * B-4.2 / RA-T2 — a regional admin sees only their own region, whatever
+   * they ask for. An ADMIN keeps whatever region filter they passed (or none).
+   *
+   * A REGIONAL_ADMIN whose record carries NO region cannot be scoped, and
+   * falling through with `region: undefined` would hand them every region at
+   * once. That is a misconfigured account, so it is refused rather than
+   * widened — properly provisioned regional admins always carry a region.
    */
   private scopeToViewer(
     user: { role: string; region?: Region | null },
     filter: InteractionAuditFilterDto,
   ): InteractionAuditFilterDto {
     if (user.role !== 'REGIONAL_ADMIN') return filter;
-    return { ...filter, region: user.region ?? undefined };
+    if (!user.region) {
+      throw new ForbiddenException({
+        message: 'No region is set on your account. Contact an administrator.',
+        code: 'REGION_NOT_SET',
+        statusCode: HttpStatus.FORBIDDEN,
+      });
+    }
+    return { ...filter, region: user.region };
   }
 
   @Get('chats')
@@ -93,16 +118,25 @@ export class AuditController {
   @Get('chats/export.csv')
   @Roles('ADMIN', 'REGIONAL_ADMIN')
   @ApiOperation({
-    summary: 'Export chat audit results as CSV (US-14.2)',
+    summary: 'Export chat audit results as CSV (US-14.2, AD-X1)',
     description:
-      'Same filters as GET /admin/audit/chats. One row per thread, mirroring ' +
-      'the ticket export.',
+      'Accepts exactly the same filters as GET /admin/audit/chats - `region`, ' +
+      '`customerName`, `officerName`, `keyword`, `startDate`, `endDate`, ' +
+      '`officerId`, `customerId` - so the export matches whatever the ' +
+      'operator is looking at. One row per conversation, matching the Chat ' +
+      'tab.\n\n' +
+      'The body is CSV, not a JSON envelope: read it as a Blob. Served as ' +
+      '`text/csv; charset=utf-8` with ' +
+      '`Content-Disposition: attachment; filename="viju-audit-chats.csv"`. ' +
+      'No matches returns the header row alone with a 200, never a 404.\n\n' +
+      'REGIONAL_ADMIN is always scoped to their own region, whatever `region` ' +
+      'they pass.',
   })
   @ApiProduces('text/csv')
   @ApiOkResponse({
     description:
-      'CSV of matching threads (threadId, distributorName, region, ' +
-      'officerName, messageCount, lastMessageAt).',
+      'CSV of matching conversations. Header row: ' +
+      '`Customer,Customer Code,Account Officer,Region,Messages,Last Message`.',
     schema: { type: 'string', format: 'binary' },
   })
   async exportChats(
@@ -113,23 +147,35 @@ export class AuditController {
     const csv = await this.auditService.exportChatsCsv(
       this.scopeToViewer(user, filter),
     );
-    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader(
       'Content-Disposition',
-      'attachment; filename="viju-chats-audit.csv"',
+      'attachment; filename="viju-audit-chats.csv"',
     );
     res.send(csv);
   }
 
   @Get('tickets')
+  @Roles('ADMIN', 'REGIONAL_ADMIN')
   @ApiOperation({
-    summary: 'Search all support tickets with full thread',
+    summary: 'Search all support tickets with full thread (RA-T1, RA-T2)',
     description:
       'READ-ONLY (US-14.3). Sortable (US-09.3): `sortBy` accepts ticketId | ' +
       'subject | customerName | region | status | createdAt with `sortOrder` ' +
       '(asc | desc, default desc). Omitting `sortBy` keeps the existing ' +
       'ordering (createdAt descending); an unknown `sortBy` is rejected with ' +
-      '400.',
+      '400.\n\n' +
+      'RA-T1: `status` narrows the result set to one or more ticket statuses ' +
+      '- repeatable (`?status=OPEN&status=IN_PROGRESS`) or comma-separated ' +
+      '(`?status=OPEN,IN_PROGRESS,AWAITING_CUSTOMER`) - and `meta.total` ' +
+      'counts the FILTERED set, so the Open Tickets page asks for everything ' +
+      'unresolved in one request and its pager agrees with what is on ' +
+      'screen. An unknown value is rejected with 400 and ' +
+      '`code: "VALIDATION_ERROR"`.\n\n' +
+      'RA-T2: REGIONAL_ADMIN may call this and is ALWAYS scoped to their own ' +
+      'region, taken from the token, whatever `region` they pass - the same ' +
+      'rule as GET /admin/audit/chats. An empty region returns `data: []` ' +
+      'with a valid `meta`, never a 404.',
   })
   @ApiOkResponse({
     description:
@@ -138,15 +184,26 @@ export class AuditController {
   })
   @ApiBadRequestResponse({
     description:
-      'Unknown sortBy / sortOrder, or invalid date / pagination params',
+      'Unknown status / sortBy / sortOrder, or invalid date / pagination ' +
+      'params. An unknown `status` answers ' +
+      '`{ "message": "status must be one of: OPEN, IN_PROGRESS, ' +
+      'AWAITING_CUSTOMER, RESOLVED", "code": "VALIDATION_ERROR" }`.',
   })
-  async searchTickets(@Query() query: InteractionAuditFilterDto) {
-    return this.auditService.searchTickets(query, query);
+  async searchTickets(
+    @CurrentUser() user: { role: string; region?: Region | null },
+    @Query() query: InteractionAuditFilterDto,
+  ) {
+    const filter = this.scopeToViewer(user, query);
+    return this.auditService.searchTickets(filter, query);
   }
 
   @Get('tickets/export.csv')
+  @Roles('ADMIN', 'REGIONAL_ADMIN')
   @ApiOperation({
     summary: 'Export ticket search results as CSV',
+    description:
+      'Same filters as GET /admin/audit/tickets, including the RA-T1 ' +
+      '`status` filter. REGIONAL_ADMIN is always scoped to their own region.',
   })
   @ApiProduces('text/csv')
   @ApiOkResponse({
@@ -156,10 +213,13 @@ export class AuditController {
     schema: { type: 'string', format: 'binary' },
   })
   async exportTickets(
+    @CurrentUser() user: { role: string; region?: Region | null },
     @Query() filter: InteractionAuditFilterDto,
     @Res() res: Response,
   ) {
-    const csv = await this.auditService.exportTicketsCsv(filter);
+    const csv = await this.auditService.exportTicketsCsv(
+      this.scopeToViewer(user, filter),
+    );
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader(
       'Content-Disposition',

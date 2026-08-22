@@ -9,6 +9,8 @@ import {
   Query,
   Res,
   UseGuards,
+  ForbiddenException,
+  HttpStatus,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
@@ -57,6 +59,7 @@ import {
   AdminCustomerDetailDto,
   ErpSyncStatusDto,
   PaginatedUnmappedErpCustomersResponseDto,
+  ReassignCustomerResponseDto,
 } from './dto/admin-response.dto';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 
@@ -100,6 +103,7 @@ export class AdminController {
   }
 
   @Get('customers')
+  @Roles('ADMIN', 'REGIONAL_ADMIN')
   @ApiOperation({
     summary: 'List customers with optional region filter + name/erpId search',
     description:
@@ -124,7 +128,18 @@ export class AdminController {
       'field the ERP customer master does not carry, so actions that need a ' +
       'local record must be disabled for it. Projected rows come first in ' +
       'the requested sort order, then unprojected rows by erpId. Default is ' +
-      'false, so existing callers see no change.',
+      'false, so existing callers see no change.\n\n' +
+      'RA-C1: REGIONAL_ADMIN is authorised on this route and is ALWAYS ' +
+      'scoped to their own region, derived from the token. They must NOT ' +
+      'send `region` - doing so is refused with ' +
+      '`403 { "message": "Region is derived from your account", "code": ' +
+      '"REGION_NOT_ALLOWED" }` (B-1.1), because region scoping is not ' +
+      'something a client may choose. `outstandingBalance` is returned as a ' +
+      'full-precision number, never a pre-formatted 2-dp string.\n\n' +
+      'AD-S1: `search` matches `name` and `erpId` on projected rows and the ' +
+      'equivalent ERP-feed fields (CUSTOMER_NAME / CUSTOMER_CODE) on ' +
+      'unprojected ones, on BOTH halves of the union, and `meta.total` is the ' +
+      'size of the FILTERED union so paging stays arithmetically correct.',
   })
   @ApiOkResponse({
     description: 'Paginated list of customers',
@@ -133,8 +148,54 @@ export class AdminController {
   @ApiBadRequestResponse({
     description: 'Unknown sortBy / sortOrder, or invalid pagination params',
   })
-  async getAllCustomers(@Query() query: CustomerFilterDto) {
-    return this.adminService.getAllCustomers(query, query);
+  @ApiForbiddenResponse({
+    description:
+      'Caller is neither an ADMIN nor a REGIONAL_ADMIN, or a REGIONAL_ADMIN ' +
+      'sent `region`: ' +
+      '`{ "message": "Region is derived from your account", "code": "REGION_NOT_ALLOWED" }`',
+  })
+  async getAllCustomers(
+    @CurrentUser() user: { role: string; region?: Region | null },
+    @Query() query: CustomerFilterDto,
+  ) {
+    return this.adminService.getAllCustomers(
+      { ...query, region: this.customerListRegion(user, query.region) },
+      query,
+    );
+  }
+
+  /**
+   * RA-C1 / B-1.1 - which region the customer list is allowed to read.
+   *
+   * An ADMIN sees every region and may narrow with `region`. A
+   * REGIONAL_ADMIN is pinned to the region on their own record and may not
+   * pass the parameter at all: silently ignoring it would let a wrong value
+   * look like it worked, so it is refused outright and the client drops it.
+   *
+   * A REGIONAL_ADMIN whose record carries NO region cannot be scoped, and
+   * returning `undefined` would hand them every region at once. That is a
+   * misconfigured account, so it is refused rather than widened.
+   */
+  private customerListRegion(
+    user: { role: string; region?: Region | null },
+    requested: Region | undefined,
+  ): Region | undefined {
+    if (user.role !== 'REGIONAL_ADMIN') return requested;
+    if (requested !== undefined) {
+      throw new ForbiddenException({
+        message: 'Region is derived from your account',
+        code: 'REGION_NOT_ALLOWED',
+        statusCode: HttpStatus.FORBIDDEN,
+      });
+    }
+    if (!user.region) {
+      throw new ForbiddenException({
+        message: 'No region is set on your account. Contact an administrator.',
+        code: 'REGION_NOT_SET',
+        statusCode: HttpStatus.FORBIDDEN,
+      });
+    }
+    return user.region;
   }
 
   @Get('customers/export.csv')
@@ -217,25 +278,42 @@ export class AdminController {
 
   @Patch('customers/:id/reassign')
   @ApiOperation({
-    summary: 'Reassign customer to a new officer',
+    summary: 'Assign or reassign a customer to an account officer (AD-R1)',
     description:
+      'Sets the assignment outright, so it works for a customer who has NO ' +
+      'officer yet (empty `officerAssignments[]`) exactly as it does for one ' +
+      'being moved between officers.\n\n' +
       'Moves both the primary pointer and the CustomerOfficer join row, so ' +
       'the chat thread and every ticket for this customer follow the ' +
       'assignment (US-13.5) — the new officer sees the complete history and ' +
-      'the previous officer loses access. Side effect (US-13.4): an ' +
-      'ASSIGNMENT notification is created for the receiving officer.',
+      'the previous officer loses access.\n\n' +
+      'Side effect (US-13.4, AD-R1): the incoming officer gets an ASSIGNMENT ' +
+      'notification in the bell AND a web push, on a first assignment as ' +
+      'well as on a reassignment. Push is best-effort and never fails the ' +
+      'call; the in-app row is always written.\n\n' +
+      'The response carries the resulting `officerAssignments`, so the ' +
+      'OFFICERS cell can be refreshed without a refetch.',
   })
-  @ApiOkResponse({ type: MessageResponseDto })
+  @ApiOkResponse({ type: ReassignCustomerResponseDto })
   @ApiBadRequestResponse({
-    description: 'New officer is inactive or in a different region',
+    description:
+      'New officer is unknown, inactive, or in a different region: ' +
+      '`{ "message": "Officer not found or inactive", "code": "OFFICER_NOT_FOUND" }`',
   })
-  @ApiNotFoundResponse({ description: 'Customer not found' })
+  @ApiNotFoundResponse({
+    description:
+      '`{ "message": "Customer not found", "code": "CUSTOMER_NOT_FOUND" }`',
+  })
+  @ApiConflictResponse({
+    description:
+      'That officer already holds this customer as primary: ' +
+      '`{ "message": "<name> is already assigned to this customer", "code": "ALREADY_ASSIGNED" }`',
+  })
   async reassignOfficer(
     @Param('id') id: string,
     @Body() dto: ReassignOfficerDto,
   ) {
-    await this.adminService.reassignOfficer(id, dto);
-    return { message: 'Officer reassigned successfully' };
+    return this.adminService.reassignOfficer(id, dto);
   }
 
   @Post('customers')
@@ -258,8 +336,13 @@ export class AdminController {
     description:
       'ADMIN sees every region and may narrow with `region`. REGIONAL_ADMIN ' +
       "is forced to their own token's region and any client-supplied " +
-      '`region` is ignored (RA-05) — a user cannot widen their scope by ' +
-      'editing the query string.\n\n' +
+      '`region` is ACCEPTED AND IGNORED (RA-05, RA-O1) — the request still ' +
+      'answers 200 with that admin\u2019s own region, and never a ' +
+      '`REGION_NOT_ALLOWED` 403. This deliberately differs from ' +
+      'GET /admin/customers, which refuses the parameter outright; the ' +
+      'officer picker has always tolerated it and nothing is leaked either ' +
+      'way, since the scope is read from the token. A user cannot widen ' +
+      'their scope by editing the query string.\n\n' +
       'Pass `role=LOADING_OFFICER` to list loading officers for the ' +
       'assign-loading-officer picker (RA-06); it defaults to OFFICER. ' +
       '`role=ADMIN` / `role=REGIONAL_ADMIN` list those internally managed ' +
