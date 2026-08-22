@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import PDFDocument from 'pdfkit';
+import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
 
 export interface StatementRange {
   startDate?: string;
@@ -9,7 +10,10 @@ export interface StatementRange {
 
 @Injectable()
 export class StatementService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly accountBalance: ErpAccountBalanceService,
+  ) {}
 
   async generateAccountStatement(
     customerId: string,
@@ -26,6 +30,13 @@ export class StatementService {
       },
     });
     if (!customer) throw new NotFoundException('Customer not found');
+
+    // Same ERP-derived balance the app shows, so the PDF and the screens
+    // cannot disagree. Falls back to the stored column when the ERP credit
+    // feed is absent.
+    const walletBalance =
+      (await this.accountBalance.getRunningBalance(customer.erpId)) ??
+      customer.outstandingBalance;
 
     const where = {
       customerId,
@@ -104,10 +115,9 @@ export class StatementService {
 
       doc
         .fontSize(11)
-        .text(
-          `Current wallet balance: ${this.money(customer.outstandingBalance)}`,
-          { align: 'right' },
-        );
+        .text(`Current wallet balance: ${this.money(walletBalance)}`, {
+          align: 'right',
+        });
     });
   }
 
