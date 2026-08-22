@@ -21,6 +21,7 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { RegionalService } from './regional.service';
+import { AdminService } from '../admin/admin.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -32,6 +33,8 @@ import {
 } from './dto/regional.dto';
 import { Region } from '../../common/region/region.constants';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
+import { CustomerFilterDto } from '../admin/dto/admin.dto';
+import { PaginatedCustomersResponseDto } from '../admin/dto/customer-response.dto';
 import {
   RegionalDashboardResponseDto,
   PaginatedLoadingRequestsResponseDto,
@@ -64,7 +67,58 @@ interface StaffUser {
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('regional')
 export class RegionalController {
-  constructor(private readonly regionalService: RegionalService) {}
+  constructor(
+    private readonly regionalService: RegionalService,
+    // Reused verbatim so the regional customer list and the admin one cannot
+    // drift apart in shape, sorting or ERP-derived columns.
+    private readonly adminService: AdminService,
+  ) {}
+
+  @Get('customers')
+  @Roles('REGIONAL_ADMIN', 'ADMIN')
+  @ApiOperation({
+    summary: 'Every customer in the region (RA-C2)',
+    description:
+      'The regional admin Customers page. Returns exactly the same rows, in ' +
+      'the same envelope, as GET /admin/customers - the shared customer table ' +
+      'renders both - but the region is resolved from the caller instead of ' +
+      'the query string.\n\n' +
+      'REGIONAL_ADMIN: scoped to the region on their own record. `region` may ' +
+      'be omitted entirely (do that) or repeated back as their OWN region; a ' +
+      'different region is refused with 403. Unlike GET /admin/customers, ' +
+      'sending your own region here is NOT an error.\n\n' +
+      'ADMIN: has no home region, so `region` is REQUIRED - it is how an ' +
+      'admin previews one region through this route. Use GET /admin/customers ' +
+      'for the cross-region list.\n\n' +
+      'Filters: `search` (name or erpId, case-insensitive, partial), ' +
+      '`hasOfficer` (true = assigned only, false = unassigned only, omit for ' +
+      'both), `sortBy` / `sortOrder`, `page` / `pageSize` (clamped to 200 - ' +
+      'read `meta.pageSize` for what was applied), and `includeUnprojected` ' +
+      'to add ERP customers in the region that the projector has not copied ' +
+      'across yet.\n\n' +
+      '`meta.total` always counts the rows THIS filter matches inside the ' +
+      'region, so paging is arithmetically correct. A region with no ' +
+      'customers returns `data: []` with a valid `meta`, never a 404.',
+  })
+  @ApiOkResponse({
+    description: "Paginated list of the region's customers.",
+    type: PaginatedCustomersResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Unknown sortBy / sortOrder, or invalid pagination params',
+  })
+  @ApiForbiddenResponse({
+    description:
+      'REGIONAL_ADMIN asked for another region, a REGIONAL_ADMIN has no ' +
+      'region on their record, or an ADMIN omitted `region`',
+  })
+  async getRegionalCustomers(
+    @CurrentUser() user: StaffUser,
+    @Query() query: CustomerFilterDto,
+  ) {
+    const region = this.resolveRegion(user, query.region);
+    return this.adminService.getAllCustomers({ ...query, region }, query);
+  }
 
   @Get('dashboard')
   @Roles('REGIONAL_ADMIN', 'ADMIN')

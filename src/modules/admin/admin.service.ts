@@ -705,11 +705,28 @@ export class AdminService {
     return value;
   }
 
+  /**
+   * AD-R1 - assigns a customer to an account officer, whether or not they
+   * already have one.
+   *
+   * Works for a customer with an EMPTY `officerAssignments[]`: the join row is
+   * upserted rather than moved, so a first assignment and a reassignment take
+   * the same path. Both cases notify the incoming officer - bell row plus web
+   * push, via NotificationService.notify.
+   *
+   * Errors carry a machine-readable `code` the client branches on:
+   * CUSTOMER_NOT_FOUND (404), OFFICER_NOT_FOUND (400), ALREADY_ASSIGNED (409).
+   */
   async reassignOfficer(customerId: string, dto: ReassignOfficerDto) {
     const customer = await this.prisma.customer.findUnique({
       where: { id: customerId },
     });
-    if (!customer) throw new NotFoundException('Customer not found');
+    if (!customer)
+      throw new NotFoundException({
+        message: 'Customer not found',
+        code: 'CUSTOMER_NOT_FOUND',
+        statusCode: HttpStatus.NOT_FOUND,
+      });
 
     // PRD F16 AC2: new officer must be active and in the SAME region
     const officer = await this.prisma.staff.findFirst({
@@ -721,17 +738,31 @@ export class AdminService {
       },
     });
     if (!officer)
-      throw new BadRequestException(
-        'New officer must be active and in the same region as the customer.',
-      );
+      throw new BadRequestException({
+        message: 'Officer not found or inactive',
+        code: 'OFFICER_NOT_FOUND',
+        statusCode: HttpStatus.BAD_REQUEST,
+      });
 
-    const updated = await this.repointAssignment(
+    // Re-sending the assignment the customer already has is a no-op the
+    // client would otherwise read as success and re-render from - it is
+    // refused so the operator sees why nothing changed.
+    if (customer.assignedOfficerId === dto.newOfficerId) {
+      throw new ConflictException({
+        message: `${officer.name} is already assigned to this customer`,
+        code: 'ALREADY_ASSIGNED',
+        statusCode: HttpStatus.CONFLICT,
+      });
+    }
+
+    await this.repointAssignment(
       customerId,
       customer.assignedOfficerId,
       dto.newOfficerId,
     );
 
-    // US-13.4 — the RECEIVING officer must see this in their bell.
+    // US-13.4 / AD-R1 - the RECEIVING officer must see this in their bell and
+    // on their device, on a first assignment as well as a reassignment.
     await this.notifications.notify({
       recipientType: 'STAFF',
       recipientId: dto.newOfficerId,
@@ -741,7 +772,24 @@ export class AdminService {
       data: { customerId },
     });
 
-    return updated;
+    // The resulting assignments, so the OFFICERS cell refreshes without a
+    // second round trip.
+    const officerAssignments = await this.prisma.customerOfficer.findMany({
+      where: { customerId },
+      orderBy: { isPrimary: 'desc' },
+      select: {
+        id: true,
+        isPrimary: true,
+        assignedAt: true,
+        staff: { select: { id: true, name: true, email: true } },
+      },
+    });
+
+    return {
+      message: 'Customer assigned successfully',
+      customerId,
+      officerAssignments,
+    };
   }
 
   /** Columns of GET /admin/officers that map straight onto a Prisma orderBy. */

@@ -9,5 +9,8 @@ import { ErpModule } from '../erp/erp.module';
   imports: [NotificationModule, EmailModule, ErpModule],
   controllers: [AdminController],
   providers: [AdminService],
+  // RA-C2: the regional portal serves its own customer list through the SAME
+  // service, so the two lists cannot drift in shape, sorting or ERP columns.
+  exports: [AdminService],
 })
 export class AdminModule {}

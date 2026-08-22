@@ -1,5 +1,6 @@
 import { Reflector } from '@nestjs/core';
 import { ExecutionContext, ForbiddenException } from '@nestjs/common';
+import { Region } from '../../common/region/region.constants';
 import { AdminController } from './admin.controller';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -55,6 +56,17 @@ describe('Admin user-management authorization', () => {
     expect(rolesFor('getOfficer')).toEqual(['ADMIN', 'REGIONAL_ADMIN']);
   });
 
+  it('lets a regional admin read the customer list and one customer (RA-C1)', () => {
+    expect(rolesFor('getAllCustomers')).toEqual(['ADMIN', 'REGIONAL_ADMIN']);
+    expect(rolesFor('getCustomerDetail')).toEqual(['ADMIN', 'REGIONAL_ADMIN']);
+  });
+
+  it('keeps the customer CSV export ADMIN-only', () => {
+    // Not part of RA-C1; the widening is deliberately confined to the two
+    // read routes the regional admin portal actually calls.
+    expect(rolesFor('exportCustomers')).toEqual(['ADMIN']);
+  });
+
   describe('RolesGuard', () => {
     const guard = new RolesGuard(reflector);
 
@@ -102,6 +114,81 @@ describe('Admin user-management authorization', () => {
     });
   });
 
+  describe('GET /admin/customers scoping (RA-C1 / B-1.1)', () => {
+    const listed: Array<Record<string, unknown>> = [];
+    const controller = new AdminController({
+      getAllCustomers: (filter: Record<string, unknown>) => {
+        listed.push(filter);
+        return Promise.resolve({ data: [], meta: {} });
+      },
+    } as never);
+
+    beforeEach(() => {
+      listed.length = 0;
+    });
+
+    it("pins a regional admin to their own token's region", async () => {
+      await controller.getAllCustomers(
+        { role: 'REGIONAL_ADMIN', region: Region.LAGOS },
+        { page: 1, pageSize: 20 },
+      );
+
+      expect(listed[0]).toMatchObject({ region: Region.LAGOS });
+    });
+
+    it('refuses a region sent by a regional admin with REGION_NOT_ALLOWED', async () => {
+      // Region scoping is token-derived, so the parameter is refused rather
+      // than silently ignored - a wrong value must not look like it worked.
+      await expect(
+        controller.getAllCustomers(
+          { role: 'REGIONAL_ADMIN', region: Region.LAGOS },
+          { region: Region.NORTH, page: 1, pageSize: 20 },
+        ),
+      ).rejects.toMatchObject({
+        response: {
+          code: 'REGION_NOT_ALLOWED',
+          message: 'Region is derived from your account',
+        },
+      });
+      expect(listed).toHaveLength(0);
+    });
+
+    it('refuses even a regional admin asking for their OWN region explicitly', async () => {
+      await expect(
+        controller.getAllCustomers(
+          { role: 'REGIONAL_ADMIN', region: Region.LAGOS },
+          { region: Region.LAGOS, page: 1, pageSize: 20 },
+        ),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('refuses a regional admin whose record carries no region', async () => {
+      // Returning `undefined` here would hand a misconfigured account every
+      // region at once.
+      await expect(
+        controller.getAllCustomers(
+          { role: 'REGIONAL_ADMIN', region: null },
+          { page: 1, pageSize: 20 },
+        ),
+      ).rejects.toMatchObject({ response: { code: 'REGION_NOT_SET' } });
+      expect(listed).toHaveLength(0);
+    });
+
+    it('leaves an ADMIN free to filter by any region, or none', async () => {
+      await controller.getAllCustomers(
+        { role: 'ADMIN', region: null },
+        { region: Region.NORTH, page: 1, pageSize: 20 },
+      );
+      await controller.getAllCustomers(
+        { role: 'ADMIN', region: null },
+        { page: 1, pageSize: 20 },
+      );
+
+      expect(listed[0]).toMatchObject({ region: Region.NORTH });
+      expect(listed[1]).toMatchObject({ region: undefined });
+    });
+  });
+
   describe('GET /admin/officers scoping', () => {
     const listed: Array<Record<string, unknown>> = [];
     const controller = new AdminController({
@@ -133,6 +220,21 @@ describe('Admin user-management authorization', () => {
         role: StaffRole.OFFICER,
         managed: false,
       });
+    });
+
+    it('accepts and IGNORES `region` from a regional admin - never a 403 (RA-O1)', async () => {
+      // The explicit answer the officers screen needs: this route tolerates
+      // the parameter and answers 200 with the caller's own region. It does
+      // NOT behave like GET /admin/customers, which refuses it.
+      await expect(
+        controller.getOfficers({ role: 'REGIONAL_ADMIN', region: 'LAGOS' }, {
+          region: 'LAGOS',
+          page: 1,
+          pageSize: 20,
+        } as never),
+      ).resolves.toBeDefined();
+
+      expect(listed[0]).toMatchObject({ region: 'LAGOS' });
     });
 
     it('still lets a regional admin open the loading-officer picker (RA-06)', async () => {

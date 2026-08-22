@@ -4,6 +4,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { Region } from '../../common/region/region.constants';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
 import { RealtimeService } from '../../infrastructure/realtime/realtime.service';
 import { NotificationTypes } from '../../common/notifications/notification-types';
@@ -13,6 +14,25 @@ import {
   ReplyTicketDto,
   UpdateTicketStatusDto,
 } from './dto/ticket.dto';
+
+/**
+ * The authenticated principal behind a ticket call, as the controller reads it
+ * off the JWT. `region` is only ever populated for region-scoped staff and is
+ * the ONLY source of a REGIONAL_ADMIN's scope — never a query param (B-4.2).
+ */
+export interface TicketActor {
+  id: string;
+  role: string;
+  region?: Region | null;
+}
+
+/**
+ * Roles whose replies are recorded as `senderType: 'STAFF'` and carry the
+ * author's own `staffId`. AD-T1/AD-C1: an ADMIN or REGIONAL_ADMIN answering
+ * from the Interaction Audit is credited to themselves, not to the assigned
+ * officer, so the audit trail shows who actually replied.
+ */
+const STAFF_ROLES = ['OFFICER', 'ADMIN', 'REGIONAL_ADMIN'] as const;
 
 @Injectable()
 export class TicketService {
@@ -157,7 +177,19 @@ export class TicketService {
     );
   }
 
-  async getTicket(ticketId: string, user: any) {
+  /**
+   * AD-T1 — the full thread, with the authorisation rule for every role that
+   * can open one.
+   *
+   * - CUSTOMER  — only their own ticket.
+   * - OFFICER   — only a customer they currently manage (primary or secondary).
+   * - ADMIN     — every ticket. The audit is organisation-wide, and an admin is
+   *               never the assigned officer, so no assignment check applies.
+   * - REGIONAL_ADMIN — every ticket whose customer is in their OWN region;
+   *               403 outside it. The region comes from the token, matching
+   *               the scoping already applied to GET /admin/audit/chats.
+   */
+  async getTicket(ticketId: string, user: TicketActor) {
     const ticket = await this.prisma.supportTicket.findUnique({
       where: { id: ticketId },
       include: {
@@ -187,24 +219,43 @@ export class TicketService {
         })) !== null;
       if (!isAssigned) throw new ForbiddenException('Access denied');
     }
+    // AD-T1 / RA-T2 — a regional admin never reaches outside their region.
+    if (
+      user.role === 'REGIONAL_ADMIN' &&
+      ticket.customer.region !== (user.region ?? null)
+    ) {
+      throw new ForbiddenException('Access denied');
+    }
 
     return ticket;
   }
 
+  /**
+   * AD-T1 — a reply from any participant.
+   *
+   * Returns the SAME thread shape as `getTicket` with the new reply already
+   * appended, so the modal re-renders straight from the response instead of
+   * refetching. The created reply is also echoed on `reply` for callers that
+   * only need that row.
+   *
+   * A staff reply is credited to its author's own `staffId` — including an
+   * ADMIN or REGIONAL_ADMIN answering from the Interaction Audit — so the
+   * trail shows who actually replied rather than the assigned officer.
+   */
   async replyToTicket(
     ticketId: string,
-    senderId: string,
+    user: TicketActor,
     dto: ReplyTicketDto,
-    role: string,
   ) {
-    const ticket = await this.getTicket(ticketId, { id: senderId, role });
+    const ticket = await this.getTicket(ticketId, user);
+    const isStaff = (STAFF_ROLES as readonly string[]).includes(user.role);
 
-    const reply = await this.prisma.ticketReply.create({
+    await this.prisma.ticketReply.create({
       data: {
         ticketId: ticket.id,
-        senderType: role === 'CUSTOMER' ? 'CUSTOMER' : 'STAFF',
-        customerId: role === 'CUSTOMER' ? senderId : null,
-        staffId: role === 'OFFICER' || role === 'ADMIN' ? senderId : null,
+        senderType: user.role === 'CUSTOMER' ? 'CUSTOMER' : 'STAFF',
+        customerId: user.role === 'CUSTOMER' ? user.id : null,
+        staffId: isStaff ? user.id : null,
         content: dto.content,
         attachmentUrl: dto.attachmentUrl,
       },
@@ -212,7 +263,7 @@ export class TicketService {
 
     // PRD §6 - staff reply pushes the customer (US-11.7); a customer reply
     // notifies every officer currently on the account.
-    if (role === 'CUSTOMER') {
+    if (user.role === 'CUSTOMER') {
       for (const staffId of await this.currentOfficerIds(ticket.customerId)) {
         await this.notifications.notify({
           recipientType: 'STAFF',
@@ -235,18 +286,24 @@ export class TicketService {
     }
     await this.publishTicketUpdate(ticket);
 
-    return reply;
+    // Re-read rather than splicing locally: `updatedAt` moves and the reply
+    // ordering has to be the one the next GET would return.
+    const thread = await this.getTicket(ticketId, user);
+    return { ...thread, reply: thread.replies[thread.replies.length - 1] };
   }
 
+  /**
+   * AD-T1 — status change. Authorised through `getTicket` with the CALLER's
+   * own role, so an ADMIN is not held to the officer assignment check (which
+   * would answer 403 for every ticket in the audit) and a REGIONAL_ADMIN
+   * stays inside their region.
+   */
   async updateStatus(
     ticketId: string,
-    officerId: string,
+    user: TicketActor,
     dto: UpdateTicketStatusDto,
   ) {
-    const ticket = await this.getTicket(ticketId, {
-      id: officerId,
-      role: 'OFFICER',
-    });
+    const ticket = await this.getTicket(ticketId, user);
 
     const updated = await this.prisma.supportTicket.update({
       where: { id: ticket.id },

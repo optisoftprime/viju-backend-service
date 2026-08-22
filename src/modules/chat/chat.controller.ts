@@ -13,8 +13,12 @@ import {
   ApiBearerAuth,
   ApiOkResponse,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+  ApiParam,
 } from '@nestjs/swagger';
 import { ChatService } from './chat.service';
+import type { ChatActor } from './chat.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -47,7 +51,8 @@ export class ChatController {
   })
   @ApiOkResponse({
     type: [CustomerThreadMessageDto],
-    description: 'Chronological list of thread messages with derived senderLabel.',
+    description:
+      'Chronological list of thread messages with derived senderLabel.',
   })
   async getMyThread(@CurrentUser() user: any) {
     return this.chatService.getCustomerThread(user.id);
@@ -83,32 +88,84 @@ export class ChatController {
     return this.chatService.markCustomerThreadRead(user.id);
   }
 
-  // ─── Legacy / officer endpoints ────────────────────────
+  // ─── Legacy / officer / admin endpoints ────────────────
   @Get(':otherUserId')
-  @Roles('CUSTOMER', 'OFFICER')
+  @Roles('CUSTOMER', 'OFFICER', 'ADMIN', 'REGIONAL_ADMIN')
   @ApiOperation({
-    summary: 'Get full message history with a specific user (legacy)',
+    summary: 'Get full message history with a specific user',
+    description:
+      'AD-C1 - the live thread behind the Interaction Audit chat modal, in ' +
+      'the same shape for every role: a BARE ARRAY of raw messages, oldest ' +
+      'first, never a { data, meta } envelope.\n\n' +
+      'What `otherUserId` means per role:\n' +
+      '- CUSTOMER: their account officer id. Returns the whole thread on ' +
+      'their own account.\n' +
+      '- OFFICER: a customer id they currently manage (primary or secondary).\n' +
+      '- ADMIN: ANY customer id. No assignment check applies.\n' +
+      '- REGIONAL_ADMIN: a customer id in their OWN region; 403 outside it.\n\n' +
+      'For staff the whole account thread is returned regardless of which ' +
+      'officer each message carries, so a reassignment never hides history.',
+  })
+  @ApiParam({
+    name: 'otherUserId',
+    description:
+      'The other participant. For OFFICER / ADMIN / REGIONAL_ADMIN this is ' +
+      'the CUSTOMER id; for a CUSTOMER it is the officer id.',
   })
   @ApiOkResponse({
     type: [MessageDto],
-    description: 'Chronological list of raw messages between the two users.',
+    description: 'Chronological list of raw messages on this thread.',
+  })
+  @ApiForbiddenResponse({
+    description:
+      'Caller is not a participant, or a REGIONAL_ADMIN asked for a customer ' +
+      'outside their own region',
+  })
+  @ApiNotFoundResponse({
+    description: 'Customer not found (ADMIN / REGIONAL_ADMIN only)',
   })
   async getMessages(
-    @CurrentUser() user: any,
+    @CurrentUser() user: ChatActor,
     @Param('otherUserId') otherUserId: string,
   ) {
     return this.chatService.getMessages(user, otherUserId);
   }
 
   @Post(':receiverId')
-  @Roles('CUSTOMER', 'OFFICER')
-  @ApiOperation({ summary: 'Send a direct message (officer endpoint)' })
+  @Roles('CUSTOMER', 'OFFICER', 'ADMIN', 'REGIONAL_ADMIN')
+  @ApiOperation({
+    summary: 'Send a direct message (officer / admin endpoint)',
+    description:
+      'AD-C1 - lets an ADMIN reply to any customer and a REGIONAL_ADMIN to ' +
+      'any customer in their own region, exactly as the assigned officer ' +
+      'does. `receiverId` is the CUSTOMER id for every staff role.\n\n' +
+      'A staff message is stored as `senderType: "STAFF"` with the SENDER OWN ' +
+      '`staffId` - an admin reply is attributed to the admin, not to the ' +
+      'assigned officer, so the audit trail shows who actually replied. The ' +
+      'distributor still sees it under the "Viju Account Officer" label ' +
+      '(PRD F6).\n\n' +
+      'Returns the SINGLE created message.',
+  })
+  @ApiParam({
+    name: 'receiverId',
+    description:
+      'The recipient. For OFFICER / ADMIN / REGIONAL_ADMIN this is the ' +
+      'CUSTOMER id; for a CUSTOMER it is the officer id.',
+  })
   @ApiCreatedResponse({
     type: MessageDto,
     description: 'The created message.',
   })
+  @ApiForbiddenResponse({
+    description:
+      'Caller may not write to this thread, or a REGIONAL_ADMIN wrote outside ' +
+      'their own region',
+  })
+  @ApiNotFoundResponse({
+    description: 'Customer not found (ADMIN / REGIONAL_ADMIN only)',
+  })
   async sendMessage(
-    @CurrentUser() user: any,
+    @CurrentUser() user: ChatActor,
     @Param('receiverId') receiverId: string,
     @Body() dto: SendMessageDto,
   ) {
@@ -116,18 +173,28 @@ export class ChatController {
   }
 
   @Get('audit/:customerId')
-  @Roles('ADMIN')
+  @Roles('ADMIN', 'REGIONAL_ADMIN')
   @ApiOperation({
-    summary: "Admin read-only audit of a customer's chat history",
+    summary: "Read-only audit of a customer's chat history",
+    description:
+      'Read-only companion to GET /chat/{customerId}. ADMIN reaches every ' +
+      'customer; REGIONAL_ADMIN only customers in their own region (403 ' +
+      'outside it).\n\n' +
+      'To READ AND REPLY, use GET and POST /chat/{customerId} instead - both ' +
+      'are authorised for ADMIN and REGIONAL_ADMIN.',
   })
   @ApiOkResponse({
     type: [MessageDto],
     description: "Chronological list of all of the customer's raw messages.",
   })
+  @ApiForbiddenResponse({
+    description: 'REGIONAL_ADMIN asked for a customer outside their own region',
+  })
+  @ApiNotFoundResponse({ description: 'Customer not found' })
   async auditCustomerChats(
-    @CurrentUser() user: any,
+    @CurrentUser() user: ChatActor,
     @Param('customerId') customerId: string,
   ) {
-    return this.chatService.getAudits(user.id, customerId);
+    return this.chatService.getAudits(user, customerId);
   }
 }
