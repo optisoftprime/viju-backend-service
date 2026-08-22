@@ -124,8 +124,26 @@ export class AuthService {
       where: { phone: dto.phone },
     });
 
-    if (!customer || !customer.password)
+    // The client message is deliberately identical for all three failure modes
+    // (unknown phone / no password set / wrong password) so it cannot be used
+    // to enumerate registered numbers. The SERVER LOG distinguishes them,
+    // because "never registered" and "wrong password" need completely
+    // different fixes and are indistinguishable from the 401 alone.
+    if (!customer) {
+      this.logger.warn(
+        `Customer login failed: no Customer row with phone "${dto.phone}". ` +
+          'The lookup is an exact string match — check the stored format.',
+      );
       throw new UnauthorizedException('Incorrect password. Please try again.');
+    }
+
+    if (!customer.password) {
+      this.logger.warn(
+        `Customer login failed: ${customer.erpId} has no password set — the ` +
+          'OTP registration flow (request-otp + verify-otp) was never completed.',
+      );
+      throw new UnauthorizedException('Incorrect password. Please try again.');
+    }
 
     if (customer.lockedUntil && customer.lockedUntil > new Date()) {
       const minutesLeft = Math.ceil(
