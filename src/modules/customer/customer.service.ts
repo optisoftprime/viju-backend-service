@@ -8,19 +8,42 @@ import {
 } from './dto/customer.dto';
 import * as bcrypt from 'bcryptjs';
 import { paginate } from '../../common/pagination/paginate';
+import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
 
 @Injectable()
 export class CustomerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ledger: StatementLedgerService,
+    private readonly accountBalance: ErpAccountBalanceService,
   ) {}
+
+  /**
+   * The account balance to show the distributor.
+   *
+   * Derived live from the ERP customer-credit feed
+   * (CREDIT_AMT + CREDIT_AMT1 − CREDIT_PAY, see
+   * `src/modules/erp/account-balance.ts`) rather than read from the stored
+   * column, because the projector that writes that column copies the ERP's
+   * raw CREDIT_PAY into it — which inverts the sign for every customer
+   * holding credit. Computing it here means the app is correct without
+   * waiting for a reconcile pass to have run.
+   *
+   * Falls back to the stored column when the ERP feed is absent (CI, a fresh
+   * local database) or holds no credit record for this customer, so the
+   * endpoint keeps working rather than reporting a zero the ERP never stated.
+   */
+  private async resolveBalance(erpId: string, stored: number): Promise<number> {
+    const derived = await this.accountBalance.getRunningBalance(erpId);
+    return derived ?? stored;
+  }
 
   async getHome(customerId: string) {
     const customer = await this.prisma.customer.findUnique({
       where: { id: customerId },
       select: {
         id: true,
+        erpId: true,
         name: true,
         profilePhotoUrl: true,
         outstandingBalance: true,
@@ -79,13 +102,18 @@ export class CustomerService {
       select: { id: true, imageUrl: true, name: true },
     });
 
+    const accountBalanceAmount = await this.resolveBalance(
+      customer.erpId,
+      customer.outstandingBalance,
+    );
+
     return {
       customerName: customer.name,
       profilePhotoUrl: customer.profilePhotoUrl,
       accountBalance: {
-        amount: customer.outstandingBalance,
+        amount: accountBalanceAmount,
         lastUpdated: customer.updatedAt,
-        isLow: customer.outstandingBalance < 0,
+        isLow: accountBalanceAmount < 0,
       },
       stockBalance: {
         totalCartons: totalPaidCartons,
@@ -203,6 +231,10 @@ export class CustomerService {
     const { assignedOfficer, ...rest } = customer;
     return {
       ...rest,
+      outstandingBalance: await this.resolveBalance(
+        customer.erpId,
+        customer.outstandingBalance,
+      ),
       accountOfficer: assignedOfficer
         ? { displayName: 'Viju Account Officer' }
         : null,
@@ -349,6 +381,7 @@ export class CustomerService {
       this.prisma.customer.findUnique({
         where: { id: customerId },
         select: {
+          erpId: true,
           outstandingBalance: true,
           updatedAt: true,
           assignedOfficer: { select: { id: true } },
@@ -388,10 +421,15 @@ export class CustomerService {
       status: this.deriveInvoiceStatus(p.status),
     }));
 
+    const walletAmount = await this.resolveBalance(
+      customer.erpId,
+      customer.outstandingBalance,
+    );
+
     return {
       walletBalance: {
-        amount: customer.outstandingBalance,
-        isOverdue: customer.outstandingBalance < 0,
+        amount: walletAmount,
+        isOverdue: walletAmount < 0,
         lastUpdated: customer.updatedAt,
       },
       // PRD F4 AC8 + F6: generic label only — never officer's actual name
