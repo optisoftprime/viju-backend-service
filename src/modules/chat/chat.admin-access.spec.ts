@@ -90,9 +90,13 @@ describe('Chat access for ADMIN / REGIONAL_ADMIN (AD-C1)', () => {
 
       // Every message on the account, oldest first — a reassignment must not
       // hide history, and the payload is a bare array, not an envelope.
+      // S-1: staff callers also get the author of each staff message.
       expect(prisma.message.findMany).toHaveBeenCalledWith({
         where: { customerId: 'c-1' },
         orderBy: { createdAt: 'asc' },
+        include: {
+          staff: { select: { id: true, name: true, role: true } },
+        },
       });
     });
 
@@ -138,6 +142,10 @@ describe('Chat access for ADMIN / REGIONAL_ADMIN (AD-C1)', () => {
           senderType: 'STAFF',
           content: 'Looking into it now.',
           attachmentUrl: null,
+        },
+        // S-1 - the created row names its author.
+        include: {
+          staff: { select: { id: true, name: true, role: true } },
         },
       });
       // The single created message, not an envelope and not the whole thread.

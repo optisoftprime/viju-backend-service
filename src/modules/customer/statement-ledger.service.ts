@@ -186,7 +186,7 @@ export class StatementLedgerService {
         description: m.description,
         debit: m.debit,
         credit: m.credit,
-        runningBalance: this.round(balance),
+        runningBalance: balance,
       };
     });
 
@@ -196,10 +196,13 @@ export class StatementLedgerService {
       period: range.period,
       startDate: range.from,
       endDate: range.to,
-      openingBalance: this.round(opening),
-      closingBalance: this.round(balance),
-      totalDebit: this.round(totalDebit),
-      totalCredit: this.round(totalCredit),
+      // AO-D1 - full precision, never pre-rounded: a figure rounded here
+      // cannot be recovered by the client, and the statement would silently
+      // disagree with the ERP. The portal formats for display.
+      openingBalance: opening,
+      closingBalance: balance,
+      totalDebit,
+      totalCredit,
       lines,
     };
   }
@@ -215,7 +218,7 @@ export class StatementLedgerService {
     for (const m of movements) {
       balance = balance + m.credit - m.debit;
       if (m.sortKey.startsWith('purchase:')) {
-        out.set(m.sortKey.slice('purchase:'.length), this.round(balance));
+        out.set(m.sortKey.slice('purchase:'.length), balance);
       }
     }
     return out;
@@ -261,7 +264,7 @@ export class StatementLedgerService {
           type: 'INVOICE',
           reference: p.erpId,
           description: `Invoice ${p.erpId} — ${p.totalItems} item(s)`,
-          debit: this.round(p.totalValue),
+          debit: p.totalValue,
           credit: 0,
           sortKey: `purchase:${p.id}`,
         }),
@@ -276,7 +279,7 @@ export class StatementLedgerService {
             ? 'Transport allowance credited'
             : 'Payment received',
           debit: 0,
-          credit: this.round(p.amount),
+          credit: p.amount,
           sortKey: `payment:${p.id}`,
         };
       }),
@@ -312,8 +315,13 @@ export class StatementLedgerService {
     return d;
   }
 
-  /** Money is rounded to kobo so repeated addition cannot drift. */
-  private round(value: number): number {
-    return Math.round(value * 100) / 100;
-  }
+  /**
+   * AO-D1 - money crosses the wire at full precision.
+   *
+   * Amounts used to be rounded to kobo here as a float-drift guard. Rounding
+   * a source value (`Purchase.totalValue`, `Payment.amount`) is not
+   * recoverable by the client, so the statement disagreed with the ERP by up
+   * to a kobo per line. Accumulation error over a statement is many orders of
+   * magnitude smaller than that, so the guard cost more than it bought.
+   */
 }

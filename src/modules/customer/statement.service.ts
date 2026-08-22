@@ -80,8 +80,8 @@ export class StatementService {
     return this.renderPdf((doc) => {
       doc.fontSize(20).text('Viju — Account Statement', { align: 'center' });
       doc.moveDown(0.5);
-      doc.fontSize(10).text(`Distributor: ${customer.name}`);
-      doc.text(`ERP ID: ${customer.erpId}`);
+      doc.fontSize(10).text(`Customer: ${customer.name}`);
+      doc.text(`Code: ${customer.erpId}`);
       doc.text(`Phone: ${customer.phone}`);
       doc.text(`Region: ${customer.region}`);
       doc.text(
@@ -160,8 +160,8 @@ export class StatementService {
     return this.renderPdf((doc) => {
       doc.fontSize(20).text('Viju — Stock Statement', { align: 'center' });
       doc.moveDown(0.5);
-      doc.fontSize(10).text(`Distributor: ${customer.name}`);
-      doc.text(`ERP ID: ${customer.erpId}`);
+      doc.fontSize(10).text(`Customer: ${customer.name}`);
+      doc.text(`Code: ${customer.erpId}`);
       doc.text(`Phone: ${customer.phone}`);
       doc.text(`Region: ${customer.region}`);
       doc.text(

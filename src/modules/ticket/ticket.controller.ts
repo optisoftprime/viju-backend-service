@@ -16,6 +16,7 @@ import {
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
+  ApiBadRequestResponse,
 } from '@nestjs/swagger';
 import { TicketService } from './ticket.service';
 import type { TicketActor } from './ticket.service';
@@ -27,6 +28,7 @@ import {
   CreateTicketDto,
   ReplyTicketDto,
   UpdateTicketStatusDto,
+  OfficerTicketsFilterDto,
 } from './dto/ticket.dto';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 import {
@@ -65,13 +67,35 @@ export class TicketController {
 
   @Get('officer')
   @Roles('OFFICER')
-  @ApiOperation({ summary: 'Get all tickets assigned to the current officer' })
+  @ApiOperation({
+    summary: 'Get all tickets assigned to the current officer',
+    description:
+      'Every ticket raised by a distributor this officer manages, primary OR ' +
+      'secondary, newest first.\n\n' +
+      'AO-T1 - two filters, both applied in SQL so `meta.total` counts the ' +
+      'FILTERED set:\n' +
+      '- `customerId` narrows to one distributor, for the Tickets tab inside ' +
+      'a detail view. A malformed id, or one that is not assigned to the ' +
+      'caller, is rejected with 400.\n' +
+      '- `status` narrows to one or more ticket statuses, repeatable or ' +
+      'comma-separated - identical semantics to the filter on ' +
+      'GET /admin/audit/tickets.\n\n' +
+      'Each row carries `repliesCount` and a `customer` summary ' +
+      '(id, erpId, name, phone, email).',
+  })
   @ApiOkResponse({ type: PaginatedOfficerTicketResponseDto })
+  @ApiBadRequestResponse({
+    description:
+      'Malformed `customerId`, a `customerId` outside the caller\u2019s ' +
+      'portfolio, an unknown `status`, or invalid pagination params. An ' +
+      'unknown status answers `{ "message": "status must be one of: OPEN, ' +
+      'IN_PROGRESS, AWAITING_CUSTOMER, RESOLVED", "code": "VALIDATION_ERROR" }`.',
+  })
   async getOfficerTickets(
     @CurrentUser() user: any,
-    @Query() pagination: PaginationQueryDto,
+    @Query() query: OfficerTicketsFilterDto,
   ) {
-    return this.ticketService.getAssignedTickets(user.id, pagination);
+    return this.ticketService.getAssignedTickets(user.id, query);
   }
 
   @Get(':id')

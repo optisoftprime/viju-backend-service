@@ -799,6 +799,18 @@ export class ProductFlyerDto {
   @ApiProperty({ example: 'https://cdn.viju.example/flyers/chivita.jpg' })
   imageUrl: string;
 
+  @ApiProperty({
+    example:
+      'Buy 50 cartons of Viju Milk between 1-31 December and get 5 free. ' +
+      'Offer applies to Lagos and Western distributors only.',
+    nullable: true,
+    maxLength: 500,
+    description:
+      'F-1 - the promotion’s own copy. Null when the admin left it blank, ' +
+      'and on every flyer created before the column existed.',
+  })
+  description: string | null;
+
   @ApiProperty({ example: 0, description: 'Display order (ascending)' })
   sortOrder: number;
 

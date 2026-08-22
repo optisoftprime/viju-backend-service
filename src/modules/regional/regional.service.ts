@@ -147,14 +147,17 @@ export class RegionalService {
       include: LOADING_REQUEST_INCLUDE,
     });
 
-    // PRD §6 — notify the assigned officer
+    // PRD §6 / N-3 — one row, addressed to the ASSIGNED loading officer and
+    // nobody else. It carries the distributor and the waybill reference so the
+    // officer can identify the load straight from the bell.
     await this.notifications.notify({
       recipientType: 'STAFF',
       recipientId: officer.id,
+      subjectCustomerId: request.customer.id,
       title: 'Loading request assigned',
-      body: `Assigned to you — ${request.customer.name}`,
+      body: `${request.customer.name} — ${updated.reference} is ready for loading`,
       type: NotificationTypes.WAYBILL_ASSIGNED,
-      data: { waybillId: requestId },
+      data: { waybillId: requestId, reference: updated.reference },
     });
     // PRD §6 — notify the distributor
     await this.notifications.notify({

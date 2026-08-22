@@ -122,6 +122,29 @@ export const ERP_ACCOUNT_BALANCE_FOR_CUSTOMER_SQL = `
      LIMIT 1`;
 
 /**
+ * Running balances for a SET of customers, by ERP code.
+ *
+ * The same rollup as the single-customer query, batched: one round trip for a
+ * whole page instead of one per row. Every list endpoint that shows a balance
+ * goes through this, so the figure on a table row is the same number the
+ * customer's own profile reports.
+ *
+ * Like the single-customer query it is not restricted to projected customers,
+ * and an ERP code with no credit record simply does not come back — the caller
+ * falls back to the stored column rather than inventing a zero.
+ */
+export const ERP_ACCOUNT_BALANCES_FOR_CUSTOMERS_SQL = `
+    SELECT DISTINCT ON (r.payload->>'CUSTOMER_CODE')
+           r.payload->>'CUSTOMER_CODE' AS erp_id,
+           ${ERP_RUNNING_BALANCE_SQL}  AS running_balance
+      FROM erp_raw.raw_customer_credit r
+     WHERE r.object_type = 'CUSTOMER_CREDIT'
+       AND r.payload->>'CUSTOMER_CODE' = ANY($1)
+     ORDER BY r.payload->>'CUSTOMER_CODE',
+              r.payload->>'EFFECTIVE_DATE' DESC NULLS LAST,
+              r.id DESC`;
+
+/**
  * Running balance from three already-parsed field values.
  *
  * The SQL above is what runs in production; this is the same formula in TS for

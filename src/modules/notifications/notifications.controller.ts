@@ -47,11 +47,24 @@ export class NotificationsController {
       'Works for any authenticated user (customer or staff). Paginated, ' +
       'newest first, with `unread` for the badge count.\n\n' +
       'Rows are created server-side as a side effect of the flows that ' +
-      'warrant them (US-11.8): a customer chat message or a new ticket ' +
-      'notifies every officer currently on that account; a reply or status ' +
-      'change notifies the other side; a reassignment notifies the receiving ' +
-      'officer (US-13.4). `type` is a closed enum so the bell can pick an ' +
-      'icon and route the click.\n\n' +
+      'warrant them, and the AUDIENCE IS DECIDED AT WRITE TIME - every row ' +
+      'you read here was addressed to you, so no client-side filtering is ' +
+      'needed and `unread` can drive the badge directly (N-1):\n' +
+      '- CHAT_MESSAGE: exactly ONE staff recipient, the staff member the ' +
+      'conversation belongs to. Another officer on the same account, an ' +
+      'admin and a regional admin get nothing.\n' +
+      '- WAYBILL_SUBMITTED: one row per active REGIONAL_ADMIN of the ' +
+      'request\u2019s own region. Never ADMIN, never OFFICER.\n' +
+      '- WAYBILL_ASSIGNED: one row for the ASSIGNED loading officer, plus the ' +
+      'distributor\u2019s own row on their feed.\n' +
+      '- ASSIGNMENT: one row for the INCOMING officer only - not the outgoing ' +
+      'officer, the acting admin or the regional admin (US-13.4).\n' +
+      '- TICKET_*: the officers on the account, or the distributor on the ' +
+      'other side.\n\n' +
+      'On a staff row `staffId` is the recipient and `customerId` names the ' +
+      'distributor the row is about, which is the bell\u2019s deep-link target. ' +
+      '`type` is a closed enum so the bell can pick an icon and route the ' +
+      'click.\n\n' +
       'For live updates without polling, subscribe to GET /realtime/stream ' +
       'and invalidate this query when a `notification.created` frame ' +
       'arrives (US-11.2).',

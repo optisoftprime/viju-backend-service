@@ -70,15 +70,50 @@ export class AssignedCustomerListItemDto {
 
   @ApiProperty({
     example: -50000.5,
-    description: 'Outstanding balance (Customer.outstandingBalance)',
+    description:
+      'Outstanding balance (Customer.outstandingBalance). AO-D1: a ' +
+      'full-precision JSON number, never rounded and never a preformatted ' +
+      'string.',
   })
   walletBalance: number;
+
+  @ApiProperty({
+    example: 240,
+    description:
+      'AO-P2 - cartons paid for but not yet loaded (ordered minus completed ' +
+      'loading requests, floored at 0). The same figure ' +
+      'GET /admin/customers returns for the STOCK column. 0 when the ' +
+      'distributor has nothing waiting.',
+  })
+  stockBalanceCartons: number;
 
   @ApiProperty({ enum: ACCOUNT_STATUS_VALUES, example: 'ACTIVE' })
   accountStatus: AccountStatus;
 
   @ApiProperty({ example: 2, description: 'Count of OPEN support tickets' })
   openTickets: number;
+
+  @ApiProperty({
+    example: 3,
+    description:
+      'AO-C1 - unread messages this distributor sent, i.e. how many are ' +
+      'waiting on the officer. Always present; 0 when nothing is waiting. ' +
+      'Summed across the portfolio this equals `unreadMessages` on ' +
+      'GET /officers/dashboard.',
+  })
+  unreadMessages: number;
+
+  @ApiProperty({
+    example: '2026-08-22T07:41:00.000Z',
+    format: 'date-time',
+    nullable: true,
+    description:
+      'AO-C1 - most recent message on this thread from either side, or null ' +
+      'when the thread is empty. Unlike `lastContactDate` it does NOT fall ' +
+      'back to customer.updatedAt, so sorting on it ascending surfaces the ' +
+      'distributor who has been waiting longest.',
+  })
+  lastMessageAt: Date | null;
 
   @ApiProperty({
     example: '2026-06-09T08:16:56.533Z',

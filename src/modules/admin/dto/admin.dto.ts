@@ -302,6 +302,9 @@ export class CreateOfficerDto {
   password: string;
 }
 
+/** F-1 — cap on the flyer's own copy, matching what the admin form enforces. */
+export const FLYER_DESCRIPTION_MAX_LENGTH = 500;
+
 export class CreateProductFlyerDto {
   @ApiProperty({ example: 'Viju Apple Drink 400ml' })
   @IsString()
@@ -315,6 +318,24 @@ export class CreateProductFlyerDto {
   @IsString()
   @IsNotEmpty()
   imageUrl: string;
+
+  @ApiPropertyOptional({
+    maxLength: FLYER_DESCRIPTION_MAX_LENGTH,
+    description:
+      'F-1 — the promotion’s own copy: terms, dates and small print the ' +
+      'artwork cannot carry as readable text. Optional; omit it (or send an ' +
+      'empty string) and the flyer is stored with `description: null`. ' +
+      'Trimmed on the way in and capped at ' +
+      FLYER_DESCRIPTION_MAX_LENGTH +
+      ' characters.',
+    example:
+      'Buy 50 cartons of Viju Milk between 1-31 December and get 5 free.',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(FLYER_DESCRIPTION_MAX_LENGTH)
+  description?: string;
 }
 
 export class UpdateProductFlyerDto {
@@ -331,6 +352,23 @@ export class UpdateProductFlyerDto {
   @ApiProperty({ required: false })
   @IsOptional()
   isActive?: boolean;
+
+  @ApiPropertyOptional({
+    maxLength: FLYER_DESCRIPTION_MAX_LENGTH,
+    description:
+      'F-1 — the promotion’s own copy. OMIT the property to leave the ' +
+      'stored value unchanged; send an EMPTY STRING to clear it back to ' +
+      'null. Trimmed and capped at ' +
+      FLYER_DESCRIPTION_MAX_LENGTH +
+      ' characters.',
+    example:
+      'Buy 50 cartons of Viju Milk between 1-31 December and get 5 free.',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(FLYER_DESCRIPTION_MAX_LENGTH)
+  description?: string;
 }
 
 export class ReorderProductFlyersDto {

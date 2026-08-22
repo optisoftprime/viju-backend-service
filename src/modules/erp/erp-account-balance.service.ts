@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import {
   ERP_ACCOUNT_BALANCE_FOR_CUSTOMER_SQL,
+  ERP_ACCOUNT_BALANCES_FOR_CUSTOMERS_SQL,
   ERP_ACCOUNT_BALANCE_RECONCILE_SQL,
 } from './account-balance';
 
@@ -210,6 +211,43 @@ export class ErpAccountBalanceService implements OnModuleInit, OnModuleDestroy {
         `getRunningBalance(${erpId}) failed: ${(e as Error).message}`,
       );
       return null;
+    }
+  }
+
+  /**
+   * ERP running balances for a SET of customers, keyed by ERP code.
+   *
+   * The batched form of `getRunningBalance`, for list endpoints: one query per
+   * page rather than one per row. An ERP code the feed holds no credit record
+   * for is absent from the map — callers fall back to the stored column, the
+   * same rule the single-customer path uses.
+   *
+   * Returns an empty map when the feed is absent (CI, a fresh local database)
+   * or on any error, so a list endpoint degrades to stored balances rather
+   * than failing.
+   */
+  async getRunningBalances(erpIds: string[]): Promise<Map<string, number>> {
+    const ids = [...new Set(erpIds.filter((id) => !!id))];
+    if (ids.length === 0) return new Map();
+    if (!(await this.isAvailable())) return new Map();
+    try {
+      const rows = await this.prisma.$queryRawUnsafe<
+        { erp_id: string; running_balance: string | number | null }[]
+      >(ERP_ACCOUNT_BALANCES_FOR_CUSTOMERS_SQL, ids);
+
+      const balances = new Map<string, number>();
+      for (const row of rows) {
+        if (row.running_balance === null || row.running_balance === undefined)
+          continue;
+        const value = Number(row.running_balance);
+        if (Number.isFinite(value)) balances.set(row.erp_id, value);
+      }
+      return balances;
+    } catch (e) {
+      this.logger.error(
+        `getRunningBalances(${ids.length} customers) failed: ${(e as Error).message}`,
+      );
+      return new Map();
     }
   }
 

@@ -25,8 +25,14 @@ export class NotificationService {
     //    since it's the source of truth for the bell icon.
     const row = await this.prisma.notification.create({
       data: {
+        // On a CUSTOMER row `customerId` IS the recipient. On a STAFF row it
+        // is the distributor the notification is about (N-1), and `staffId`
+        // alone identifies the recipient - which is what makes a staff row
+        // and a customer-feed row tellable apart.
         customerId:
-          payload.recipientType === 'CUSTOMER' ? payload.recipientId : null,
+          payload.recipientType === 'CUSTOMER'
+            ? payload.recipientId
+            : (payload.subjectCustomerId ?? null),
         staffId: payload.recipientType === 'STAFF' ? payload.recipientId : null,
         content: `${payload.title}: ${payload.body}`,
         type: payload.type,

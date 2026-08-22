@@ -99,7 +99,10 @@ export class CustomerService {
     const productFlyers = await this.prisma.productFlyer.findMany({
       where: { isActive: true },
       orderBy: { sortOrder: 'asc' },
-      select: { id: true, imageUrl: true, name: true },
+      // F-1 - `description` carries the offer's terms as readable, selectable
+      // text. The distributor app is the whole point of that copy, so it ships
+      // with the carousel rather than only on the admin list.
+      select: { id: true, imageUrl: true, name: true, description: true },
     });
 
     const accountBalanceAmount = await this.resolveBalance(

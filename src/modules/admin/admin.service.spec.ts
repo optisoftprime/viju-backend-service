@@ -5,6 +5,7 @@ import { NotificationService } from '../../infrastructure/notification/notificat
 import { EmailService } from '../../infrastructure/email/email.types';
 import { ErpRawService } from '../../infrastructure/erp-raw/erp-raw.service';
 import { DefaultOfficerService } from '../erp/default-officer.service';
+import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
 import {
   NotFoundException,
   BadRequestException,
@@ -76,6 +77,13 @@ describe('AdminService', () => {
   // Customers with no officer are parked on the default one (james.o) by
   // DefaultOfficerService. These tests assert the ADMIN paths, so it is stubbed
   // to "no default officer configured" — the branch that changes nothing.
+  // The ERP credit feed is absent in tests, which is the documented fallback
+  // path: balances come from the stored column.
+  const mockAccountBalance = {
+    getRunningBalances: jest.fn().mockResolvedValue(new Map()),
+    getRunningBalance: jest.fn().mockResolvedValue(null),
+  };
+
   const mockDefaultOfficer = {
     resolveOfficerId: jest.fn().mockResolvedValue(null),
     assignIfUnassigned: jest.fn().mockResolvedValue(null),
@@ -96,6 +104,7 @@ describe('AdminService', () => {
         { provide: EmailService, useValue: mockEmail },
         { provide: ErpRawService, useValue: mockErpRaw },
         { provide: DefaultOfficerService, useValue: mockDefaultOfficer },
+        { provide: ErpAccountBalanceService, useValue: mockAccountBalance },
       ],
     }).compile();
 
@@ -434,6 +443,37 @@ describe('AdminService', () => {
           code: 'ALREADY_ASSIGNED',
           message: 'Ifeanyi Okon is already assigned to this customer',
         },
+      });
+    });
+
+    it('addresses the row to the INCOMING officer only (N-4)', async () => {
+      mockPrisma.customer.findUnique.mockResolvedValue({
+        id: '1',
+        name: 'Ade Foods Ltd',
+        region: 'LAGOS',
+        assignedOfficerId: 'o-old',
+      });
+      mockPrisma.staff.findFirst.mockResolvedValue({
+        id: 'o-new',
+        name: 'Ifeanyi Okon',
+        role: 'OFFICER',
+      });
+      mockPrisma.customer.update.mockResolvedValue({ id: '1' });
+      mockPrisma.customerOfficer.findMany.mockResolvedValue([]);
+
+      await service.reassignOfficer('1', { newOfficerId: 'o-new' });
+
+      // Exactly one row: not the outgoing officer, not the acting admin, not
+      // the regional admin. `content` is "<title>: <body>".
+      expect(mockNotifications.notify).toHaveBeenCalledTimes(1);
+      expect(mockNotifications.notify).toHaveBeenCalledWith({
+        recipientType: 'STAFF',
+        recipientId: 'o-new',
+        subjectCustomerId: '1',
+        title: 'Customer assigned',
+        body: 'Ade Foods Ltd has been assigned to you',
+        type: 'ASSIGNMENT',
+        data: { customerId: '1' },
       });
     });
 

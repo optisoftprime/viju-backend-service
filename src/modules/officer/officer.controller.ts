@@ -60,7 +60,12 @@ export class OfficerController {
     description:
       'Returns the four top-of-page cards: total distributors, overdue ' +
       'balances, open tickets, unread messages — all scoped to the ' +
-      'officer’s portfolio.',
+      'officer’s portfolio.\n\n' +
+      'AO-C1: "portfolio" means the customers this officer manages as ' +
+      'primary OR secondary — the same set GET /officers/customers returns. ' +
+      'Every tile therefore counts exactly the rows the list shows, so ' +
+      'clicking a tile and landing on the filtered list can never disagree ' +
+      'with the number that was clicked.',
   })
   @ApiOkResponse({ type: OfficerDashboardSummaryDto })
   async getDashboard(@CurrentUser() user: any) {
@@ -73,14 +78,28 @@ export class OfficerController {
     description:
       'OFFICER role: returns customers where they are primary OR secondary ' +
       'officer. ADMIN role: returns all customers across all regions ' +
-      '(cross-region visibility). Supports `search` (name / account number / ' +
-      'phone), `overdue=true` (negative balance), and `activeTickets=true` ' +
-      '(has open support tickets).\n\n' +
+      '(cross-region visibility).\n\n' +
+      'AO-P1 - always the standard `{ data, meta }` envelope. `meta` carries ' +
+      'total | page | pageSize | totalPages | hasNextPage | hasPreviousPage, ' +
+      '`pageSize` is echoed back AS APPLIED (any positive integer is ' +
+      'accepted and clamped to 200 rather than rejected), and `meta.total` ' +
+      'counts the rows the current filter matches - so the pager is ' +
+      'arithmetically correct without any client-side counting. This route ' +
+      'is never an unpaginated array.\n\n' +
+      'Filters: `search` matches name, account number (erpId) AND phone, ' +
+      'case-insensitive and partial, applied SERVER-SIDE; `overdue=true` ' +
+      '(negative balance); `activeTickets=true` (has open support tickets); ' +
+      '`unreadMessages=true` (AO-C1 - has at least one unread message from ' +
+      'the distributor, the "waiting on me" list).\n\n' +
+      'Each row carries the three triage signals the dashboard tiles drill ' +
+      'into: `openTickets`, `unreadMessages` (AO-C1, with `lastMessageAt`) ' +
+      'and `stockBalanceCartons` (AO-P2, the same figure ' +
+      'GET /admin/customers returns).\n\n' +
       'Sortable (US-09.3): `sortBy` accepts name | accountNumber | ' +
-      'walletBalance | lastPurchaseDate | openTickets | lastContactDate, ' +
-      'with `sortOrder` (asc | desc, default desc). Omitting `sortBy` keeps ' +
-      'the existing ordering (name ascending); an unknown `sortBy` is ' +
-      'rejected with 400. Only the row order changes.',
+      'walletBalance | lastPurchaseDate | openTickets | lastContactDate | ' +
+      'unreadMessages | lastMessageAt, with `sortOrder` (asc | desc, default ' +
+      'desc). Omitting `sortBy` keeps the existing ordering (name ascending); ' +
+      'an unknown `sortBy` is rejected with 400. Only the row order changes.',
   })
   @ApiOkResponse({ type: PaginatedAssignedCustomersResponseDto })
   @ApiBadRequestResponse({

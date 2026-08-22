@@ -517,7 +517,13 @@ export class AdminController {
 
   // ─── Product Flyer ──────────────────────────
   @Get('product-flyers')
-  @ApiOperation({ summary: 'List product flyer cards in current order' })
+  @ApiOperation({
+    summary: 'List product flyer cards in current order',
+    description:
+      'F-1 - every row carries `description`, the flyer’s own copy. It is ' +
+      'null when the admin left it blank and on every flyer created before ' +
+      'the column existed - never absent, never an error.',
+  })
   @ApiOkResponse({ type: [ProductFlyerDto] })
   async listFlyers() {
     return this.adminService.listProductFlyers();
@@ -527,6 +533,12 @@ export class AdminController {
   @ApiOperation({
     summary:
       'Create a product flyer card (uploads come pre-resolved as imageUrl)',
+    description:
+      'F-1 - `description` is OPTIONAL free text (max 500 chars), the ' +
+      'promotion copy the artwork cannot carry as readable text. Omit it, or ' +
+      'send an empty string, and the flyer is stored with ' +
+      '`description: null`. It is trimmed on the way in and echoed back on ' +
+      'the created flyer.',
   })
   @ApiOkResponse({ type: ProductFlyerDto })
   async createFlyer(
@@ -546,7 +558,15 @@ export class AdminController {
   }
 
   @Patch('product-flyers/:id')
-  @ApiOperation({ summary: 'Update / deactivate a flyer card' })
+  @ApiOperation({
+    summary: 'Update / deactivate a flyer card',
+    description:
+      'F-1 - `description` follows the usual PATCH rule, with one addition ' +
+      'the form relies on:\n' +
+      '- omit the property entirely: the stored copy is left UNCHANGED;\n' +
+      '- send `""`: the copy is CLEARED back to null;\n' +
+      '- send text: the copy is replaced (trimmed, max 500 chars).',
+  })
   @ApiOkResponse({ type: ProductFlyerDto })
   async updateFlyer(
     @Param('id') id: string,

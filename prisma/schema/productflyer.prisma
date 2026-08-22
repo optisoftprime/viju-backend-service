@@ -1,7 +1,13 @@
 model ProductFlyer {
-  id        String  @id @default(uuid())
-  name      String
-  imageUrl  String
+  id       String @id @default(uuid())
+  name     String
+  imageUrl String
+
+  /// F-1 — the promotion's own copy: terms, dates and small print the artwork
+  /// cannot carry as readable, selectable text. Nullable: every flyer that
+  /// predates this column reads back null, and an admin may leave it blank.
+  description String?
+
   sortOrder Int     @default(0)
   isActive  Boolean @default(true)
 
