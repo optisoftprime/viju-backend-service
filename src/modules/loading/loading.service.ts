@@ -16,6 +16,7 @@ import {
 import {
   assertLoadingTransition,
   toApiStatus,
+  toStatusLabel,
   toDbStatus,
 } from './loading-status';
 
@@ -120,7 +121,12 @@ export class LoadingService {
       },
     });
 
-    await this.notifyCustomer(request.customer.id, target, requestId);
+    // P-2 — a status move straight to COMPLETED is a completion too, so it
+    // carries the same reference + document link as recordWaybill below.
+    await this.notifyCustomer(request.customer.id, target, requestId, {
+      reference: updated.reference,
+      attachmentUrl: updated.waybillDocumentUrl,
+    });
     return {
       id: updated.id,
       status: toApiStatus(updated.status),
@@ -161,6 +167,10 @@ export class LoadingService {
       request.customer.id,
       LoadingRequestStatus.COMPLETED,
       requestId,
+      {
+        reference: updated.reference,
+        attachmentUrl: updated.waybillDocumentUrl,
+      },
     );
 
     return {
@@ -209,24 +219,45 @@ export class LoadingService {
     };
   }
 
-  /** PRD §6 — the distributor is told whenever their load moves. */
+  /**
+   * PRD §6 — the distributor is told whenever their load moves.
+   *
+   * P-1: a non-terminal move reads "Loading update: Your loading status is
+   * now: <label>". The label is derived from the status that was actually
+   * reached rather than hard-coded, so a move to ASSIGNED or CANCELLED no
+   * longer tells the distributor their load is "Loading in Progress".
+   *
+   * P-2: completion reads "Loading complete: Your loading is complete. View
+   * your waybill in the app." and carries the waybill reference and document
+   * URL on the push `data`, so the app can deep-link straight to the document
+   * instead of making the distributor hunt for it.
+   */
   private notifyCustomer(
     customerId: string,
     status: LoadingRequestStatus,
     requestId: string,
+    waybill?: { reference: string; attachmentUrl: string | null },
   ) {
     const completed = status === LoadingRequestStatus.COMPLETED;
     return this.notifications.notify({
       recipientType: 'CUSTOMER',
       recipientId: customerId,
-      title: 'Loading status update',
+      title: completed ? 'Loading complete' : 'Loading update',
       body: completed
         ? 'Your loading is complete. View your waybill in the app.'
-        : 'Your loading status is now: Loading in Progress',
+        : `Your loading status is now: ${toStatusLabel(status)}`,
       type: completed
         ? NotificationTypes.WAYBILL_COMPLETED
         : NotificationTypes.WAYBILL_STATUS_CHANGED,
-      data: { waybillId: requestId },
+      data: {
+        waybillId: requestId,
+        // `data` is a string map (FCM carries strings only), and a key is
+        // omitted rather than sent as "null" when there is nothing to link to.
+        ...(waybill?.reference ? { reference: waybill.reference } : {}),
+        ...(waybill?.attachmentUrl
+          ? { attachmentUrl: waybill.attachmentUrl }
+          : {}),
+      },
     });
   }
 }

@@ -29,6 +29,7 @@ import {
   CustomerThreadMessageDto,
   CustomerSentMessageDto,
   MarkReadResponseDto,
+  StaffMarkReadResponseDto,
 } from './dto/chat-response.dto';
 
 @ApiTags('Direct Messages')
@@ -89,6 +90,51 @@ export class ChatController {
   }
 
   // ─── Legacy / officer / admin endpoints ────────────────
+
+  // Declared BEFORE @Get(':otherUserId') and after @Patch('me/read') so the
+  // literal 'me' segment still wins over this parameterised path.
+  @Patch(':customerId/read')
+  @Roles('OFFICER', 'ADMIN', 'REGIONAL_ADMIN')
+  @ApiOperation({
+    summary: "Mark a distributor's messages on this thread as read by staff",
+    description:
+      'C-1 — clears the unread state behind the admin dashboard’s ' +
+      '`unReadMessage` tile.\n\n' +
+      'That tile counts CUSTOMER-authored messages with `readAt: null`. ' +
+      'Before this route nothing ever stamped them, so the count could only ' +
+      'rise: an admin opened a conversation, read it, and the tile stayed put.\n\n' +
+      'Calling `GET /chat/{customerId}` as staff now marks the thread read on ' +
+      'its own, so this route is only needed when a client wants to clear the ' +
+      'count WITHOUT re-fetching the thread. It is idempotent — a second call ' +
+      'returns `markedRead: 0`.\n\n' +
+      'Authorisation matches reading the thread: an OFFICER must be assigned ' +
+      'to the customer, a REGIONAL_ADMIN is limited to their own region, and ' +
+      'an ADMIN reaches every region. A CUSTOMER marks their own thread with ' +
+      'PATCH /chat/me/read, which stamps the other direction.',
+  })
+  @ApiParam({
+    name: 'customerId',
+    description: 'The distributor whose inbound messages are being read.',
+  })
+  @ApiOkResponse({
+    type: StaffMarkReadResponseDto,
+    description: 'How many messages this call actually marked read.',
+  })
+  @ApiForbiddenResponse({
+    description:
+      'Officer is not assigned to the customer, or a REGIONAL_ADMIN asked for ' +
+      'a customer outside their own region',
+  })
+  @ApiNotFoundResponse({
+    description: 'Customer not found (ADMIN / REGIONAL_ADMIN only)',
+  })
+  async markStaffRead(
+    @CurrentUser() user: ChatActor,
+    @Param('customerId') customerId: string,
+  ) {
+    return this.chatService.markStaffThreadRead(user, customerId);
+  }
+
   @Get(':otherUserId')
   @Roles('CUSTOMER', 'OFFICER', 'ADMIN', 'REGIONAL_ADMIN')
   @ApiOperation({

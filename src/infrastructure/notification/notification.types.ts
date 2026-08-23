@@ -27,6 +27,20 @@ export interface NotificationPayload {
    * a customer-feed row.
    */
   subjectCustomerId?: string;
+  /**
+   * P-3 - the exact `content` to store on the Notification row, replacing the
+   * default `"<title>: <body>"` composition.
+   *
+   * A regional broadcast must reach the distributor as the admin typed it,
+   * with no prefix or decoration: the admin composes the words in the
+   * broadcast form and cannot see anything we wrap around them. `title` and
+   * `body` are still what the PUSH carries, since a push needs both fields -
+   * only the stored/bell text is overridden.
+   *
+   * Use sparingly. Every other caller should keep the default composition so
+   * clients can keep splitting on the first ": ".
+   */
+  content?: string;
   data?: Record<string, string>;
 }
 

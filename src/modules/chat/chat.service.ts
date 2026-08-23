@@ -135,6 +135,21 @@ export class ChatService {
     return role !== 'CUSTOMER';
   }
 
+  /**
+   * C-1 — stamps a customer's unread inbound messages as read by staff.
+   *
+   * The counterpart of `markCustomerThreadRead`, which stamps the other
+   * direction for the distributor. Shared by the explicit
+   * PATCH /chat/{customerId}/read route and by simply opening the thread.
+   */
+  private async markInboundRead(customerId: string): Promise<number> {
+    const { count } = await this.prisma.message.updateMany({
+      where: { customerId, senderType: 'CUSTOMER', readAt: null },
+      data: { readAt: new Date() },
+    });
+    return count;
+  }
+
   /** Chronological thread for one account, oldest first. */
   private async threadFor(customerId: string, withAuthors: boolean) {
     const messages = await this.prisma.message.findMany({
@@ -157,6 +172,10 @@ export class ChatService {
     // returns, so the same components render it.
     if (this.isAuditStaff(user.role)) {
       await this.resolveAuditedCustomer(user, otherUserId);
+      // C-1 — opening the thread IS reading it. Stamped before the rows are
+      // read back so the returned messages carry the readAt the caller just
+      // caused, and the dashboard's unread tile falls on the very next poll.
+      await this.markInboundRead(otherUserId);
       return this.threadFor(otherUserId, true);
     }
     if (user.role === 'CUSTOMER') {
@@ -178,6 +197,8 @@ export class ChatService {
       // Same guarantee from the officer side: a newly assigned officer sees
       // every pre-existing message, and the previous officer - no longer
       // assigned - is refused by the check above.
+      // C-1 — opening the thread marks the distributor's messages read.
+      await this.markInboundRead(otherUserId);
       return this.threadFor(otherUserId, true);
     }
   }
@@ -387,5 +408,47 @@ export class ChatService {
       data: { readAt: new Date() },
     });
     return { ok: true };
+  }
+
+  /**
+   * C-1 — mark a customer's inbound messages as read by staff.
+   *
+   * THE BUG THIS FIXES: `markCustomerThreadRead` above stamps STAFF-authored
+   * messages, which is the DISTRIBUTOR's side of the thread. Nothing stamped
+   * the CUSTOMER-authored ones, and the admin dashboard's `unReadMessage` tile
+   * counts exactly those (`senderType: 'CUSTOMER', readAt: null`). So the tile
+   * could only ever go up: an admin opened the conversation, read it, and the
+   * counter stayed at 1 forever. No amount of refetching on the client could
+   * move a number that nothing was decrementing.
+   *
+   * Authorisation is the same as reading the thread, and is enforced by the
+   * caller before this runs — marking read is strictly less privileged than
+   * the read itself, so it must never be reachable where the read is not.
+   *
+   * Returns how many rows actually changed, so the caller can tell "there was
+   * nothing to mark" from "3 messages cleared".
+   */
+  async markStaffThreadRead(user: ChatActor, customerId: string) {
+    // Same gate as getMessages, so this can never mark a thread the caller is
+    // not allowed to open.
+    if (this.isAuditStaff(user.role)) {
+      await this.resolveAuditedCustomer(user, customerId);
+    } else if (user.role === 'OFFICER') {
+      if (!(await this.isAssignedPair(customerId, user.id))) {
+        throw new ForbiddenException(
+          'You can only chat with customers assigned to you.',
+        );
+      }
+    } else {
+      // A CUSTOMER marks their own thread through PATCH /chat/me/read, which
+      // stamps the other direction. Routing them here would clear the wrong
+      // side and silently drop the admin's unread count.
+      throw new ForbiddenException(
+        'Use PATCH /chat/me/read to mark your own thread as read.',
+      );
+    }
+
+    const markedRead = await this.markInboundRead(customerId);
+    return { customerId, markedRead };
   }
 }
