@@ -13,6 +13,36 @@ import {
   BroadcastHistoryFilterDto,
 } from './dto/broadcast.dto';
 
+/**
+ * P-5 — the credited allowance, as a distributor reads it.
+ *
+ * Two rules, both from the frontend's AO-D1 note: group the thousands, and
+ * NEVER round. `maximumFractionDigits` is set high enough that the figure is
+ * printed at whatever precision it actually carries, so the amount in the
+ * message and the balance the distributor then opens cannot disagree. The
+ * minimum of 2 keeps ₦1,500.50 from rendering as ₦1,500.5.
+ */
+function formatNaira(amount: number): string {
+  return `₦${amount.toLocaleString('en-NG', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 20,
+  })}`;
+}
+
+/**
+ * P-5 — joins the admin's message to the allowance sentence.
+ *
+ * The spec's format is `[message]. Delivery allowance of [amount] has been
+ * credited to your wallet.` A message the admin already ended with `.`, `!`
+ * or `?` would otherwise produce a doubled stop, so an existing terminator is
+ * kept as-is rather than having another appended.
+ */
+function joinSentence(message: string, next: string): string {
+  const trimmed = message.trim();
+  if (trimmed === '') return next;
+  return /[.!?]$/.test(trimmed) ? `${trimmed} ${next}` : `${trimmed}. ${next}`;
+}
+
 @Injectable()
 export class BroadcastService {
   constructor(
@@ -38,12 +68,18 @@ export class BroadcastService {
       },
     });
 
+    // P-3 — every distributor in each selected region, and the stored content
+    // is the admin's text VERBATIM: no "Viju: " prefix, no decoration. The
+    // admin composes the exact words in the broadcast form and cannot see
+    // anything wrapped around them. `title`/`body` still shape the push, which
+    // needs both fields.
     for (const c of customers) {
       await this.notifications.notify({
         recipientType: 'CUSTOMER',
         recipientId: c.id,
         title: 'Viju',
         body: dto.message,
+        content: dto.message,
         type: NotificationTypes.BROADCAST,
         data: { broadcastId: broadcast.id },
       });
@@ -65,6 +101,7 @@ export class BroadcastService {
     if (!customer) throw new NotFoundException('Distributor not found');
 
     let allowancePaymentId: string | undefined;
+    let creditedPayment: { amount: number; at: Date } | undefined;
 
     // PRD F15 AC5 + §8: delivery allowance reflects in wallet IMMEDIATELY,
     // not at next ERP sync. Write the Payment + bump Customer.outstandingBalance
@@ -88,6 +125,11 @@ export class BroadcastService {
         }),
       ]);
       allowancePaymentId = result[1].id;
+      // P-5 — the figure the distributor is told about is read back from the
+      // Payment that was actually written, never echoed from the request. If
+      // this transaction throws, the method throws with it and no notification
+      // is sent, so a distributor is never told about a credit that failed.
+      creditedPayment = { amount: result[1].amount, at: result[1].date };
     }
 
     const reference = `BR-${Date.now().toString().slice(-6)}-Individual`;
@@ -105,20 +147,39 @@ export class BroadcastService {
       },
     });
 
-    // PRD F15 AC4 — individual notification carries distributor name +
-    // allowance amount.
-    const body = dto.deliveryAllowance
-      ? `${customer.name}: ${dto.message}. Delivery allowance of ₦${dto.deliveryAllowance.toLocaleString(
-          'en-NG',
-        )} has been credited to your wallet.`
+    // PRD F15 AC4 / P-4 / P-5 — the individual notification is prefixed with
+    // the distributor's own name, unlike the regional one. That asymmetry is
+    // the spec's wording and is reproduced verbatim rather than normalised.
+    //
+    // P-5 — when an allowance was credited, the sentence carries the amount
+    // FROM THE PAYMENT ROW, formatted as currency and never rounded. The
+    // wallet is credited in the transaction above, so the money is already
+    // there by the time this notification is written: a distributor who opens
+    // the app on the push sees the balance already updated.
+    const text = creditedPayment
+      ? `${customer.name}: ${joinSentence(
+          dto.message,
+          `Delivery allowance of ${formatNaira(creditedPayment.amount)} has been credited to your wallet.`,
+        )}`
       : `${customer.name}: ${dto.message}`;
+
     await this.notifications.notify({
       recipientType: 'CUSTOMER',
       recipientId: customer.id,
       title: 'Viju',
-      body,
+      body: text,
+      // No "Viju: " prefix — the stored content is exactly the spec's format.
+      content: text,
       type: NotificationTypes.BROADCAST,
-      data: { broadcastId: broadcast.id },
+      data: {
+        broadcastId: broadcast.id,
+        ...(creditedPayment
+          ? {
+              allowanceAmount: String(creditedPayment.amount),
+              creditedAt: creditedPayment.at.toISOString(),
+            }
+          : {}),
+      },
     });
 
     return broadcast;

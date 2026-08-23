@@ -66,6 +66,9 @@ describe('Chat access for ADMIN / REGIONAL_ADMIN (AD-C1)', () => {
             createdAt: new Date('2026-08-22T09:05:00.000Z'),
             readAt: null,
           }),
+          // C-1 — reading a thread as staff stamps the distributor's messages
+          // read, so the dashboard's unread tile can fall.
+          updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         },
       };
       const notifications = { notify: jest.fn().mockResolvedValue(undefined) };

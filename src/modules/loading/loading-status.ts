@@ -54,6 +54,29 @@ export function toApiStatus(status: LoadingRequestStatus): ApiLoadingStatus {
 }
 
 /**
+ * P-1 — the wording a distributor reads in a push/bell notification.
+ *
+ * The notification text is prose aimed at a distributor ("Your loading status
+ * is now: Loading in Progress"), so it must never carry an enum in either
+ * vocabulary — neither LOADING_IN_PROGRESS nor IN_PROGRESS is something to
+ * show a customer. Kept beside the two enum maps above so a new status cannot
+ * gain a spelling without also gaining a label.
+ */
+const LABEL_BY_DB: Readonly<Record<LoadingRequestStatus, string>> =
+  Object.freeze({
+    PENDING_ASSIGNMENT: 'Pending Assignment',
+    ASSIGNED: 'Assigned',
+    LOADING_IN_PROGRESS: 'Loading in Progress',
+    COMPLETED: 'Completed',
+    CANCELLED: 'Cancelled',
+  });
+
+/** Database enum -> human-readable label for customer-facing copy (P-1). */
+export function toStatusLabel(status: LoadingRequestStatus): string {
+  return LABEL_BY_DB[status];
+}
+
+/**
  * Client value -> database enum. Accepts either vocabulary; returns null for
  * anything unrecognised so callers can decide between ignoring and rejecting.
  */

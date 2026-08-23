@@ -125,3 +125,28 @@ export class MarkReadResponseDto {
   @ApiProperty({ example: true })
   ok: boolean;
 }
+
+// ─── Staff mark-as-read (PATCH /chat/{customerId}/read) — C-1 ──
+
+/**
+ * C-1 — the acknowledgement for the staff side of the thread.
+ *
+ * Reports the row count rather than a bare `ok`, so a client can tell "there
+ * was nothing unread" (0) from "3 messages cleared" and reconcile the
+ * dashboard's `unReadMessage` tile against it.
+ */
+export class StaffMarkReadResponseDto {
+  @ApiProperty({
+    example: 'bd5dbe51-b00e-4d05-a321-76108e0f3918',
+    description: 'The distributor whose thread was marked read.',
+  })
+  customerId: string;
+
+  @ApiProperty({
+    example: 3,
+    description:
+      'How many CUSTOMER-authored messages this call moved from unread to ' +
+      'read. Zero when the thread was already clear — the call is idempotent.',
+  })
+  markedRead: number;
+}

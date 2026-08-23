@@ -50,6 +50,9 @@ describe('Sender role and chat notification scoping (S-1, N-1)', () => {
       message: {
         findMany: jest.fn().mockResolvedValue([staffMessage, customerMessage]),
         create: jest.fn().mockResolvedValue(staffMessage),
+        // C-1 — reading a thread as staff stamps the distributor's messages
+        // read, so the dashboard's unread tile can fall.
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
       ...overrides,
     };

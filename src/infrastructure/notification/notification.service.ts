@@ -34,7 +34,9 @@ export class NotificationService {
             ? payload.recipientId
             : (payload.subjectCustomerId ?? null),
         staffId: payload.recipientType === 'STAFF' ? payload.recipientId : null,
-        content: `${payload.title}: ${payload.body}`,
+        // P-3 - `content` overrides the default composition when the copy must
+        // reach the recipient verbatim (a broadcast is the admin's own words).
+        content: payload.content ?? `${payload.title}: ${payload.body}`,
         type: payload.type,
       },
     });
