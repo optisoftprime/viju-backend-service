@@ -78,7 +78,25 @@ jobs:
             # Pull latest code
             git pull origin dev
 
-            # Write env from secrets — no hardcoded values
+            # Write env from secrets.
+            #
+            # Credentials are always secrets. The three OTP switches are
+            # literals on purpose: an unset secret renders as an empty string,
+            # and an empty OTP_PROVIDER silently falls back to the local
+            # provider, which writes OTP codes to the container log instead of
+            # sending them. A literal cannot fail that way.
+            #
+            # OTP_PROVIDER=ezone is what activates the EZONE_* credentials -
+            # without it they are ignored entirely. EZONE_ENV must match the key
+            # tier: "test" for sk_test_/pk_test_ keys, the live value from Ezone
+            # for live keys; change the keys and EZONE_ENV together.
+            # PRIVATE_EZONE_SECRET_KEY is the sk_... key. The pk_... public key
+            # is not used by this service and is refused at run time.
+            #
+            # ERP_API_KEY is the x-api-key shared secret for /erp/sync/*. It is
+            # REQUIRED whenever NODE_ENV=production: without it those routes
+            # answer 401 instead of falling back to the dev bypass. The
+            # ingest/projector server must send this exact value.
             cat > .env <<EOF
             NODE_ENV=${{ secrets.NODE_ENV }}
             PORT=${{ secrets.PORT }}
@@ -97,6 +115,12 @@ jobs:
             SMTP_USER=${{ secrets.SMTP_USER }}
             SMTP_PASS=${{ secrets.SMTP_PASS }}
             SMTP_SECURE=${{ secrets.SMTP_SECURE }}
+            OTP_PROVIDER=ezone
+            EZONE_OTP_BASE_URL=https://gateway.ezoneapps.com:30002/ezone-api-authservice/api/v1/otp
+            EZONE_ENV=test
+            EZONE_ORGANIZATION_KEY=${{ secrets.EZONE_ORGANIZATION_KEY }}
+            PRIVATE_EZONE_SECRET_KEY=${{ secrets.PRIVATE_EZONE_SECRET_KEY }}
+            ERP_API_KEY=${{ secrets.ERP_API_KEY }}
             EOF
 
             # Build and restart (app-only, no postgres container)
