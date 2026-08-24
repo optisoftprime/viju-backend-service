@@ -75,7 +75,9 @@ export class LocalOtpService extends OtpService {
       );
     }
     if (otp.expiresAt < new Date()) {
-      throw new BadRequestException('OTP has expired. Please request a new one.');
+      throw new BadRequestException(
+        'OTP has expired. Please request a new one.',
+      );
     }
 
     if (otp.code !== code) {
@@ -84,7 +86,8 @@ export class LocalOtpService extends OtpService {
         where: { id: otp.id },
         data: {
           attempts,
-          lockedUntil: attempts >= MAX_ATTEMPTS ? new Date(Date.now() + LOCK_MS) : null,
+          lockedUntil:
+            attempts >= MAX_ATTEMPTS ? new Date(Date.now() + LOCK_MS) : null,
         },
       });
       throw new UnauthorizedException('Invalid OTP code');
