@@ -29,10 +29,30 @@ export class EzoneOtpService extends OtpService {
   }
 
   private get headers(): Record<string, string> {
-    const orgKey = process.env.EZONE_ORG_KEY;
-    const secretKey = process.env.EZONE_SECRET_KEY;
+    // Two accepted spellings for each credential. The Ezone dashboard labels
+    // them "Organization Key" and "Private Secret Key", and the environment is
+    // populated from those labels; the original shorter names are still read so
+    // an existing deployment does not break on this change.
+    const orgKey =
+      process.env.EZONE_ORGANIZATION_KEY || process.env.EZONE_ORG_KEY;
+    const secretKey =
+      process.env.PRIVATE_EZONE_SECRET_KEY || process.env.EZONE_SECRET_KEY;
     if (!orgKey || !secretKey) {
-      throw new Error('EZONE_ORG_KEY / EZONE_SECRET_KEY are not set');
+      throw new Error(
+        'Ezone OTP is selected (OTP_PROVIDER=ezone) but its credentials are ' +
+          'missing. Set EZONE_ORGANIZATION_KEY (or EZONE_ORG_KEY) and ' +
+          'PRIVATE_EZONE_SECRET_KEY (or EZONE_SECRET_KEY).',
+      );
+    }
+    // The gateway authenticates on the PRIVATE key. The public key (pk_…) is
+    // the client-side one and is silently rejected, which surfaces as an
+    // unexplained failure to send — so refuse it here, where the cause is
+    // obvious, rather than at Ezone.
+    if (secretKey.startsWith('pk_')) {
+      throw new Error(
+        'The Ezone secret key is a PUBLIC key (pk_…). x-secret-key must be ' +
+          'the private key (sk_…) — check PRIVATE_EZONE_SECRET_KEY.',
+      );
     }
     return {
       'Content-Type': 'application/json',
@@ -80,11 +100,18 @@ export class EzoneOtpService extends OtpService {
   }
 
   private async post(path: string, payload: unknown): Promise<EzoneResponse> {
+    // Resolved BEFORE the try: a missing or wrong credential is a
+    // CONFIGURATION fault, not an outage. Inside the try its error would be
+    // caught below and reported as "OTP service is unreachable", which sends
+    // whoever is debugging it to look at the network instead of the env.
+    const url = `${this.baseUrl}${path}`;
+    const headers = this.headers;
+
     let res: Response;
     try {
-      res = await fetch(`${this.baseUrl}${path}`, {
+      res = await fetch(url, {
         method: 'POST',
-        headers: this.headers,
+        headers,
         body: JSON.stringify(payload),
       });
     } catch (error) {
