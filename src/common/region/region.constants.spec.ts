@@ -26,7 +26,21 @@ const ERP_CONTRACT: ReadonlyArray<[number, Region, string]> = [
   [3, Region.SOUTH_SOUTH, 'SOUTH-SOUTH'],
   [4, Region.WESTERN, 'WESTERN'],
   [5, Region.NORTH, 'NORTH'],
+  // R-1 - the ERP's own "other customers" bucket (其他客户). Note the gap:
+  // 6, 7 and 8 are not codes the feed uses.
+  [9, Region.OTHERS, 'OTHERS'],
 ];
+
+/**
+ * Codes the feed carries that are NOT territories.
+ *
+ * GZ001 (泷迪客户编码) and GZ020 (广州拓燊客户编码) are customer-coding schemes
+ * for other group entities — GZ020 alone covers 1,832 customers, more than all
+ * five Nigerian regions combined. Mapping them to a region would file another
+ * company's customers under a Viju territory, so they stay unmapped and
+ * surface in the dashboard's `unmappedRegionCount` instead.
+ */
+const NON_TERRITORY_CODES = ['GZ001', 'GZ020'];
 
 describe('region constants', () => {
   describe('BP_CLUSTER_CODE mapping', () => {
@@ -40,51 +54,45 @@ describe('region constants', () => {
       },
     );
 
-    it('covers every ERP region, and OTHERS on top', () => {
-      // R-1 - OTHERS is a PORTAL region, not an ERP territory: it is the
-      // catch-all for a customer whose BP_CLUSTER_CODE maps to none of the
-      // five (the feed carries 9, GZ001 and GZ020 among others). So the enum
-      // is deliberately one longer than the ERP contract, and OTHERS comes
-      // last, after the code-ordered five.
-      expect(REGION_VALUES).toEqual([
-        ...ERP_CONTRACT.map(([, region]) => region),
-        Region.OTHERS,
-      ]);
-
-      // ...but it contributes NO code. The ERP side of the contract is
-      // unchanged, which is the point: nothing the ERP sends can produce
-      // OTHERS.
+    it('covers every region and nothing more', () => {
+      expect(REGION_VALUES).toEqual(ERP_CONTRACT.map(([, region]) => region));
       expect(BP_CLUSTER_CODE_VALUES).toEqual(
         ERP_CONTRACT.map(([code]) => code),
       );
-
-      // Every value the Prisma enum knows about is still present in the map,
-      // so a new region cannot be added without deciding its code...
+      // Every value the Prisma enum knows about must have a code.
       expect(Object.keys(BP_CLUSTER_CODE_BY_REGION).sort()).toEqual(
         Object.values(Region).sort(),
       );
-      // ...and OTHERS' decision is "none".
-      expect(BP_CLUSTER_CODE_BY_REGION[Region.OTHERS]).toBeNull();
-      expect(bpClusterCodeForRegion(Region.OTHERS)).toBeNull();
     });
 
-    it('round-trips every CODED region -> code -> region', () => {
-      for (const [, region] of ERP_CONTRACT) {
-        const code = bpClusterCodeForRegion(region);
-        expect(code).not.toBeNull();
-        expect(regionFromBpClusterCode(code)).toBe(region);
+    it('round-trips region -> code -> region', () => {
+      for (const region of REGION_VALUES) {
+        expect(regionFromBpClusterCode(bpClusterCodeForRegion(region))).toBe(
+          region,
+        );
       }
     });
 
-    it('is still a real region everywhere else', () => {
-      // OTHERS has no code, but it is a first-class region for filters,
-      // pickers and user records — which is the whole of R-1.
-      expect(isRegion(Region.OTHERS)).toBe(true);
-      expect(isRegion('OTHERS')).toBe(true);
+    it('maps the ERP’s own "other customers" bucket to OTHERS', () => {
+      // R-1 - code 9 is named 其他客户 in the feed, so this is the ERP's
+      // classification being honoured rather than a portal invention.
+      expect(bpClusterCodeForRegion(Region.OTHERS)).toBe(9);
+      expect(regionFromBpClusterCode(9)).toBe(Region.OTHERS);
+      expect(regionFromBpClusterCode('9')).toBe(Region.OTHERS);
       expect(regionLabel(Region.OTHERS)).toBe('OTHERS');
-      // And nothing the ERP can send maps to it.
+      expect(isRegion('OTHERS')).toBe(true);
+    });
+
+    it('leaves the non-territory coding schemes unmapped', () => {
+      // Mapping these would file another company's customers under a Viju
+      // region. They must stay unmapped so they surface as unmapped.
+      for (const code of NON_TERRITORY_CODES) {
+        expect(tryRegionFromBpClusterCode(code)).toBeNull();
+        expect(isBpClusterCode(code)).toBe(false);
+      }
+      // And the gap below 9 is still a gap.
       expect(tryRegionFromBpClusterCode(6)).toBeNull();
-      expect(tryRegionFromBpClusterCode('GZ020')).toBeNull();
+      expect(tryRegionFromBpClusterCode(8)).toBeNull();
     });
   });
 
@@ -107,11 +115,21 @@ describe('region constants', () => {
 
   describe('regionFromBpClusterCode', () => {
     it('throws on an unknown code so bad ERP data cannot be stored silently', () => {
-      expect(() => regionFromBpClusterCode(9)).toThrow(
+      // R-1 - this used to assert on 9, which is now OTHERS. 8 is the nearest
+      // code the feed genuinely does not use.
+      expect(() => regionFromBpClusterCode(8)).toThrow(
         UnknownBpClusterCodeError,
       );
-      expect(() => regionFromBpClusterCode(9)).toThrow(
-        'Unknown BP_CLUSTER_CODE 9. Expected one of: 1, 2, 3, 4, 5.',
+      expect(() => regionFromBpClusterCode(8)).toThrow(
+        'Unknown BP_CLUSTER_CODE 8. Expected one of: 1, 2, 3, 4, 5, 9.',
+      );
+    });
+
+    it('throws on the non-territory coding schemes', () => {
+      // GZ020 is 1,832 customers of another group entity. Refusing it is the
+      // point: they must not be silently filed under a Viju region.
+      expect(() => regionFromBpClusterCode('GZ020')).toThrow(
+        UnknownBpClusterCodeError,
       );
     });
 

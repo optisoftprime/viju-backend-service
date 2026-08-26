@@ -14,6 +14,17 @@ import { Region } from '@prisma/client';
  *   BP_CLUSTER_CODE 3 -> SOUTH_SOUTH   (displayed "SOUTH-SOUTH")
  *   BP_CLUSTER_CODE 4 -> WESTERN
  *   BP_CLUSTER_CODE 5 -> NORTH
+ *   BP_CLUSTER_CODE 9 -> OTHERS        (the ERP names it 其他客户, "other
+ *                                       customers" — R-1)
+ *
+ * NOT every BP_CLUSTER_CODE is a region. The feed also carries `GZ001`
+ * (泷迪客户编码) and `GZ020` (广州拓燊客户编码), which are CUSTOMER-CODING
+ * SCHEMES for other group entities rather than Nigerian territories — GZ020
+ * alone covers 1,832 customers, more than all five Nigerian regions combined.
+ * They are deliberately left unmapped: giving them a region would file another
+ * company's customers under a Viju territory. They surface in the admin
+ * dashboard's `unmappedRegionCount` instead, which is where a human can see
+ * and question them.
  *
  * `Region` itself is the Prisma enum, re-exported here so callers have one
  * import to reach for. Adding a region means editing REGION_DEFINITIONS below
@@ -24,14 +35,8 @@ export { Region };
 interface RegionDefinition {
   /** The canonical enum value, stored in the database and returned by the API. */
   readonly region: Region;
-  /**
-   * The ERP's numeric BP_CLUSTER_CODE for this region.
-   *
-   * `null` for OTHERS (R-1), which is a portal-side catch-all rather than an
-   * ERP territory: the feed has no code that means "other", so nothing the ERP
-   * sends can ever translate into it. Only an admin sets it.
-   */
-  readonly bpClusterCode: number | null;
+  /** The ERP's numeric BP_CLUSTER_CODE for this region. */
+  readonly bpClusterCode: number;
   /** Human-facing label. Carries the hyphen the enum value cannot. */
   readonly label: string;
 }
@@ -50,18 +55,13 @@ const REGION_DEFINITIONS = [
   { region: Region.SOUTH_SOUTH, bpClusterCode: 3, label: 'SOUTH-SOUTH' },
   { region: Region.WESTERN, bpClusterCode: 4, label: 'WESTERN' },
   { region: Region.NORTH, bpClusterCode: 5, label: 'NORTH' },
-  // R-1 - last, and codeless. See RegionDefinition.bpClusterCode.
-  { region: Region.OTHERS, bpClusterCode: null, label: 'OTHERS' },
+  // R-1 - the ERP's own "other customers" bucket (其他客户). Last, because 9
+  // sits outside the contiguous 1-5 territory block.
+  { region: Region.OTHERS, bpClusterCode: 9, label: 'OTHERS' },
 ] as const satisfies readonly RegionDefinition[];
 
-/**
- * The codes the ERP actually sends. OTHERS contributes nothing here — it has
- * no code — so `null` is excluded and this stays the 1|2|3|4|5 union it was.
- */
-export type BpClusterCode = Exclude<
-  (typeof REGION_DEFINITIONS)[number]['bpClusterCode'],
-  null
->;
+export type BpClusterCode =
+  (typeof REGION_DEFINITIONS)[number]['bpClusterCode'];
 
 /**
  * Every region, in BP_CLUSTER_CODE order. Use this for Swagger `enum:`
@@ -76,25 +76,17 @@ export const REGION_VALUES: readonly Region[] = REGION_DEFINITIONS.map(
 export const REGION_BY_BP_CLUSTER_CODE: Readonly<Record<number, Region>> =
   Object.freeze(
     Object.fromEntries(
-      REGION_DEFINITIONS.filter(
-        (d): d is typeof d & { bpClusterCode: number } =>
-          d.bpClusterCode !== null,
-      ).map((d) => [d.bpClusterCode, d.region]),
+      REGION_DEFINITIONS.map((d) => [d.bpClusterCode, d.region]),
     ),
   );
 
-/**
- * Region -> BP_CLUSTER_CODE, for calls that have to hand a code back to the ERP.
- *
- * `null` for OTHERS: there is no code to hand back. Callers must handle that
- * rather than assume every region round-trips to the ERP.
- */
+/** Region -> BP_CLUSTER_CODE, for calls that have to hand a code back to the ERP. */
 export const BP_CLUSTER_CODE_BY_REGION: Readonly<
-  Record<Region, BpClusterCode | null>
+  Record<Region, BpClusterCode>
 > = Object.freeze(
   Object.fromEntries(
     REGION_DEFINITIONS.map((d) => [d.region, d.bpClusterCode]),
-  ) as Record<Region, BpClusterCode | null>,
+  ) as Record<Region, BpClusterCode>,
 );
 
 /** Display labels. `SOUTH_SOUTH` renders as `SOUTH-SOUTH`; the rest are identical. */
@@ -106,9 +98,7 @@ export const REGION_LABELS: Readonly<Record<Region, string>> = Object.freeze(
 
 /** All valid BP_CLUSTER_CODE values, for error messages and validation. */
 export const BP_CLUSTER_CODE_VALUES: readonly BpClusterCode[] =
-  REGION_DEFINITIONS.map((d) => d.bpClusterCode).filter(
-    (c): c is BpClusterCode => c !== null,
-  );
+  REGION_DEFINITIONS.map((d) => d.bpClusterCode);
 
 /** Raised when the ERP sends a BP_CLUSTER_CODE this mapping does not know. */
 export class UnknownBpClusterCodeError extends Error {
@@ -173,14 +163,7 @@ export function regionFromBpClusterCode(value: unknown): Region {
 }
 
 /** Region -> BP_CLUSTER_CODE, for outbound ERP calls. */
-/**
- * Region -> the ERP code, or `null` when the region has none.
- *
- * OTHERS (R-1) is the only codeless region. A caller filtering ERP rows by
- * region must treat `null` as "the ERP can hold no rows for this region"
- * rather than as "no filter" — the two are opposites.
- */
-export function bpClusterCodeForRegion(region: Region): BpClusterCode | null {
+export function bpClusterCodeForRegion(region: Region): BpClusterCode {
   return BP_CLUSTER_CODE_BY_REGION[region];
 }
 

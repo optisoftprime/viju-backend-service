@@ -56,22 +56,38 @@ LAGOS, EASTERN, SOUTH_SOUTH, WESTERN, NORTH, OTHERS
 Render tab strips and dropdowns in that order and you match every server-side
 list.
 
-### The one thing to know about it
+### `OTHERS` is BP_CLUSTER_CODE 9
 
-`OTHERS` is a **portal** region, not an ERP territory. It has **no
-BP_CLUSTER_CODE**, because the ERP has no code that means "other" — the feed
-carries `9`, `GZ001` and `GZ020` for the rows that map nowhere. Consequences:
+It maps to the ERP's own "other customers" bucket:
 
-- **Nothing the ERP sends can produce `OTHERS`.** It is only ever set
-  deliberately, by an admin editing a user or a customer.
-- **`GET /admin/erp/unmapped-customers` will not shrink on its own.** You noted
-  this is what would let it shrink — that is true, but it needs a person (or a
-  follow-up backfill) to actually move those customers into `OTHERS`. Adding
-  the enum value only gives them somewhere to go. Tell us if you want a route
-  that does the move in bulk; it is not in this release.
-- Filtering the **unprojected** ERP list by `region=OTHERS` correctly returns
-  **zero** rows, not everything. There are no ERP-side rows in a region the ERP
-  does not have.
+```
+BP_CLUSTER_CODE 9  ->  OTHERS
+```
+
+The ERP names that cluster **其他客户** — literally "other customers" — so this
+is its own classification being honoured, not a portal invention. **58
+customers** are in it today. Note the gap: 6, 7 and 8 are not codes the feed
+uses.
+
+So `OTHERS` behaves like any other region: an ERP customer in cluster 9
+projects into it automatically, `?region=OTHERS` filters to it, and it appears
+in the unprojected list.
+
+### Two codes are deliberately NOT mapped
+
+The feed also carries `GZ001` (泷迪客户编码) and `GZ020` (广州拓燊客户编码).
+These are **customer-coding schemes for other group entities**, not Nigerian
+territories — and `GZ020` alone covers **1,832 customers**, more than all five
+Nigerian regions combined (1,851).
+
+They stay unmapped on purpose. Filing another company's customers under a Viju
+territory would be wrong, and it would quietly double the apparent size of the
+distributor base. They surface in the admin dashboard's `unmappedRegionCount`
+instead, where a person can see and question them.
+
+**So `GET /admin/erp/unmapped-customers` shrinks by 58, not by 1,896.** If those
+GZ rows should not be in this feed at all, that is a conversation for the ERP
+team rather than something to give a region to.
 
 ---
 

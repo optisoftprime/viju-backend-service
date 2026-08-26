@@ -232,13 +232,14 @@ export class ErpRawService {
     region?: Region;
     search?: string;
   }): Prisma.Sql {
-    // R-1 - OTHERS has no BP_CLUSTER_CODE, so the ERP can hold no unprojected
-    // rows for it. That must narrow to nothing, NOT widen to everything: an
-    // empty code list means "no ERP customer is in this region", which is the
-    // truth, whereas dropping the filter would list the whole feed.
-    const code = filter.region ? bpClusterCodeForRegion(filter.region) : null;
+    // R-1 - BP_CLUSTER_CODE_VALUES now includes 9 (OTHERS), so filtering by
+    // OTHERS lists that bucket like any other region. GZ001 / GZ020 are still
+    // absent from the mapping and so are still excluded here: they are other
+    // entities' customer-coding schemes, not Viju territories.
     const codes = (
-      filter.region ? (code === null ? [] : [code]) : BP_CLUSTER_CODE_VALUES
+      filter.region
+        ? [bpClusterCodeForRegion(filter.region)]
+        : BP_CLUSTER_CODE_VALUES
     ).map((c) => String(c));
 
     const term = filter.search?.trim();
@@ -255,13 +256,7 @@ export class ErpRawService {
                payload->>'BP_CLUSTER_CODE' AS code,
                last_seen_at
           FROM erp_raw.raw_customer
-         WHERE ${
-           codes.length > 0
-             ? Prisma.sql`payload->>'BP_CLUSTER_CODE' IN (${Prisma.join(codes)})`
-             : // Prisma.join refuses an empty array, and `IN ()` is not valid
-               // SQL. A codeless region matches nothing.
-               Prisma.sql`false`
-         }
+         WHERE payload->>'BP_CLUSTER_CODE' IN (${Prisma.join(codes)})
            AND coalesce(payload->>'CUSTOMER_CODE', '') <> ''
          ORDER BY payload->>'CUSTOMER_CODE', last_seen_at DESC NULLS LAST
       ) v
