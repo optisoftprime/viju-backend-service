@@ -10,4 +10,9 @@ enum Region {
   SOUTH_SOUTH // BP_CLUSTER_CODE 3
   WESTERN // BP_CLUSTER_CODE 4
   NORTH // BP_CLUSTER_CODE 5
+  /// R-1 - BP_CLUSTER_CODE 9, which the ERP itself names 其他客户 ("other
+  /// customers"). The feed also carries GZ001 and GZ020, but those are other
+  /// group entities' customer-coding schemes rather than territories and are
+  /// deliberately NOT mapped here - see src/common/region/region.constants.ts.
+  OTHERS
 }

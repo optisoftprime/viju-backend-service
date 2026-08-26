@@ -11,7 +11,8 @@ import { ApiProperty } from '@nestjs/swagger';
  */
 export class UploadResponseDto {
   @ApiProperty({
-    example: 'https://res.cloudinary.com/demo/image/upload/viju/profile-photos/abc123.jpg',
+    example:
+      'https://res.cloudinary.com/demo/image/upload/viju/profile-photos/abc123.jpg',
     description:
       'Publicly reachable URL of the stored file. Cloudinary `secure_url`, ' +
       'a `/uploads/...` path for local disk, or a `placeholder://...` URL ' +

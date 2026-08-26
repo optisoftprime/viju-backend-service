@@ -50,8 +50,7 @@ export class WaybillController {
 
   @Post('accept-terms')
   @ApiOperation({
-    summary:
-      'Record T&C acceptance, return external loading form URL',
+    summary: 'Record T&C acceptance, return external loading form URL',
     description:
       'Must be called before /customers/me/waybills POST or before the FE ' +
       'opens the external Google Form. The acceptance is valid for 1 hour.',

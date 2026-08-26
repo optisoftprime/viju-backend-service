@@ -26,7 +26,21 @@ const ERP_CONTRACT: ReadonlyArray<[number, Region, string]> = [
   [3, Region.SOUTH_SOUTH, 'SOUTH-SOUTH'],
   [4, Region.WESTERN, 'WESTERN'],
   [5, Region.NORTH, 'NORTH'],
+  // R-1 - the ERP's own "other customers" bucket (其他客户). Note the gap:
+  // 6, 7 and 8 are not codes the feed uses.
+  [9, Region.OTHERS, 'OTHERS'],
 ];
+
+/**
+ * Codes the feed carries that are NOT territories.
+ *
+ * GZ001 (泷迪客户编码) and GZ020 (广州拓燊客户编码) are customer-coding schemes
+ * for other group entities — GZ020 alone covers 1,832 customers, more than all
+ * five Nigerian regions combined. Mapping them to a region would file another
+ * company's customers under a Viju territory, so they stay unmapped and
+ * surface in the dashboard's `unmappedRegionCount` instead.
+ */
+const NON_TERRITORY_CODES = ['GZ001', 'GZ020'];
 
 describe('region constants', () => {
   describe('BP_CLUSTER_CODE mapping', () => {
@@ -58,6 +72,28 @@ describe('region constants', () => {
         );
       }
     });
+
+    it('maps the ERP’s own "other customers" bucket to OTHERS', () => {
+      // R-1 - code 9 is named 其他客户 in the feed, so this is the ERP's
+      // classification being honoured rather than a portal invention.
+      expect(bpClusterCodeForRegion(Region.OTHERS)).toBe(9);
+      expect(regionFromBpClusterCode(9)).toBe(Region.OTHERS);
+      expect(regionFromBpClusterCode('9')).toBe(Region.OTHERS);
+      expect(regionLabel(Region.OTHERS)).toBe('OTHERS');
+      expect(isRegion('OTHERS')).toBe(true);
+    });
+
+    it('leaves the non-territory coding schemes unmapped', () => {
+      // Mapping these would file another company's customers under a Viju
+      // region. They must stay unmapped so they surface as unmapped.
+      for (const code of NON_TERRITORY_CODES) {
+        expect(tryRegionFromBpClusterCode(code)).toBeNull();
+        expect(isBpClusterCode(code)).toBe(false);
+      }
+      // And the gap below 9 is still a gap.
+      expect(tryRegionFromBpClusterCode(6)).toBeNull();
+      expect(tryRegionFromBpClusterCode(8)).toBeNull();
+    });
   });
 
   describe('parseBpClusterCode', () => {
@@ -79,11 +115,21 @@ describe('region constants', () => {
 
   describe('regionFromBpClusterCode', () => {
     it('throws on an unknown code so bad ERP data cannot be stored silently', () => {
-      expect(() => regionFromBpClusterCode(9)).toThrow(
+      // R-1 - this used to assert on 9, which is now OTHERS. 8 is the nearest
+      // code the feed genuinely does not use.
+      expect(() => regionFromBpClusterCode(8)).toThrow(
         UnknownBpClusterCodeError,
       );
-      expect(() => regionFromBpClusterCode(9)).toThrow(
-        'Unknown BP_CLUSTER_CODE 9. Expected one of: 1, 2, 3, 4, 5.',
+      expect(() => regionFromBpClusterCode(8)).toThrow(
+        'Unknown BP_CLUSTER_CODE 8. Expected one of: 1, 2, 3, 4, 5, 9.',
+      );
+    });
+
+    it('throws on the non-territory coding schemes', () => {
+      // GZ020 is 1,832 customers of another group entity. Refusing it is the
+      // point: they must not be silently filed under a Viju region.
+      expect(() => regionFromBpClusterCode('GZ020')).toThrow(
+        UnknownBpClusterCodeError,
       );
     });
 

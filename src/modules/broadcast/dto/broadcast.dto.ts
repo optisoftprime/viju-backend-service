@@ -9,6 +9,9 @@ import {
   Min,
   MaxLength,
   ArrayMinSize,
+  ArrayMaxSize,
+  ArrayNotEmpty,
+  ValidateIf,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { BroadcastType } from '@prisma/client';
@@ -36,11 +39,33 @@ export class SendRegionalBroadcastDto {
 }
 
 export class SendIndividualBroadcastDto {
-  @ApiProperty({
-    description: 'Distributor (Customer.id) to receive the broadcast',
+  @ApiPropertyOptional({
+    description:
+      'Distributor (Customer.id) to receive the broadcast. Send this OR ' +
+      '`customerIds` — at least one is required.',
   })
+  @ValidateIf((o: SendIndividualBroadcastDto) => o.customerIds === undefined)
   @IsUUID()
   customerId: string;
+
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['bd5dbe51-b00e-4d05-a321-76108e0f3918'],
+    description:
+      'B-2 — several distributors on one send. Each receives their OWN ' +
+      'broadcast record and their own notification, so history and delivery ' +
+      'counts stay per-recipient.\n\n' +
+      'ALLOWANCE SEMANTICS: `deliveryAllowance` is credited PER RECIPIENT, ' +
+      'not split between them — 12 recipients at ₦1,000 credits ₦12,000 in ' +
+      'total. This matches what the form states before sending.\n\n' +
+      'Duplicates are collapsed. Maximum 200 per call.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayNotEmpty({ message: 'customerIds must contain at least one id' })
+  @ArrayMaxSize(200)
+  @IsUUID('4', { each: true })
+  customerIds?: string[];
 
   @ApiProperty({
     example: 'Delivery allowance credited for Q1 loyalty programme',
@@ -82,4 +107,17 @@ export class BroadcastHistoryFilterDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   endDate?: string;
+
+  @ApiPropertyOptional({
+    example: 'depot',
+    description:
+      'B-1 — case-insensitive partial match on the broadcast `reference`, the ' +
+      '`message` body, and the RECIPIENT: the target customer’s name for an ' +
+      'individual broadcast. Applied server-side, so it searches the whole ' +
+      'history rather than one page of it, and `meta.total` is the size of ' +
+      'the filtered set.',
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
 }

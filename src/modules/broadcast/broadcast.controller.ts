@@ -55,8 +55,7 @@ export class BroadcastController {
 
   @Post('individual')
   @ApiOperation({
-    summary:
-      'Send an individual broadcast — with optional delivery allowance',
+    summary: 'Send an individual broadcast — with optional delivery allowance',
     description:
       'If deliveryAllowance > 0, the amount is credited to the wallet ' +
       'IMMEDIATELY (not next ERP sync). A Payment row with reference ' +

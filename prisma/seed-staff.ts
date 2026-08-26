@@ -48,6 +48,9 @@ const NAMES: Record<string, Record<Region, [string, string]>> = {
     SOUTH_SOUTH: ['Preye Amaso', 'Itoro Effiong'],
     WESTERN: ['Yewande Ogunbiyi', 'Segun Alabi'],
     NORTH: ['Musa Aliyu', 'Hauwa Danjuma'],
+    // R-1 - OTHERS is a catch-all region with no seeded staff (it is absent
+    // from REGIONS above). Present only so the map stays exhaustive.
+    OTHERS: ['Ada Nwachukwu', 'Bello Sadiq'],
   },
   OFFICER: {
     LAGOS: ['Funmi Adelaja', 'Ifeoma Balogun'],
@@ -55,6 +58,7 @@ const NAMES: Record<string, Record<Region, [string, string]>> = {
     SOUTH_SOUTH: ['Ebiere Tamuno', 'Oghenero Ejiro'],
     WESTERN: ['Bolanle Adeyemi', 'Kayode Sanusi'],
     NORTH: ['Aisha Bello', 'Sanusi Garba'],
+    OTHERS: ['Chioma Eze', 'Yusuf Abdul'],
   },
   LOADING_OFFICER: {
     LAGOS: ['Ifeanyi Okonkwo', 'Basirat Lawal'],
@@ -62,6 +66,7 @@ const NAMES: Record<string, Record<Region, [string, string]>> = {
     SOUTH_SOUTH: ['Tonye Briggs', 'Mercy Akpan'],
     WESTERN: ['Bisi Adewale', 'Femi Oyelaran'],
     NORTH: ['Zainab Yusuf', 'Ibrahim Tanko'],
+    OTHERS: ['Grace Etim', 'Idris Suleiman'],
   },
 };
 

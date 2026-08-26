@@ -14,6 +14,17 @@ import { Region } from '@prisma/client';
  *   BP_CLUSTER_CODE 3 -> SOUTH_SOUTH   (displayed "SOUTH-SOUTH")
  *   BP_CLUSTER_CODE 4 -> WESTERN
  *   BP_CLUSTER_CODE 5 -> NORTH
+ *   BP_CLUSTER_CODE 9 -> OTHERS        (the ERP names it 其他客户, "other
+ *                                       customers" — R-1)
+ *
+ * NOT every BP_CLUSTER_CODE is a region. The feed also carries `GZ001`
+ * (泷迪客户编码) and `GZ020` (广州拓燊客户编码), which are CUSTOMER-CODING
+ * SCHEMES for other group entities rather than Nigerian territories — GZ020
+ * alone covers 1,832 customers, more than all five Nigerian regions combined.
+ * They are deliberately left unmapped: giving them a region would file another
+ * company's customers under a Viju territory. They surface in the admin
+ * dashboard's `unmappedRegionCount` instead, which is where a human can see
+ * and question them.
  *
  * `Region` itself is the Prisma enum, re-exported here so callers have one
  * import to reach for. Adding a region means editing REGION_DEFINITIONS below
@@ -44,6 +55,9 @@ const REGION_DEFINITIONS = [
   { region: Region.SOUTH_SOUTH, bpClusterCode: 3, label: 'SOUTH-SOUTH' },
   { region: Region.WESTERN, bpClusterCode: 4, label: 'WESTERN' },
   { region: Region.NORTH, bpClusterCode: 5, label: 'NORTH' },
+  // R-1 - the ERP's own "other customers" bucket (其他客户). Last, because 9
+  // sits outside the contiguous 1-5 territory block.
+  { region: Region.OTHERS, bpClusterCode: 9, label: 'OTHERS' },
 ] as const satisfies readonly RegionDefinition[];
 
 export type BpClusterCode =

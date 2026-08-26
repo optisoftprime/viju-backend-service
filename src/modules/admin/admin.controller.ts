@@ -9,6 +9,7 @@ import {
   Query,
   Res,
   UseGuards,
+  BadRequestException,
   ForbiddenException,
   HttpStatus,
 } from '@nestjs/common';
@@ -41,6 +42,8 @@ import {
   CustomerFilterDto,
   OfficerFilterDto,
   UpdateOfficerStatusDto,
+  BulkOfficerRegionDto,
+  BulkReassignCustomersDto,
 } from './dto/admin.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Region } from '../../common/region/region.constants';
@@ -60,6 +63,7 @@ import {
   ErpSyncStatusDto,
   PaginatedUnmappedErpCustomersResponseDto,
   ReassignCustomerResponseDto,
+  BulkOperationResultDto,
 } from './dto/admin-response.dto';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 
@@ -276,6 +280,40 @@ export class AdminController {
     return this.adminService.listUnmappedErpCustomers(pagination);
   }
 
+  // Declared BEFORE @Patch('customers/:id/reassign') so the literal
+  // 'bulk-reassign' segment is not swallowed as a customer id.
+  @Patch('customers/bulk-reassign')
+  @ApiOperation({
+    summary: 'Assign a selection of customers to one account officer',
+    description:
+      'C-2 — the "Assign Account Officer" action over a checkbox selection on ' +
+      '/admin/distributors. Body ' +
+      '`{ "customerIds": string[], "newOfficerId": string }`.\n\n' +
+      'PER-CUSTOMER RESULTS, never all-or-nothing: assigning 79 of 80 leaves ' +
+      'the 79 assigned and names the one that failed in `failed`.\n\n' +
+      'Each move applies the same rules as PATCH /admin/customers/{id}/' +
+      'reassign — including the region rule (the officer must be ACTIVE and ' +
+      'in the CUSTOMER’s region), the CustomerOfficer bookkeeping so chat and ' +
+      'tickets follow, and the ASSIGNMENT notification to the incoming ' +
+      'officer.\n\n' +
+      '`ALREADY_ASSIGNED` COUNTS AS A SUCCESS here: the customer ends up ' +
+      'holding exactly the officer that was asked for, which is the point of ' +
+      'the call. (The single route still refuses it, so an operator acting on ' +
+      'one customer is told why nothing changed.)\n\n' +
+      'Duplicate ids are collapsed. Maximum 500 per call.',
+  })
+  @ApiOkResponse({ type: BulkOperationResultDto })
+  @ApiBadRequestResponse({
+    description:
+      'Empty customerIds, more than 500 ids, or a missing officer id',
+  })
+  async bulkReassignCustomers(@Body() dto: BulkReassignCustomersDto) {
+    return this.adminService.bulkReassignCustomers(
+      dto.customerIds,
+      dto.newOfficerId,
+    );
+  }
+
   @Patch('customers/:id/reassign')
   @ApiOperation({
     summary: 'Assign or reassign a customer to an account officer (AD-R1)',
@@ -330,7 +368,7 @@ export class AdminController {
   }
 
   @Get('officers')
-  @Roles('ADMIN', 'REGIONAL_ADMIN')
+  @Roles('ADMIN', 'REGIONAL_ADMIN', 'OFFICER')
   @ApiOperation({
     summary: 'List staff officers (region filter + search + sort)',
     description:
@@ -343,6 +381,11 @@ export class AdminController {
       'officer picker has always tolerated it and nothing is leaked either ' +
       'way, since the scope is read from the token. A user cannot widen ' +
       'their scope by editing the query string.\n\n' +
+      'A-2: an OFFICER (account officer) may also call this route, for the ' +
+      'assign-loading-officer picker on their own loading-request screen. ' +
+      'They are pinned to `role=LOADING_OFFICER` and to their own region ' +
+      'whatever the query string says, so it cannot be used to enumerate ' +
+      'their peers.\n\n' +
       'Pass `role=LOADING_OFFICER` to list loading officers for the ' +
       'assign-loading-officer picker (RA-06); it defaults to OFFICER. ' +
       '`role=ADMIN` / `role=REGIONAL_ADMIN` list those internally managed ' +
@@ -373,10 +416,18 @@ export class AdminController {
     // administrative roles. A REGIONAL_ADMIN reaches this route for the
     // operational pickers (RA-05 officers, RA-06 loading officers) and is
     // held to those two roles no matter what the query string says.
+    //
+    // A-2: an ACCOUNT OFFICER now reaches it too, for one reason only —
+    // populating the assign-loading-officer picker. They are pinned to
+    // LOADING_OFFICER whatever the query string says, so this cannot become a
+    // way for one officer to enumerate their peers, and `region` above already
+    // holds them to their own region.
     const role =
-      isAdmin || query.role === StaffRole.LOADING_OFFICER
-        ? query.role
-        : StaffRole.OFFICER;
+      user.role === StaffRole.OFFICER
+        ? StaffRole.LOADING_OFFICER
+        : isAdmin || query.role === StaffRole.LOADING_OFFICER
+          ? query.role
+          : StaffRole.OFFICER;
 
     return this.adminService.getOfficers(
       { ...query, region, role, managed: isAdmin ? query.managed : false },
@@ -445,6 +496,35 @@ export class AdminController {
     return this.adminService.getOfficerDetail(id, user);
   }
 
+  // Declared BEFORE @Patch('officers/:id') so the literal 'bulk-region'
+  // segment is not swallowed as an officer id.
+  @Patch('officers/bulk-region')
+  @ApiOperation({
+    summary: 'Move a selection of officers to one region',
+    description:
+      'O-2 — the "Reassign Region" action over a checkbox selection on ' +
+      '/admin/officers. Body `{ "officerIds": string[], "region": Region }`.\n\n' +
+      'PER-OFFICER RESULTS, never all-or-nothing: moving nine officers and ' +
+      'failing the tenth leaves the nine moved and names the tenth in ' +
+      '`failed` with a `code` and `message`. There is deliberately no ' +
+      'surrounding transaction.\n\n' +
+      'Each move applies the same rules as PATCH /admin/officers/{id}: an ' +
+      'ADMIN in the selection is refused with `REGION_NOT_ALLOWED` (they are ' +
+      'organisation-wide) and an ERP-owned role with `ROLE_NOT_MANAGED`, ' +
+      'while everyone else still moves.\n\n' +
+      'Duplicate ids are collapsed. Maximum 500 per call.',
+  })
+  @ApiOkResponse({ type: BulkOperationResultDto })
+  @ApiBadRequestResponse({
+    description: 'Empty officerIds, more than 500 ids, or an unknown region',
+  })
+  async bulkOfficerRegion(@Body() dto: BulkOfficerRegionDto) {
+    return this.adminService.bulkUpdateOfficerRegion(
+      dto.officerIds,
+      dto.region,
+    );
+  }
+
   @Patch('officers/:id')
   @ApiOperation({
     summary: 'Deactivate or reactivate an internally managed user',
@@ -488,9 +568,38 @@ export class AdminController {
     @Body() dto: UpdateOfficerStatusDto,
     @CurrentUser() user: { id: string },
   ) {
-    return this.adminService.setOfficerActive(id, dto.isActive, {
+    const { isActive, ...profile } = dto;
+    const wantsProfileEdit = Object.values(profile).some(
+      (v) => v !== undefined,
+    );
+
+    // O-1 — the profile edit runs FIRST, so that a body carrying both a
+    // profile change and a deactivation cannot leave the user deactivated
+    // with the edit lost: `setOfficerActive` is the one that can refuse with
+    // 409 (customers still assigned), and if it does, the profile change has
+    // already been applied and reported rather than silently dropped.
+    const edited = wantsProfileEdit
+      ? await this.adminService.updateOfficerProfile(id, profile)
+      : null;
+
+    if (isActive === undefined) {
+      if (edited) return edited;
+      // Neither half present: the body said nothing at all.
+      throw new BadRequestException({
+        message:
+          'Send at least one of: isActive, name, phone, region, password.',
+        code: 'EMPTY_UPDATE',
+        statusCode: HttpStatus.BAD_REQUEST,
+      });
+    }
+
+    const status = await this.adminService.setOfficerActive(id, isActive, {
       id: user.id,
     });
+    // `changed` reports whether ANYTHING moved, across both halves.
+    return edited
+      ? { ...status, ...edited, changed: edited.changed || status.changed }
+      : status;
   }
 
   @Patch('officers/:id/reassign-customers')

@@ -232,6 +232,10 @@ export class ErpRawService {
     region?: Region;
     search?: string;
   }): Prisma.Sql {
+    // R-1 - BP_CLUSTER_CODE_VALUES now includes 9 (OTHERS), so filtering by
+    // OTHERS lists that bucket like any other region. GZ001 / GZ020 are still
+    // absent from the mapping and so are still excluded here: they are other
+    // entities' customer-coding schemes, not Viju territories.
     const codes = (
       filter.region
         ? [bpClusterCodeForRegion(filter.region)]

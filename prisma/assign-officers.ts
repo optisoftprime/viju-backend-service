@@ -70,6 +70,9 @@ const OFFICER_BY_REGION: Readonly<Record<Region, string>> = {
   SOUTH_SOUTH: 'officer.southsouth1@viju.local',
   WESTERN: 'officer.western1@viju.local',
   NORTH: 'officer.north1@viju.local',
+  // R-1 - the catch-all region. No officer is seeded for it, so this entry
+  // simply reports "skipped" until someone is posted there.
+  OTHERS: 'officer.others1@viju.local',
 };
 
 /** Per-region override, e.g. OFFICER_EMAIL_SOUTH_SOUTH=other@viju.local */

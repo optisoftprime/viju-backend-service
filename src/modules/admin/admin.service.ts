@@ -1482,6 +1482,197 @@ export class AdminService {
    * admin audit views. Role, region and permissions are preserved across a
    * deactivate/reactivate cycle.
    */
+  /**
+   * O-1 — edit a managed user's profile: name, phone, region, password.
+   *
+   * Every field is optional and ONLY what is present is applied, so the
+   * frontend can send just what changed. That matters most for `password`: an
+   * unchanged one is never resubmitted, and therefore never rotated behind
+   * the admin's back.
+   *
+   * Validation mirrors `createOfficer` — same length and pattern rules, same
+   * `code` on failure — so the same input is rejected the same way on both
+   * routes and the error lands on the right input rather than in a toast.
+   *
+   * A password change is deliberately NOT emailed. Creation emails a
+   * credential because the user has no other way to learn it; a reset is
+   * handed over by the admin who typed it, and mailing it would put a live
+   * password in an inbox nobody asked to involve.
+   *
+   * Returns `changed: false` when nothing actually differed, matching the
+   * idempotent shape `setOfficerActive` already returns.
+   */
+  async updateOfficerProfile(
+    officerId: string,
+    dto: {
+      name?: string;
+      phone?: string;
+      region?: Region;
+      password?: string;
+    },
+  ) {
+    const officer = await this.prisma.staff.findUnique({
+      where: { id: officerId },
+      select: { id: true, role: true, name: true, phone: true, region: true },
+    });
+    if (!officer) throw new NotFoundException('Officer not found');
+
+    if (!isManagedStaffRole(officer.role)) {
+      throw new BadRequestException({
+        message:
+          `A ${officer.role} account is not managed by this service and its ` +
+          'details cannot be changed here.',
+        code: 'ROLE_NOT_MANAGED',
+        role: officer.role,
+        statusCode: HttpStatus.BAD_REQUEST,
+      });
+    }
+
+    // An ADMIN is organisation-wide. The UI does not offer the field for that
+    // role, but the API is the control.
+    if (dto.region !== undefined && officer.role === StaffRole.ADMIN) {
+      throw new BadRequestException({
+        message:
+          'An ADMIN is organisation-wide and cannot be scoped to a region.',
+        code: 'REGION_NOT_ALLOWED',
+        field: 'region',
+        statusCode: HttpStatus.BAD_REQUEST,
+      });
+    }
+
+    const data: Prisma.StaffUpdateInput = {};
+    if (dto.name !== undefined && dto.name !== officer.name) {
+      data.name = dto.name;
+    }
+    if (dto.phone !== undefined && dto.phone !== officer.phone) {
+      data.phone = dto.phone;
+    }
+    if (dto.region !== undefined && dto.region !== officer.region) {
+      data.region = dto.region;
+    }
+    if (dto.password !== undefined) {
+      // Always rehashed when present: the caller asked for a rotation, and
+      // comparing against the stored hash to skip it would be pointless work
+      // for an operation that is already deliberate.
+      data.password = await bcrypt.hash(dto.password, 10);
+    }
+
+    if (Object.keys(data).length === 0) {
+      const unchanged = await this.prisma.staff.findUnique({
+        where: { id: officerId },
+        select: this.createdOfficerSelect,
+      });
+      return { ...unchanged, changed: false };
+    }
+
+    const updated = await this.prisma.staff
+      .update({
+        where: { id: officerId },
+        data,
+        select: this.createdOfficerSelect,
+      })
+      .catch((e: unknown) => {
+        // Phone is unique. Translate the constraint into the same message the
+        // create route gives rather than a 500.
+        throw this.translateStaffUniqueViolation(e);
+      });
+
+    return { ...updated, changed: true };
+  }
+
+  /**
+   * O-2 / C-2 — run a per-item operation and report each outcome separately.
+   *
+   * The whole point of the bulk routes is that a partial failure must not undo
+   * the successes: moving nine officers and failing the tenth leaves nine
+   * moved and names the one that did not. So there is deliberately NO
+   * surrounding transaction, and every item is caught individually.
+   *
+   * Items run in sequence rather than in parallel: these writes touch the same
+   * tables, and a burst of eighty concurrent updates is not something these
+   * routes have been asked to take.
+   */
+  private async runBulk<T>(
+    ids: string[],
+    idKey: 'officerId' | 'customerId',
+    run: (id: string) => Promise<T>,
+    treatAsSuccess: (code: string | undefined) => boolean = () => false,
+  ): Promise<{
+    succeeded: string[];
+    failed: Array<Record<string, string> & { code: string; message: string }>;
+  }> {
+    const succeeded: string[] = [];
+    const failed: Array<
+      Record<string, string> & { code: string; message: string }
+    > = [];
+
+    // De-duplicated so a repeated id cannot be counted twice, order preserved
+    // so the response reads in the order the operator selected.
+    for (const id of [...new Set(ids)]) {
+      try {
+        await run(id);
+        succeeded.push(id);
+      } catch (e) {
+        const body = (e as { response?: unknown })?.response;
+        const code =
+          typeof body === 'object' && body !== null && 'code' in body
+            ? String(body.code)
+            : undefined;
+        const message =
+          typeof body === 'object' && body !== null && 'message' in body
+            ? String(body.message)
+            : (e as Error).message;
+
+        if (treatAsSuccess(code)) {
+          succeeded.push(id);
+          continue;
+        }
+        failed.push({
+          [idKey]: id,
+          code: code ?? 'UNKNOWN',
+          message,
+        });
+      }
+    }
+    return { succeeded, failed };
+  }
+
+  /**
+   * O-2 — move a selection of officers to one region, reporting per officer.
+   *
+   * Each move goes through `updateOfficerProfile`, so the bulk route cannot
+   * drift from the single-officer rules: an ADMIN in the selection is refused
+   * with REGION_NOT_ALLOWED and named in `failed`, while everyone else moves.
+   */
+  async bulkUpdateOfficerRegion(officerIds: string[], region: Region) {
+    return this.runBulk(officerIds, 'officerId', (id) =>
+      this.updateOfficerProfile(id, { region }),
+    );
+  }
+
+  /**
+   * C-2 — assign a selection of customers to one officer, reporting per
+   * customer.
+   *
+   * Each move goes through `reassignOfficer`, so the region rule, the
+   * CustomerOfficer bookkeeping and the incoming officer's notification are
+   * all exactly as they are on the single route.
+   *
+   * ALREADY_ASSIGNED counts as a SUCCESS here. The single route refuses it so
+   * an operator is told why nothing changed, but in a batch the customer ends
+   * up holding exactly the officer that was asked for — which is the point of
+   * the call — and reporting it as a failure would make a re-run of a
+   * half-finished batch look broken.
+   */
+  async bulkReassignCustomers(customerIds: string[], newOfficerId: string) {
+    return this.runBulk(
+      customerIds,
+      'customerId',
+      (id) => this.reassignOfficer(id, { newOfficerId }),
+      (code) => code === 'ALREADY_ASSIGNED',
+    );
+  }
+
   async setOfficerActive(
     officerId: string,
     isActive: boolean,

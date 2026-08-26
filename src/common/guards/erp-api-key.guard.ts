@@ -35,7 +35,9 @@ export class ErpApiKeyGuard implements CanActivate {
         }
         return true;
       }
-      throw new UnauthorizedException('ERP webhook authentication not configured');
+      throw new UnauthorizedException(
+        'ERP webhook authentication not configured',
+      );
     }
 
     const req = context.switchToHttp().getRequest();

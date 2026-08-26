@@ -11,6 +11,7 @@ import { paginate } from '../../common/pagination/paginate';
 import {
   LoadingQueueQueryDto,
   RecordWaybillDto,
+  UpdateLoadingDescriptionDto,
   UpdateQueueStatusDto,
 } from './dto/loading.dto';
 import {
@@ -93,6 +94,52 @@ export class LoadingService {
   }
 
   /**
+   * L-2 — set or clear the loading officer's note on a load.
+   *
+   * Deliberately its own route rather than a field on the status route: the
+   * note is written and corrected independently of the status, so saving one
+   * must never move the other.
+   *
+   * Writable by the ASSIGNED loading officer only — `ensureOwnAssignment`
+   * answers 403 for anyone else, the same gate the status and waybill routes
+   * use.
+   *
+   * An empty string clears the note back to null. That is a valid save: an
+   * officer who mistyped a note needs a way to remove it, and leaving a wrong
+   * note in place is worse than leaving none.
+   */
+  async updateDescription(
+    officerId: string,
+    requestId: string,
+    dto: UpdateLoadingDescriptionDto,
+  ) {
+    await this.ensureOwnAssignment(officerId, requestId);
+
+    const trimmed = dto.description.trim();
+    const updated = await this.prisma.loadingRequest.update({
+      where: { id: requestId },
+      data: { description: trimmed === '' ? null : trimmed },
+      include: QUEUE_INCLUDE,
+    });
+
+    // The full detail body, so the screen re-renders from this one response
+    // rather than refetching.
+    return {
+      ...this.toQueueItem(updated),
+      waybill: updated.reference,
+      truckPlateNumber: updated.truckPlateNumber,
+      driverName: updated.driverName,
+      driverPhone: updated.driverPhone,
+      loadingDate: updated.requestedLoadingDate,
+      quantityCartons: updated.quantityCartons,
+      destination: updated.destination,
+      reference: updated.reference,
+      attachmentUrl: updated.waybillDocumentUrl,
+      updatedAt: updated.updatedAt,
+    };
+  }
+
+  /**
    * LO-04 — advance a load. Illegal transitions are refused with 409 rather
    * than silently accepted, and the distributor is notified on every change,
    * which is the same feed the regional dashboard's pending queue reads.
@@ -106,6 +153,7 @@ export class LoadingService {
     const target = toDbStatus(dto.status) as LoadingRequestStatus;
     assertLoadingTransition(request.status, target);
 
+    const cancelling = target === LoadingRequestStatus.CANCELLED;
     const updated = await this.prisma.loadingRequest.update({
       where: { id: requestId },
       data: {
@@ -118,6 +166,18 @@ export class LoadingService {
           target === LoadingRequestStatus.COMPLETED
             ? new Date()
             : request.completedAt,
+        // L-1 — the loading officer cancels their own load through this
+        // route. The reason is stored only when one was given: a blank string
+        // would read back as "a reason was recorded and it was empty".
+        ...(cancelling
+          ? {
+              cancelledAt: new Date(),
+              cancelledById: officerId,
+              ...(dto.reason?.trim()
+                ? { cancelReason: dto.reason.trim() }
+                : {}),
+            }
+          : {}),
       },
     });
 
@@ -131,6 +191,8 @@ export class LoadingService {
       id: updated.id,
       status: toApiStatus(updated.status),
       updatedAt: updated.updatedAt,
+      cancelledAt: updated.cancelledAt,
+      cancelReason: updated.cancelReason,
     };
   }
 
@@ -216,6 +278,11 @@ export class LoadingService {
       region: request.region,
       submittedAt: request.createdAt,
       status: toApiStatus(request.status),
+      // L-2 / L-1 — on every row, so the DESCRIPTION column and the cancelled
+      // state render from the list without a second call per row.
+      description: request.description,
+      cancelledAt: request.cancelledAt,
+      cancelReason: request.cancelReason,
     };
   }
 

@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
 import { CustomerOpenTicketCountDto } from './customer-response.dto';
 import { Region, REGION_VALUES } from '../../../common/region/region.constants';
@@ -825,4 +825,57 @@ export class ProductFlyerDto {
 
   @ApiProperty({ example: '2026-06-09T08:16:56.533Z', format: 'date-time' })
   updatedAt: Date;
+}
+
+// ─── Bulk operations (O-2, C-2) ─────────────────────────────
+
+/** One item that could not be processed, with the reason. */
+export class BulkFailureDto {
+  @ApiPropertyOptional({
+    example: '1b2c3d4e-5f60-4718-9a2b-3c4d5e6f7081',
+    description: 'Present on PATCH /admin/officers/bulk-region.',
+  })
+  officerId?: string;
+
+  @ApiPropertyOptional({
+    example: 'bd5dbe51-b00e-4d05-a321-76108e0f3918',
+    description: 'Present on PATCH /admin/customers/bulk-reassign.',
+  })
+  customerId?: string;
+
+  @ApiProperty({
+    example: 'REGION_NOT_ALLOWED',
+    description:
+      'The machine-readable code from the underlying single-item route, so ' +
+      'the client can branch on it exactly as it already does there. ' +
+      '`UNKNOWN` when the failure carried no code.',
+  })
+  code: string;
+
+  @ApiProperty({
+    example: 'An ADMIN is organisation-wide and cannot be scoped to a region.',
+  })
+  message: string;
+}
+
+/**
+ * O-2 / C-2 — the outcome of a bulk action, reported per item.
+ *
+ * Deliberately never all-or-nothing: a partial failure leaves the successes
+ * applied and names only what did not work, so a nine-of-ten run is nine
+ * moved rather than nothing moved.
+ */
+export class BulkOperationResultDto {
+  @ApiProperty({
+    type: [String],
+    description:
+      'Ids that were applied. On bulk-reassign this INCLUDES customers that ' +
+      'were already assigned to the requested officer (ALREADY_ASSIGNED) — ' +
+      'they hold the officer that was asked for, which is the point of the ' +
+      'call.',
+  })
+  succeeded: string[];
+
+  @ApiProperty({ type: [BulkFailureDto] })
+  failed: BulkFailureDto[];
 }
