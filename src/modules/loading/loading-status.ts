@@ -95,12 +95,31 @@ export function toDbStatus(value: string): LoadingRequestStatus | null {
 const ALLOWED_TRANSITIONS: Readonly<
   Partial<Record<LoadingRequestStatus, LoadingRequestStatus[]>>
 > = Object.freeze({
+  // L-1 - CANCELLED is legal from PENDING, ASSIGNED and IN_PROGRESS. A
+  // COMPLETED load is final: cancelling one answers 409, which is the API
+  // being the control rather than trusting the button to be hidden.
+  [LoadingRequestStatus.PENDING_ASSIGNMENT]: [LoadingRequestStatus.CANCELLED],
   [LoadingRequestStatus.ASSIGNED]: [
     LoadingRequestStatus.LOADING_IN_PROGRESS,
     LoadingRequestStatus.COMPLETED,
+    LoadingRequestStatus.CANCELLED,
   ],
-  [LoadingRequestStatus.LOADING_IN_PROGRESS]: [LoadingRequestStatus.COMPLETED],
+  [LoadingRequestStatus.LOADING_IN_PROGRESS]: [
+    LoadingRequestStatus.COMPLETED,
+    LoadingRequestStatus.CANCELLED,
+  ],
 });
+
+/**
+ * L-1 - can this load still be called off?
+ *
+ * COMPLETED and CANCELLED are both terminal. Exposed so the cancel routes can
+ * answer 409 with the same wording as the status route rather than inventing
+ * their own.
+ */
+export function assertCancellable(from: LoadingRequestStatus): void {
+  assertLoadingTransition(from, LoadingRequestStatus.CANCELLED);
+}
 
 /**
  * Rejects an illegal transition with a 409 carrying a machine-readable

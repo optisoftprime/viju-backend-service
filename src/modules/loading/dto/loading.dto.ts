@@ -4,6 +4,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  MaxLength,
   Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -17,8 +18,19 @@ export const QUEUE_STATUS_VALUES = [
 ] as const;
 export type QueueStatus = (typeof QUEUE_STATUS_VALUES)[number];
 
-/** Statuses a loading officer can move a load to (LO-04). */
-export const QUEUE_STATUS_TRANSITIONS = ['IN_PROGRESS', 'COMPLETED'] as const;
+/**
+ * Statuses a loading officer can move a load to (LO-04).
+ *
+ * L-1 adds CANCELLED: the loading officer calls their own load off through
+ * this route, while a regional admin / account officer uses their `/cancel`
+ * route. Legal from PENDING, ASSIGNED and IN_PROGRESS; a COMPLETED load is
+ * final and answers 409.
+ */
+export const QUEUE_STATUS_TRANSITIONS = [
+  'IN_PROGRESS',
+  'COMPLETED',
+  'CANCELLED',
+] as const;
 
 /**
  * Query params for GET /loading/queue. The officer is always taken from the
@@ -43,11 +55,66 @@ export class UpdateQueueStatusDto {
     enum: QUEUE_STATUS_TRANSITIONS,
     example: 'IN_PROGRESS',
     description:
-      'The state to advance to. ASSIGNED -> IN_PROGRESS -> COMPLETED; any ' +
-      'other move (including reopening a completed load) is refused with 409.',
+      'The state to move to. ASSIGNED -> IN_PROGRESS -> COMPLETED; any ' +
+      'other move (including reopening a completed load) is refused with 409.' +
+      '\n\nL-1: CANCELLED is reachable from PENDING, ASSIGNED and ' +
+      'IN_PROGRESS. Cancelling a COMPLETED load is a 409 ' +
+      'INVALID_STATUS_TRANSITION.',
   })
   @IsIn(QUEUE_STATUS_TRANSITIONS)
-  status: 'IN_PROGRESS' | 'COMPLETED';
+  status: 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+
+  @ApiPropertyOptional({
+    example: 'distributor rescheduled',
+    maxLength: 500,
+    description:
+      'L-1 — why the load was called off. Only read when `status` is ' +
+      'CANCELLED. Omit entirely rather than sending a blank string when the ' +
+      'operator gives no reason.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
+/**
+ * L-1 — body for the regional admin / account officer cancel routes.
+ *
+ * `reason` is optional and should be omitted rather than sent blank, so
+ * "no reason recorded" and "the reason was empty" stay distinguishable.
+ */
+export class CancelLoadingRequestDto {
+  @ApiPropertyOptional({
+    example: 'distributor rescheduled',
+    maxLength: 500,
+    description: 'Why the load was called off. Optional.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
+/**
+ * L-2 — body for PATCH /loading/queue/:id/description.
+ *
+ * An empty string is a VALID save: it clears a note that turned out to be
+ * wrong, which is better than leaving a wrong one in place. That is why
+ * `@IsNotEmpty()` is deliberately absent.
+ */
+export class UpdateLoadingDescriptionDto {
+  @ApiProperty({
+    example:
+      'customer loading 800 cartons on 26/08/2026, remaining a balance of 200 cartons',
+    maxLength: 500,
+    description:
+      'The loading officer’s note on this load. Send "" to clear it — the ' +
+      'field reads back as null once cleared.',
+  })
+  @IsString()
+  @MaxLength(500)
+  description: string;
 }
 
 /** Body for POST /loading/queue/:id/waybill (LO-05). */

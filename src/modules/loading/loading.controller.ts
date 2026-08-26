@@ -29,6 +29,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import {
   LoadingQueueQueryDto,
   RecordWaybillDto,
+  UpdateLoadingDescriptionDto,
   UpdateQueueStatusDto,
 } from './dto/loading.dto';
 import {
@@ -109,12 +110,16 @@ export class LoadingController {
 
   @Patch('queue/:id/status')
   @ApiOperation({
-    summary: 'Advance a load / mark it complete',
+    summary: 'Advance a load / mark it complete / cancel it',
     description:
       'LO-04 — ASSIGNED → IN_PROGRESS → COMPLETED. Any other move, including ' +
       'reopening a completed load, is refused with 409 and a machine-readable ' +
       '`code` rather than silently accepted. The distributor is notified on ' +
-      'each change, which is the same feed the regional dashboard reads.',
+      'each change, which is the same feed the regional dashboard reads.\n\n' +
+      'L-1 — send `{ "status": "CANCELLED" }` (optionally with `reason`) to ' +
+      'call the load off. Legal from PENDING, ASSIGNED and IN_PROGRESS; a ' +
+      'COMPLETED load is final and answers 409. `cancelledAt` and ' +
+      '`cancelReason` are stamped and returned.',
   })
   @ApiParam({ name: 'id', description: 'Loading request id' })
   @ApiOkResponse({ type: LoadingStatusUpdatedDto })
@@ -133,6 +138,35 @@ export class LoadingController {
     @Body() dto: UpdateQueueStatusDto,
   ) {
     return this.loadingService.updateStatus(user.id, id, dto);
+  }
+
+  @Patch('queue/:id/description')
+  @ApiOperation({
+    summary: 'Set or clear the loading note on a load',
+    description:
+      'L-2 — the DESCRIPTION column on the loading screen, e.g. "customer ' +
+      'loading 800 cartons on 26/08/2026, remaining a balance of 200 ' +
+      'cartons".\n\n' +
+      'Its own route, not a field on the status route: the note is written ' +
+      'and corrected independently of the status, so saving one never moves ' +
+      'the other.\n\n' +
+      'Writable by the ASSIGNED loading officer only. Send `""` to clear the ' +
+      'note — it reads back as `null` afterwards. Max 500 characters.\n\n' +
+      'Responds with the full assignment detail so the screen re-renders from ' +
+      'one body.',
+  })
+  @ApiParam({ name: 'id', description: 'Loading request id' })
+  @ApiOkResponse({ type: LoadingQueueDetailDto })
+  @ApiNotFoundResponse({ description: 'Loading request not found' })
+  @ApiForbiddenResponse({
+    description: 'The assignment belongs to another officer',
+  })
+  async updateDescription(
+    @CurrentUser() user: StaffUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateLoadingDescriptionDto,
+  ) {
+    return this.loadingService.updateDescription(user.id, id, dto);
   }
 
   @Post('queue/:id/waybill')

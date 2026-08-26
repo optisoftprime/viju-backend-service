@@ -52,7 +52,15 @@ describe('Admin user-management authorization', () => {
 
   it('lets a regional admin read officers but never manage them', () => {
     // RA-05 / RA-06 read access is a deliberate widening on the GET routes.
-    expect(rolesFor('getOfficers')).toEqual(['ADMIN', 'REGIONAL_ADMIN']);
+    // A-2 adds OFFICER to the LIST route only — an account officer needs the
+    // loading-officer picker to assign their own loading requests. The
+    // handler pins them to role=LOADING_OFFICER and to their own region, and
+    // they are NOT on the detail route or on any management route below.
+    expect(rolesFor('getOfficers')).toEqual([
+      'ADMIN',
+      'REGIONAL_ADMIN',
+      'OFFICER',
+    ]);
     expect(rolesFor('getOfficer')).toEqual(['ADMIN', 'REGIONAL_ADMIN']);
   });
 

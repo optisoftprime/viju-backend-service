@@ -31,6 +31,7 @@ import {
   UpdateLoadingStatusDto,
   ListLoadingRequestsQueryDto,
 } from './dto/regional.dto';
+import { CancelLoadingRequestDto } from '../loading/dto/loading.dto';
 import { Region } from '../../common/region/region.constants';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 import { CustomerFilterDto } from '../admin/dto/admin.dto';
@@ -207,6 +208,48 @@ export class RegionalController {
   ) {
     const region = this.resolveRegion(user);
     return this.regionalService.assignLoadingRequest(region, user.id, id, dto);
+  }
+
+  @Patch('loading-requests/:id/cancel')
+  @Roles('REGIONAL_ADMIN', 'ADMIN')
+  @ApiOperation({
+    summary: 'Cancel a loading request',
+    description:
+      'L-1 — calls the load off. Legal from PENDING, ASSIGNED and ' +
+      'IN_PROGRESS; a COMPLETED load is final and answers 409 ' +
+      'INVALID_STATUS_TRANSITION.\n\n' +
+      'Body `{ "reason"?: string }` — optional. Omit it entirely rather than ' +
+      'sending a blank string when the operator gives none, so "no reason ' +
+      'recorded" stays distinguishable from "the reason was empty".\n\n' +
+      'Both the distributor and the assigned loading officer are notified, as ' +
+      'they are on assignment — the officer may already be at the depot.\n\n' +
+      'Scoped to the caller’s own region.',
+  })
+  @ApiParam({ name: 'id', description: 'Loading request id' })
+  @ApiOkResponse({
+    description: 'The updated loading request (now CANCELLED).',
+    type: RegionalLoadingRequestDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Loading request not found in your region',
+  })
+  @ApiConflictResponse({
+    description:
+      'Terminal state: `{ "message": "A completed load cannot be reopened.", ' +
+      '"code": "INVALID_STATUS_TRANSITION", "statusCode": 409 }`',
+  })
+  async cancelRequest(
+    @CurrentUser() user: StaffUser,
+    @Param('id') id: string,
+    @Body() dto: CancelLoadingRequestDto,
+  ) {
+    const region = this.resolveRegion(user);
+    return this.regionalService.cancelLoadingRequest(
+      { region },
+      user.id,
+      id,
+      dto.reason,
+    );
   }
 
   @Get('my-loading-queue')

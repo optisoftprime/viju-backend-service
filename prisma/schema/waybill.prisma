@@ -38,6 +38,19 @@ model LoadingRequest {
   loadingStartedAt DateTime?
   completedAt      DateTime?
 
+  /// L-2 - the loading officer's free-text note on this load, e.g. "customer
+  /// loading 800 cartons on 26/08/2026, remaining a balance of 200 cartons".
+  /// Written and corrected independently of `status`, which is why it has its
+  /// own route. Null when never written; an empty save clears it back to null.
+  description String?
+
+  /// L-1 - when the load was called off, and why. `cancelReason` is optional:
+  /// an operator who gives no reason leaves it null rather than blank, so
+  /// "no reason recorded" and "reason was empty" cannot be confused.
+  cancelledAt   DateTime?
+  cancelReason  String?
+  cancelledById String?
+
   waybillDocumentUrl String?
   notes              String?
 

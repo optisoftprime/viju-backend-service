@@ -8,6 +8,9 @@ import {
   IsIn,
   IsOptional,
   IsBoolean,
+  IsArray,
+  ArrayNotEmpty,
+  ArrayMaxSize,
   Matches,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
@@ -200,15 +203,136 @@ export class OfficerFilterDto extends SortQueryDto {
  * (US-15.4 / US-15.5).
  */
 export class UpdateOfficerStatusDto {
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: false,
     description:
       'false deactivates the user (refused with 409 while an account officer ' +
       'still holds customers); true reactivates them. Idempotent — sending ' +
-      'the status the user already has returns 200 with `changed: false`.',
+      'the status the user already has returns 200 with `changed: false`.\n\n' +
+      'O-1: now OPTIONAL. Omit it to edit the profile fields below without ' +
+      'touching the account’s status. Sending it alone behaves exactly as ' +
+      'before.',
   })
-  @IsBoolean({ message: 'isActive is required and must be a boolean' })
-  isActive: boolean;
+  @IsOptional()
+  @IsBoolean({ message: 'isActive must be a boolean' })
+  isActive?: boolean;
+
+  // ─── O-1: profile fields. Every one optional; only what is PRESENT is
+  // applied, so an unchanged password is never resubmitted and therefore
+  // never rotated. Validation mirrors CreateOfficerDto exactly, so the same
+  // input rejects the same way on both routes.
+
+  @ApiPropertyOptional({
+    example: 'Ada Obi',
+    minLength: 2,
+    maxLength: 120,
+    description: 'O-1 — the user’s full name.',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty({ message: 'name cannot be empty' })
+  @MinLength(2)
+  @MaxLength(120)
+  name?: string;
+
+  @ApiPropertyOptional({
+    example: '+2348012345678',
+    description: 'O-1 — the user’s phone number.',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @Matches(/^\+?[0-9][0-9\s-]{6,19}$/, {
+    message: 'phone must be 7-20 digits, optionally prefixed with +',
+  })
+  phone?: string;
+
+  @ApiPropertyOptional({
+    enum: Region,
+    example: Region.LAGOS,
+    description:
+      'O-1 — the user’s region. Refused with 400 `REGION_NOT_ALLOWED` on an ' +
+      'ADMIN, who is organisation-wide.',
+  })
+  @IsOptional()
+  @IsEnum(Region)
+  region?: Region;
+
+  @ApiPropertyOptional({
+    example: 'TempPass123',
+    minLength: 8,
+    maxLength: 72,
+    description:
+      'O-1 — a new password. NOT emailed to the user: the admin passes it on ' +
+      'themselves. Send it only when it actually changed — omitting it leaves ' +
+      'the existing credential untouched.',
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  // bcrypt silently ignores bytes past 72; refuse rather than truncate.
+  @MaxLength(72)
+  password?: string;
+}
+
+/**
+ * O-2 — move a selection of officers to one region in a single call.
+ *
+ * Replaces N fan-out requests over PATCH /admin/officers/{id}. Results are
+ * reported per officer, never all-or-nothing: moving nine and failing the
+ * tenth leaves nine moved.
+ */
+export class BulkOfficerRegionDto {
+  @ApiProperty({
+    type: [String],
+    example: ['1b2c3d4e-5f60-4718-9a2b-3c4d5e6f7081'],
+    description: 'The officers to move. Duplicates are collapsed.',
+  })
+  @IsArray()
+  @ArrayNotEmpty({ message: 'officerIds must contain at least one id' })
+  @ArrayMaxSize(500)
+  @IsString({ each: true })
+  officerIds: string[];
+
+  @ApiProperty({
+    enum: Region,
+    example: Region.OTHERS,
+    description:
+      'The region to move them to. An ADMIN in the selection is refused with ' +
+      'REGION_NOT_ALLOWED and named in `failed`; everyone else still moves.',
+  })
+  @IsEnum(Region)
+  region: Region;
+}
+
+/**
+ * C-2 — assign a selection of customers to one account officer.
+ *
+ * Replaces N fan-out requests over PATCH /admin/customers/{id}/reassign.
+ */
+export class BulkReassignCustomersDto {
+  @ApiProperty({
+    type: [String],
+    example: ['bd5dbe51-b00e-4d05-a321-76108e0f3918'],
+    description: 'The customers to reassign. Duplicates are collapsed.',
+  })
+  @IsArray()
+  @ArrayNotEmpty({ message: 'customerIds must contain at least one id' })
+  @ArrayMaxSize(500)
+  @IsString({ each: true })
+  customerIds: string[];
+
+  @ApiProperty({
+    example: '7c2a09d3-6f61-49c2-9a0e-8d5b1f2c3a44',
+    description:
+      'The receiving account officer. Must be ACTIVE and in the same region ' +
+      'as each customer — a customer in another region is named in `failed` ' +
+      'with OFFICER_NOT_FOUND.',
+  })
+  @IsString()
+  @IsNotEmpty({ message: 'newOfficerId is required' })
+  newOfficerId: string;
 }
 
 export class ReassignOfficerDto {

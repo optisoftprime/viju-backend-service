@@ -15,6 +15,7 @@ import { LoadingRequestStatus, Prisma } from '@prisma/client';
 import { Region } from '../../common/region/region.constants';
 import { paginate } from '../../common/pagination/paginate';
 import {
+  assertCancellable,
   assertLoadingTransition,
   toApiStatus,
   toDbStatus,
@@ -101,7 +102,82 @@ export class RegionalService {
       assignedOfficer: request.assignedOfficer
         ? { id: request.assignedOfficer.id, name: request.assignedOfficer.name }
         : null,
+      // L-2 / L-1 — the DESCRIPTION column and the cancellation stamps, on
+      // every row so the list renders without a call per row.
+      description: request.description,
+      cancelledAt: request.cancelledAt,
+      cancelReason: request.cancelReason,
     };
+  }
+
+  /**
+   * L-1 — call a load off.
+   *
+   * Shared by the regional admin and the account officer: `scope` is the
+   * WHERE that proves the caller may touch this request at all — a region for
+   * a regional admin, an assigned-customer set for an account officer — so
+   * neither can reach a load outside their own remit.
+   *
+   * Terminal states are refused by `assertCancellable`, which reuses the same
+   * transition table and 409 wording as the loading officer's status route:
+   * a COMPLETED load cannot be cancelled by anyone, through any door.
+   *
+   * Both the distributor and the ASSIGNED loading officer are notified, as
+   * they are on assignment — the officer may already be at the depot, and a
+   * silent cancellation would send them to load a truck that is not coming.
+   */
+  async cancelLoadingRequest(
+    scope: Prisma.LoadingRequestWhereInput,
+    requesterId: string,
+    requestId: string,
+    reason?: string,
+  ) {
+    const request = await this.prisma.loadingRequest.findFirst({
+      where: { id: requestId, ...scope },
+      include: LOADING_REQUEST_INCLUDE,
+    });
+    if (!request) throw new NotFoundException('Loading request not found.');
+
+    assertCancellable(request.status);
+
+    const trimmed = reason?.trim();
+    const updated = await this.prisma.loadingRequest.update({
+      where: { id: requestId },
+      data: {
+        status: LoadingRequestStatus.CANCELLED,
+        cancelledAt: new Date(),
+        cancelledById: requesterId,
+        // Stored only when given, so "no reason recorded" stays distinct from
+        // "the reason was blank".
+        ...(trimmed ? { cancelReason: trimmed } : {}),
+      },
+      include: LOADING_REQUEST_INCLUDE,
+    });
+
+    const detail = trimmed ? ` — ${trimmed}` : '';
+    await this.notifications.notify({
+      recipientType: 'CUSTOMER',
+      recipientId: request.customer.id,
+      title: 'Loading request cancelled',
+      body: `${updated.reference} has been cancelled${detail}`,
+      type: NotificationTypes.WAYBILL_STATUS_CHANGED,
+      data: { waybillId: requestId, reference: updated.reference },
+    });
+
+    // Only if one was assigned — a PENDING load has nobody to tell.
+    if (request.assignedOfficerId) {
+      await this.notifications.notify({
+        recipientType: 'STAFF',
+        recipientId: request.assignedOfficerId,
+        subjectCustomerId: request.customer.id,
+        title: 'Loading request cancelled',
+        body: `${request.customer.name} — ${updated.reference} has been cancelled${detail}`,
+        type: NotificationTypes.WAYBILL_STATUS_CHANGED,
+        data: { waybillId: requestId, reference: updated.reference },
+      });
+    }
+
+    return this.toRow(updated);
   }
 
   /**
@@ -114,8 +190,32 @@ export class RegionalService {
     requestId: string,
     dto: AssignLoadingOfficerDto,
   ) {
+    return this.assignLoadingRequestScoped(
+      { region },
+      requesterId,
+      requestId,
+      dto,
+    );
+  }
+
+  /**
+   * A-1 — the assign step, with the caller's remit passed in as a WHERE.
+   *
+   * `scope` is `{ region }` for a regional admin and an assigned-customer
+   * filter for an account officer, so neither can assign a load they cannot
+   * see. The loading officer is validated against the REQUEST's region rather
+   * than the caller's: the load belongs to a region, and that is what decides
+   * who may carry it. For the regional path the two are identical, because
+   * `scope` already pinned the request to that region.
+   */
+  async assignLoadingRequestScoped(
+    scope: Prisma.LoadingRequestWhereInput,
+    requesterId: string,
+    requestId: string,
+    dto: AssignLoadingOfficerDto,
+  ) {
     const request = await this.prisma.loadingRequest.findFirst({
-      where: { id: requestId, region },
+      where: { id: requestId, ...scope },
       include: { customer: { select: { id: true, name: true } } },
     });
     if (!request)
@@ -126,7 +226,7 @@ export class RegionalService {
     const officer = await this.prisma.staff.findFirst({
       where: {
         id: dto.loadingOfficerId,
-        region,
+        region: request.region,
         role: { in: ['LOADING_OFFICER', 'WAREHOUSE_OFFICER'] },
         isActive: true,
       },
@@ -189,10 +289,29 @@ export class RegionalService {
       pageSize: 20,
     },
   ) {
+    return this.listRequestsScoped({ region }, status, query);
+  }
+
+  /**
+   * A-1 — the same list, with the caller's remit passed in as a WHERE.
+   *
+   * Identical query params, row shape and `meta` for both callers; ONLY the
+   * scope differs. A regional admin passes `{ region }`; an account officer
+   * passes a filter on the customers assigned to them, resolved from their own
+   * staff record and never from a query param.
+   */
+  async listRequestsScoped(
+    scope: Prisma.LoadingRequestWhereInput,
+    status: string,
+    query: { page: number; pageSize: number; search?: string } = {
+      page: 1,
+      pageSize: 20,
+    },
+  ) {
     const dbStatus = status === 'ALL' ? null : toDbStatus(status);
     const search = query.search?.trim();
     const where: Prisma.LoadingRequestWhereInput = {
-      region,
+      ...scope,
       ...(dbStatus ? { status: dbStatus } : {}),
       ...(search
         ? {

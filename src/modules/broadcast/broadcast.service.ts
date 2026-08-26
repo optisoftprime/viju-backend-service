@@ -88,9 +88,51 @@ export class BroadcastService {
     return broadcast;
   }
 
+  /**
+   * B-2 — an individual broadcast to one distributor or to several.
+   *
+   * `customerIds` and the original single `customerId` are both accepted; the
+   * single form is simply a batch of one, so existing callers are unaffected
+   * and there is only one code path to reason about.
+   *
+   * ALLOWANCE SEMANTICS, stated because the form promises them: the allowance
+   * is credited PER RECIPIENT, never divided between them. Twelve recipients
+   * at ₦1,000 credit ₦12,000 in total.
+   *
+   * Each recipient gets their OWN Broadcast row, so history stays
+   * per-recipient and `deliveredCount` keeps meaning "how many people this
+   * record reached". Sends run in sequence: each can credit a wallet, and a
+   * burst of parallel payment writes is not something this route has been
+   * asked to take.
+   *
+   * Returns the single broadcast when one recipient was named — byte-identical
+   * to the old response — and the array when several were.
+   */
   async sendIndividual(adminId: string, dto: SendIndividualBroadcastDto) {
+    const ids = dto.customerIds ?? (dto.customerId ? [dto.customerId] : []);
+    const unique = [...new Set(ids)];
+    if (unique.length === 0) {
+      throw new BadRequestException(
+        'Provide customerId or a non-empty customerIds.',
+      );
+    }
+
+    const sent: Awaited<ReturnType<typeof this.sendToOneCustomer>>[] = [];
+    for (const customerId of unique) {
+      sent.push(await this.sendToOneCustomer(adminId, customerId, dto));
+    }
+    // One recipient keeps the pre-B-2 response shape exactly.
+    return unique.length === 1 ? sent[0] : sent;
+  }
+
+  /** One recipient's broadcast: wallet credit, record, notification. */
+  private async sendToOneCustomer(
+    adminId: string,
+    customerId: string,
+    dto: SendIndividualBroadcastDto,
+  ) {
     const customer = await this.prisma.customer.findUnique({
-      where: { id: dto.customerId },
+      where: { id: customerId },
       select: {
         id: true,
         name: true,
@@ -189,9 +231,27 @@ export class BroadcastService {
     filter: BroadcastHistoryFilterDto,
     pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
   ) {
+    const search = filter.search?.trim();
     const where = {
       ...(filter.type ? { type: filter.type } : {}),
       ...(filter.region ? { targetRegions: { has: filter.region } } : {}),
+      // B-1 — reference, message body, and the recipient (the target
+      // customer's name on an individual broadcast). Server-side, so it
+      // searches the whole history rather than the newest page of it, and
+      // `meta.total` is the size of the filtered set.
+      ...(search
+        ? {
+            OR: [
+              { reference: { contains: search, mode: 'insensitive' as const } },
+              { message: { contains: search, mode: 'insensitive' as const } },
+              {
+                targetCustomer: {
+                  name: { contains: search, mode: 'insensitive' as const },
+                },
+              },
+            ],
+          }
+        : {}),
       ...(filter.startDate || filter.endDate
         ? {
             sentAt: {

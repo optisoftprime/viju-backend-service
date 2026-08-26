@@ -10,4 +10,10 @@ enum Region {
   SOUTH_SOUTH // BP_CLUSTER_CODE 3
   WESTERN // BP_CLUSTER_CODE 4
   NORTH // BP_CLUSTER_CODE 5
+  /// R-1 - catch-all for a customer whose BP_CLUSTER_CODE maps to none of the
+  /// five named territories (the feed carries 9, GZ001 and GZ020 among
+  /// others). It has NO BP_CLUSTER_CODE of its own and is never produced by
+  /// the ERP translation - it is only ever set deliberately, by an admin or by
+  /// an operator triaging the unmapped list.
+  OTHERS
 }

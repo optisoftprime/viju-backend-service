@@ -40,23 +40,51 @@ describe('region constants', () => {
       },
     );
 
-    it('covers every region and nothing more', () => {
-      expect(REGION_VALUES).toEqual(ERP_CONTRACT.map(([, region]) => region));
+    it('covers every ERP region, and OTHERS on top', () => {
+      // R-1 - OTHERS is a PORTAL region, not an ERP territory: it is the
+      // catch-all for a customer whose BP_CLUSTER_CODE maps to none of the
+      // five (the feed carries 9, GZ001 and GZ020 among others). So the enum
+      // is deliberately one longer than the ERP contract, and OTHERS comes
+      // last, after the code-ordered five.
+      expect(REGION_VALUES).toEqual([
+        ...ERP_CONTRACT.map(([, region]) => region),
+        Region.OTHERS,
+      ]);
+
+      // ...but it contributes NO code. The ERP side of the contract is
+      // unchanged, which is the point: nothing the ERP sends can produce
+      // OTHERS.
       expect(BP_CLUSTER_CODE_VALUES).toEqual(
         ERP_CONTRACT.map(([code]) => code),
       );
-      // Every value the Prisma enum knows about must have a code.
+
+      // Every value the Prisma enum knows about is still present in the map,
+      // so a new region cannot be added without deciding its code...
       expect(Object.keys(BP_CLUSTER_CODE_BY_REGION).sort()).toEqual(
         Object.values(Region).sort(),
       );
+      // ...and OTHERS' decision is "none".
+      expect(BP_CLUSTER_CODE_BY_REGION[Region.OTHERS]).toBeNull();
+      expect(bpClusterCodeForRegion(Region.OTHERS)).toBeNull();
     });
 
-    it('round-trips region -> code -> region', () => {
-      for (const region of REGION_VALUES) {
-        expect(regionFromBpClusterCode(bpClusterCodeForRegion(region))).toBe(
-          region,
-        );
+    it('round-trips every CODED region -> code -> region', () => {
+      for (const [, region] of ERP_CONTRACT) {
+        const code = bpClusterCodeForRegion(region);
+        expect(code).not.toBeNull();
+        expect(regionFromBpClusterCode(code)).toBe(region);
       }
+    });
+
+    it('is still a real region everywhere else', () => {
+      // OTHERS has no code, but it is a first-class region for filters,
+      // pickers and user records — which is the whole of R-1.
+      expect(isRegion(Region.OTHERS)).toBe(true);
+      expect(isRegion('OTHERS')).toBe(true);
+      expect(regionLabel(Region.OTHERS)).toBe('OTHERS');
+      // And nothing the ERP can send maps to it.
+      expect(tryRegionFromBpClusterCode(6)).toBeNull();
+      expect(tryRegionFromBpClusterCode('GZ020')).toBeNull();
     });
   });
 
