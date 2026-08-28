@@ -9,6 +9,11 @@ import { NotificationService } from '../../infrastructure/notification/notificat
 import { NotificationTypes } from '../../common/notifications/notification-types';
 import { paginate } from '../../common/pagination/paginate';
 import {
+  ActorRef,
+  actorOf,
+  actorsByIdFor,
+} from '../../common/staff/actor-lookup';
+import {
   LoadingQueueQueryDto,
   RecordWaybillDto,
   UpdateLoadingDescriptionDto,
@@ -74,14 +79,18 @@ export class LoadingService {
       query,
     );
 
-    return { data: page.data.map((r) => this.toQueueItem(r)), meta: page.meta };
+    const actors = await this.cancelActorsFor(page.data);
+    return {
+      data: page.data.map((r) => this.toQueueItem(r, actors)),
+      meta: page.meta,
+    };
   }
 
   /** LO-03 — detail panel for one assignment the caller owns. */
   async getQueueItem(officerId: string, requestId: string) {
     const request = await this.ensureOwnAssignment(officerId, requestId);
     return {
-      ...this.toQueueItem(request),
+      ...this.toQueueItem(request, await this.cancelActorsFor([request])),
       truckPlateNumber: request.truckPlateNumber,
       driverName: request.driverName,
       driverPhone: request.driverPhone,
@@ -132,7 +141,7 @@ export class LoadingService {
     // The full detail body, so the screen re-renders from this one response
     // rather than refetching.
     return {
-      ...this.toQueueItem(updated),
+      ...this.toQueueItem(updated, await this.cancelActorsFor([updated])),
       waybill: updated.reference,
       truckPlateNumber: updated.truckPlateNumber,
       driverName: updated.driverName,
@@ -200,6 +209,12 @@ export class LoadingService {
       updatedAt: updated.updatedAt,
       cancelledAt: updated.cancelledAt,
       cancelReason: updated.cancelReason,
+      // CB-1 — the loading officer cancels through this route rather than a
+      // /cancel one, so the actor belongs on this response too.
+      cancelledBy: actorOf(
+        await this.cancelActorsFor([updated as QueueRow]),
+        updated.cancelledById,
+      ),
     };
   }
 
@@ -277,7 +292,7 @@ export class LoadingService {
     return request;
   }
 
-  private toQueueItem(request: QueueRow) {
+  private toQueueItem(request: QueueRow, actors?: Map<string, ActorRef>) {
     return {
       id: request.id,
       orderId: request.linkedPurchase?.erpId ?? null,
@@ -291,7 +306,17 @@ export class LoadingService {
       descriptionUpdatedAt: request.descriptionUpdatedAt,
       cancelledAt: request.cancelledAt,
       cancelReason: request.cancelReason,
+      // CB-1 — who called the load off, with their role. Null on a live load.
+      cancelledBy: actorOf(actors ?? new Map(), request.cancelledById),
     };
+  }
+
+  /** CB-1 — resolves the `cancelledBy` actor for a set of rows, in one query. */
+  private cancelActorsFor(rows: QueueRow[]) {
+    return actorsByIdFor(
+      this.prisma,
+      rows.map((r) => r.cancelledById),
+    );
   }
 
   /**

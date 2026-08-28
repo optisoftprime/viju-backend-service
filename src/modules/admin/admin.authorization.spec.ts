@@ -44,10 +44,23 @@ describe('Admin user-management authorization', () => {
   it.each<keyof AdminController>([
     'deactivateOfficer',
     'reassignAllCustomers',
+    // BA-1 — bulk-region STAYS ADMIN-only, deliberately. Spec 43 asked for it
+    // to be widened; giving it to a regional admin would let them move their
+    // own officers into another region, which is exactly the transfer RU-3
+    // refuses one at a time. See FRONTEND_GUIDE_CANCELLED_BY_AND_REGIONAL_BULK.
     'bulkOfficerRegion',
-    'bulkReassignCustomers',
   ])('keeps %s ADMIN-only', (method) => {
     expect(rolesFor(method)).toEqual(['ADMIN']);
+  });
+
+  it('opens bulkReassignCustomers to REGIONAL_ADMIN (BA-2)', () => {
+    // Moving customers between officers INSIDE a region is squarely a regional
+    // admin's job. The service holds them to their own region on both sides —
+    // asserted in admin-regional-parity.spec.ts.
+    expect(rolesFor('bulkReassignCustomers')).toEqual([
+      'ADMIN',
+      'REGIONAL_ADMIN',
+    ]);
   });
 
   it.each<keyof AdminController>(['createOfficer', 'updateOfficerStatus'])(
@@ -148,8 +161,8 @@ describe('Admin user-management authorization', () => {
       // organisation-wide operations.
       for (const method of [
         'deactivateOfficer',
+        // BA-1 stays here; BA-2 (bulkReassignCustomers) deliberately moved out.
         'bulkOfficerRegion',
-        'bulkReassignCustomers',
       ] as (keyof AdminController)[]) {
         expect(() =>
           guard.canActivate(contextFor(method, 'REGIONAL_ADMIN')),

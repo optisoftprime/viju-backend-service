@@ -9,6 +9,7 @@ import {
 import * as bcrypt from 'bcryptjs';
 import { paginate } from '../../common/pagination/paginate';
 import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
+import { ErpStockBalanceService } from '../erp/erp-stock-balance.service';
 
 @Injectable()
 export class CustomerService {
@@ -16,6 +17,7 @@ export class CustomerService {
     private readonly prisma: PrismaService,
     private readonly ledger: StatementLedgerService,
     private readonly accountBalance: ErpAccountBalanceService,
+    private readonly stockBalance: ErpStockBalanceService,
   ) {}
 
   /**
@@ -80,7 +82,20 @@ export class CustomerService {
       totalPaidCartons += paidQty;
       totalLoadedCartons += Math.min(loadedQty, paidQty);
     }
-    const remainingCartons = Math.max(0, totalPaidCartons - totalLoadedCartons);
+    let remainingCartons = Math.max(0, totalPaidCartons - totalLoadedCartons);
+
+    // The ERP states both sides of this directly:
+    //   Stock Balance = SUM(BUSINESS_QTY - DELIVERED_BUSINESS_QTY)
+    // Prefer it over the locally projected purchases, and use the SAME source
+    // as GET /customers/me/stock-balance so the two screens agree. Null means
+    // the feed is absent or has no orders for this customer, in which case the
+    // projected figures above stand.
+    const erpStock = await this.stockBalance.getStockBalance(customer.erpId);
+    if (erpStock) {
+      totalPaidCartons = erpStock.totalPurchasedCartons;
+      totalLoadedCartons = erpStock.totalLoadedCartons;
+      remainingCartons = erpStock.totalRemainingCartons;
+    }
 
     const recentPurchases = await this.prisma.purchase.findMany({
       where: { customerId },
@@ -105,14 +120,18 @@ export class CustomerService {
       select: { id: true, imageUrl: true, name: true, description: true },
     });
 
-    const accountBalanceAmount = await this.resolveBalance(
-      customer.erpId,
-      customer.outstandingBalance,
-    );
+    const [accountBalanceAmount, temporarilyCredit] = await Promise.all([
+      this.resolveBalance(customer.erpId, customer.outstandingBalance),
+      // Supplementary credit whose EFFECTIVE_DATE..INEFFECTIVE_DATE window
+      // contains today, summed across every grant the ERP holds for this
+      // customer. 0 when nothing is in force.
+      this.accountBalance.getTemporaryCredit(customer.erpId),
+    ]);
 
     return {
       customerName: customer.name,
       profilePhotoUrl: customer.profilePhotoUrl,
+      temporarilyCredit,
       accountBalance: {
         amount: accountBalanceAmount,
         lastUpdated: customer.updatedAt,
@@ -130,6 +149,33 @@ export class CustomerService {
   }
 
   async getStockBalanceBreakdown(customerId: string) {
+    // Same ERP derivation as the home screen's Stock Balance card, so the two
+    // can no longer report different numbers for the same distributor.
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { erpId: true },
+    });
+    const erpStock = customer
+      ? await this.stockBalance.getStockBalance(customer.erpId)
+      : null;
+    if (erpStock) {
+      return {
+        totalPurchasedCartons: erpStock.totalPurchasedCartons,
+        totalLoadedCartons: erpStock.totalLoadedCartons,
+        totalRemainingCartons: erpStock.totalRemainingCartons,
+        loadingProgress:
+          erpStock.totalPurchasedCartons > 0
+            ? Math.round(
+                (erpStock.totalLoadedCartons / erpStock.totalPurchasedCartons) *
+                  100,
+              )
+            : 0,
+        products: erpStock.products,
+      };
+    }
+
+    // Fallback: the locally projected purchases, unchanged. Used only where
+    // the ERP sales-order feed is absent or silent about this customer.
     const purchases = await this.prisma.purchase.findMany({
       where: { customerId },
       select: {

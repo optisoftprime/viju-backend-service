@@ -1754,11 +1754,52 @@ export class AdminService {
    * the call — and reporting it as a failure would make a re-run of a
    * half-finished batch look broken.
    */
-  async bulkReassignCustomers(customerIds: string[], newOfficerId: string) {
+  async bulkReassignCustomers(
+    customerIds: string[],
+    newOfficerId: string,
+    scope?: Region,
+  ) {
+    // BA-2 — a REGIONAL_ADMIN may run this inside their own region only, on
+    // BOTH sides: every customer must be theirs, and so must the receiving
+    // officer.
+    //
+    // The officer half is checked ONCE, up front, rather than per customer:
+    // it is the same value for the whole batch, so an out-of-region officer
+    // means the entire call is wrong rather than every item failing
+    // identically. That reads as one clear error instead of eighty copies.
+    //
+    // The customer half stays PER ITEM, inside the loop, because a selection
+    // can legitimately be partly valid — and reporting which rows were
+    // refused is the whole point of the bulk envelope.
+    if (scope) {
+      const officer = await this.prisma.staff.findUnique({
+        where: { id: newOfficerId },
+        select: { region: true },
+      });
+      assertOwnRegion(
+        scope,
+        officer?.region ?? null,
+        'You can only assign customers to an officer in your own region.',
+      );
+    }
+
     return this.runBulk(
       customerIds,
       'customerId',
-      (id) => this.reassignOfficer(id, { newOfficerId }),
+      async (id) => {
+        if (scope) {
+          const customer = await this.prisma.customer.findUnique({
+            where: { id },
+            select: { region: true },
+          });
+          assertOwnRegion(
+            scope,
+            customer?.region ?? null,
+            'That distributor is not in your region.',
+          );
+        }
+        return this.reassignOfficer(id, { newOfficerId });
+      },
       (code) => code === 'ALREADY_ASSIGNED',
     );
   }

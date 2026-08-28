@@ -15,6 +15,11 @@ import { LoadingRequestStatus, Prisma } from '@prisma/client';
 import { Region } from '../../common/region/region.constants';
 import { paginate } from '../../common/pagination/paginate';
 import {
+  ActorRef,
+  actorOf,
+  actorsByIdFor,
+} from '../../common/staff/actor-lookup';
+import {
   assertCancellable,
   assertLoadingTransition,
   toApiStatus,
@@ -85,7 +90,7 @@ export class RegionalService {
    * translated to the portal vocabulary (PENDING / IN_PROGRESS) — see
    * modules/loading/loading-status.ts.
    */
-  private toRow(request: LoadingRequestRow) {
+  private toRow(request: LoadingRequestRow, actors?: Map<string, ActorRef>) {
     return {
       id: request.id,
       waybill: request.reference,
@@ -108,7 +113,19 @@ export class RegionalService {
       descriptionUpdatedAt: request.descriptionUpdatedAt,
       cancelledAt: request.cancelledAt,
       cancelReason: request.cancelReason,
+      // CB-1 — who called the load off. Three roles can cancel, so
+      // "cancelled" alone does not say who to ask about it. Null on a live
+      // load, and on a load cancelled before the actor was recorded.
+      cancelledBy: actorOf(actors ?? new Map(), request.cancelledById),
     };
+  }
+
+  /** CB-1 — resolves the `cancelledBy` actor for a set of rows, in one query. */
+  private cancelActorsFor(rows: LoadingRequestRow[]) {
+    return actorsByIdFor(
+      this.prisma,
+      rows.map((r) => r.cancelledById),
+    );
   }
 
   /**
@@ -178,7 +195,7 @@ export class RegionalService {
       });
     }
 
-    return this.toRow(updated);
+    return this.toRow(updated, await this.cancelActorsFor([updated]));
   }
 
   /**
@@ -270,7 +287,7 @@ export class RegionalService {
       data: { waybillId: requestId },
     });
 
-    return this.toRow(updated);
+    return this.toRow(updated, await this.cancelActorsFor([updated]));
   }
 
   /**
@@ -343,7 +360,11 @@ export class RegionalService {
         }),
       query,
     );
-    return { data: page.data.map((r) => this.toRow(r)), meta: page.meta };
+    const actors = await this.cancelActorsFor(page.data);
+    return {
+      data: page.data.map((r) => this.toRow(r, actors)),
+      meta: page.meta,
+    };
   }
 
   // ─── Loading / Warehouse Officer queue (PRD F13) ────────
@@ -435,6 +456,6 @@ export class RegionalService {
       data: { waybillId: requestId },
     });
 
-    return this.toRow(updated);
+    return this.toRow(updated, await this.cancelActorsFor([updated]));
   }
 }

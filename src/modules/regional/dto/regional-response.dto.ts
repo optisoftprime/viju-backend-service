@@ -33,6 +33,32 @@ export class RegionalAssignedOfficerDto {
  * assign mutation and the status mutation, so the FE has a single row shape
  * to bind to.
  */
+/**
+ * CB-1 — the staff member who cancelled a load.
+ *
+ * Three roles can cancel — a regional admin, an account officer and the
+ * assigned loading officer — so "cancelled" alone does not say who to ask
+ * about it. The role carries as much weight as the name: an overruled load and
+ * an abandoned one look identical without it.
+ */
+export class CancelledByDto {
+  @ApiProperty({ example: '1b2c3d4e-5f60-4718-9a2b-3c4d5e6f7081' })
+  id: string;
+
+  @ApiProperty({ example: 'Ada Obi' })
+  name: string;
+
+  @ApiProperty({
+    enum: ['ADMIN', 'REGIONAL_ADMIN', 'OFFICER', 'LOADING_OFFICER'],
+    example: 'REGIONAL_ADMIN',
+    description:
+      'The WIRE ENUM, never display text — render it through `formatRole()` ' +
+      'so it reads "Account Officer" rather than "OFFICER", and two clients ' +
+      'cannot word the same role differently.',
+  })
+  role: string;
+}
+
 export class RegionalLoadingRequestDto {
   @ApiProperty({ example: 'loading-request-uuid-1' })
   id: string;
@@ -98,6 +124,51 @@ export class RegionalLoadingRequestDto {
 
   @ApiProperty({ type: RegionalAssignedOfficerDto, nullable: true })
   assignedOfficer: RegionalAssignedOfficerDto | null;
+
+  @ApiProperty({
+    example: 'customer loading 800 cartons, 200 remaining',
+    nullable: true,
+    description:
+      'L-2 — the loading officer’s note. Null when none was written.',
+  })
+  description: string | null;
+
+  @ApiProperty({
+    example: '2026-08-28T09:14:02.000Z',
+    format: 'date-time',
+    nullable: true,
+    description:
+      'TS-1 — when the note was last written. NOT `updatedAt`, which every ' +
+      'status change bumps. Null on a load with no note, and on notes written ' +
+      'before this field existed.',
+  })
+  descriptionUpdatedAt: Date | null;
+
+  @ApiProperty({
+    example: '2026-08-28T11:34:41.751Z',
+    format: 'date-time',
+    nullable: true,
+    description: 'L-1 — when the load was called off. Null on a live load.',
+  })
+  cancelledAt: Date | null;
+
+  @ApiProperty({
+    example: 'distributor rescheduled',
+    nullable: true,
+    description:
+      'L-1 — why, when the operator gave a reason. Null both on a live load ' +
+      'and on a cancellation where no reason was recorded.',
+  })
+  cancelReason: string | null;
+
+  @ApiProperty({
+    type: CancelledByDto,
+    nullable: true,
+    description:
+      'CB-1 — who called the load off. Null on a live load, and on a load ' +
+      'cancelled before the actor was recorded.',
+  })
+  cancelledBy: CancelledByDto | null;
 }
 
 // ─── Dashboard (GET /regional/dashboard) ───────────────────

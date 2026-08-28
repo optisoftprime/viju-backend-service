@@ -2,6 +2,7 @@ import { ApiProperty } from '@nestjs/swagger';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
 import { Region, REGION_VALUES } from '../../../common/region/region.constants';
 import { API_LOADING_STATUS_VALUES, ApiLoadingStatus } from '../loading-status';
+import { CancelledByDto } from '../../regional/dto/regional-response.dto';
 
 // ─── GET /loading/queue ────────────────────────────────────
 
@@ -32,6 +33,48 @@ export class LoadingQueueItemDto {
 
   @ApiProperty({ enum: API_LOADING_STATUS_VALUES, example: 'ASSIGNED' })
   status: ApiLoadingStatus;
+
+  @ApiProperty({
+    example: 'customer loading 800 cartons, 200 remaining',
+    nullable: true,
+    description:
+      'L-2 — the loading officer’s note. Null when none was written.',
+  })
+  description: string | null;
+
+  @ApiProperty({
+    example: '2026-08-28T09:14:02.000Z',
+    format: 'date-time',
+    nullable: true,
+    description:
+      'TS-1 — when the note was last written. NOT `updatedAt`, which every ' +
+      'status change bumps.',
+  })
+  descriptionUpdatedAt: Date | null;
+
+  @ApiProperty({
+    example: '2026-08-28T11:34:41.751Z',
+    format: 'date-time',
+    nullable: true,
+    description: 'L-1 — when the load was called off. Null on a live load.',
+  })
+  cancelledAt: Date | null;
+
+  @ApiProperty({
+    example: 'distributor rescheduled',
+    nullable: true,
+    description: 'L-1 — why, when a reason was given.',
+  })
+  cancelReason: string | null;
+
+  @ApiProperty({
+    type: CancelledByDto,
+    nullable: true,
+    description:
+      'CB-1 — who called the load off, with their role as the wire enum. ' +
+      'Null on a live load.',
+  })
+  cancelledBy: CancelledByDto | null;
 }
 
 export class PaginatedLoadingQueueResponseDto {
@@ -97,6 +140,26 @@ export class LoadingStatusUpdatedDto {
 
   @ApiProperty({ example: '2026-08-19T11:02:00.000Z', format: 'date-time' })
   updatedAt: Date;
+
+  @ApiProperty({
+    example: null,
+    format: 'date-time',
+    nullable: true,
+    description: 'L-1 — set when this call cancelled the load.',
+  })
+  cancelledAt: Date | null;
+
+  @ApiProperty({ example: null, nullable: true })
+  cancelReason: string | null;
+
+  @ApiProperty({
+    type: CancelledByDto,
+    nullable: true,
+    description:
+      'CB-1 — the loading officer cancels through this route rather than a ' +
+      '/cancel one, so the actor is returned here too.',
+  })
+  cancelledBy: CancelledByDto | null;
 }
 
 // ─── POST /loading/queue/:id/waybill ───────────────────────

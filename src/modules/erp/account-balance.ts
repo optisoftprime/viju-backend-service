@@ -18,7 +18,7 @@
  *                   (铺底 "floor-stock" credit, 老板特批 "boss special
  *                   approval", …). Non-zero on only 13 of 1,831 rows; equal to
  *                   CREDIT_AMT on 1,801 of them. It is a plain numeric on the
- *                   payload — the ERP has already resolved whatever rate rules
+ *                   paylotemporarily credit ad — the ERP has already resolved whatever rate rules
  *                   (AR_RATE, SD_RATE, SO_RATE, ADV_RATE …) feed it, so it is
  *                   summed as-is and never re-derived here.
  *   CREDIT_PAY      credit consumed. POSITIVE means consumed/owing, NEGATIVE
@@ -143,6 +143,38 @@ export const ERP_ACCOUNT_BALANCES_FOR_CUSTOMERS_SQL = `
      ORDER BY r.payload->>'CUSTOMER_CODE',
               r.payload->>'EFFECTIVE_DATE' DESC NULLS LAST,
               r.id DESC`;
+
+/**
+ * Temporary (supplementary) credit currently in force for one customer.
+ *
+ * `CREDIT_AMT1` is credit the ERP grants for a FIXED WINDOW - EFFECTIVE_DATE to
+ * INEFFECTIVE_DATE - under a FUND_DESC such as 铺底 (floor stock) or 老板特批
+ * (boss special approval). Only 13 of 1,831 rows carry a real window; the rest
+ * hold the sentinel `0001-01-01`, which no `current_date` can fall between, so
+ * they contribute nothing without needing a special case.
+ *
+ * Comparison is by DATE, not timestamp: the ERP stores midnight on both ends,
+ * so INEFFECTIVE_DATE is treated as the last day the credit applies, inclusive.
+ *
+ * Every row for the customer is summed, not just the newest - a customer may
+ * hold several concurrent grants.
+ *
+ * The `~` guards make a malformed date skip its row rather than abort the
+ * query: this feeds the mobile home screen, which must not 500 because the ERP
+ * sent one bad date.
+ */
+export const ERP_TEMPORARY_CREDIT_FOR_CUSTOMER_SQL = `
+    SELECT coalesce(
+             sum(coalesce(nullif(r.payload->>'CREDIT_AMT1', '')::numeric, 0)),
+             0
+           ) AS temporary_credit
+      FROM erp_raw.raw_customer_credit r
+     WHERE r.object_type = 'CUSTOMER_CREDIT'
+       AND r.payload->>'CUSTOMER_CODE' = $1
+       AND r.payload->>'EFFECTIVE_DATE'   ~ '^\\d{4}-\\d{2}-\\d{2}'
+       AND r.payload->>'INEFFECTIVE_DATE' ~ '^\\d{4}-\\d{2}-\\d{2}'
+       AND current_date BETWEEN (r.payload->>'EFFECTIVE_DATE')::date
+                            AND (r.payload->>'INEFFECTIVE_DATE')::date`;
 
 /**
  * Running balance from three already-parsed field values.
