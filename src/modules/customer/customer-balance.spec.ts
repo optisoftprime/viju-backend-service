@@ -3,6 +3,7 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { CustomerService } from './customer.service';
 import { StatementLedgerService } from './statement-ledger.service';
 import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
+import { ErpStockBalanceService } from '../erp/erp-stock-balance.service';
 
 /**
  * The balance the customer app shows must come from the ERP credit feed
@@ -41,7 +42,17 @@ describe('Customer account balance (ERP-derived)', () => {
     productFlyer: { findMany: jest.fn().mockResolvedValue([]) },
   };
 
-  const mockAccountBalance = { getRunningBalance: jest.fn() };
+  const mockAccountBalance = {
+    getRunningBalance: jest.fn(),
+    // No temporary-credit grant in force unless a test says otherwise.
+    getTemporaryCredit: jest.fn().mockResolvedValue(0),
+  };
+
+  // No ERP sales-order feed in these tests, so stock falls back to the
+  // locally projected purchases — the behaviour these specs assert.
+  const mockStockBalance = {
+    getStockBalance: jest.fn().mockResolvedValue(null),
+  };
 
   const mockLedger = {
     balanceByPurchase: jest.fn().mockResolvedValue(new Map()),
@@ -54,6 +65,7 @@ describe('Customer account balance (ERP-derived)', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: StatementLedgerService, useValue: mockLedger },
         { provide: ErpAccountBalanceService, useValue: mockAccountBalance },
+        { provide: ErpStockBalanceService, useValue: mockStockBalance },
       ],
     }).compile();
     service = module.get(CustomerService);

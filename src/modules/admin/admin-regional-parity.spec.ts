@@ -213,3 +213,99 @@ describe('Regional admin parity limits (spec 40)', () => {
     });
   });
 });
+
+/**
+ * Spec 43 — BA-2, the one bulk route a regional admin does get.
+ *
+ * The limits are the point: their own region on BOTH sides. BA-1 is
+ * deliberately absent, because bulk-region stays ADMIN-only — see
+ * FRONTEND_GUIDE_CANCELLED_BY_AND_REGIONAL_BULK.md.
+ */
+describe('BA-2 — regional bulk customer reassignment', () => {
+  const codeOf = (e: unknown): string | undefined => {
+    const body = (e as { response?: Record<string, unknown> })?.response;
+    return typeof body?.code === 'string' ? body.code : undefined;
+  };
+
+  const build = (opts: {
+    officerRegion: string | null;
+    customerRegions: Record<string, string>;
+  }) => {
+    const service = Object.create(AdminService.prototype) as AdminService;
+    (service as unknown as { prisma: unknown }).prisma = {
+      staff: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue(
+            opts.officerRegion === null ? null : { region: opts.officerRegion },
+          ),
+      },
+      customer: {
+        findUnique: jest.fn(({ where }: { where: { id: string } }) =>
+          Promise.resolve(
+            opts.customerRegions[where.id]
+              ? { region: opts.customerRegions[where.id] }
+              : null,
+          ),
+        ),
+      },
+    };
+    const reassign = jest
+      .spyOn(service, 'reassignOfficer')
+      .mockResolvedValue({} as never);
+    return { service, reassign };
+  };
+
+  it('refuses the WHOLE call when the receiving officer is out of region', async () => {
+    // The officer is the same for every item, so a wrong one means the call is
+    // wrong — one clear error rather than eighty identical failures.
+    const { service, reassign } = build({
+      officerRegion: 'NORTH',
+      customerRegions: { 'c-1': 'LAGOS' },
+    });
+
+    try {
+      await service.bulkReassignCustomers(['c-1'], 'off-1', 'LAGOS');
+      throw new Error('expected a refusal');
+    } catch (e) {
+      expect(codeOf(e)).toBe('REGION_NOT_ALLOWED');
+    }
+    expect(reassign).not.toHaveBeenCalled();
+  });
+
+  it('moves the customers that are theirs and names the rest', async () => {
+    // A partly-valid selection is exactly what the failed[] envelope is for.
+    const { service } = build({
+      officerRegion: 'LAGOS',
+      customerRegions: { 'c-1': 'LAGOS', 'c-2': 'NORTH', 'c-3': 'LAGOS' },
+    });
+
+    const result = await service.bulkReassignCustomers(
+      ['c-1', 'c-2', 'c-3'],
+      'off-1',
+      'LAGOS',
+    );
+
+    expect(result.succeeded).toEqual(['c-1', 'c-3']);
+    expect(result.failed).toEqual([
+      {
+        customerId: 'c-2',
+        code: 'REGION_NOT_ALLOWED',
+        message: 'That distributor is not in your region.',
+      },
+    ]);
+  });
+
+  it('leaves an ADMIN unscoped', async () => {
+    // No scope passed = ADMIN. Neither region check should run at all.
+    const { service } = build({
+      officerRegion: 'NORTH',
+      customerRegions: { 'c-1': 'LAGOS' },
+    });
+
+    const result = await service.bulkReassignCustomers(['c-1'], 'off-1');
+
+    expect(result.succeeded).toEqual(['c-1']);
+    expect(result.failed).toEqual([]);
+  });
+});

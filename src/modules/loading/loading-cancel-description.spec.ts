@@ -4,6 +4,7 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
 import { LoadingService } from './loading.service';
 import { assertCancellable, assertLoadingTransition } from './loading-status';
+import { actorOf } from '../../common/staff/actor-lookup';
 
 /**
  * L-1 (cancellation) and L-2 (the loading note) on the loading officer's own
@@ -242,5 +243,44 @@ describe('Loading cancel + description (L-1, L-2)', () => {
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(prisma.loadingRequest.update).not.toHaveBeenCalled();
     });
+  });
+});
+
+/**
+ * CB-1 — who cancelled a load.
+ *
+ * Three roles can cancel, so "cancelled" alone does not say who to ask about
+ * it. These pin the lookup's edges rather than the happy path: what happens
+ * for a live load, and for a load cancelled before the actor was recorded.
+ */
+describe('Cancelled-by actor (CB-1)', () => {
+  const actors = new Map([
+    ['s-1', { id: 's-1', name: 'Ada Obi', role: 'REGIONAL_ADMIN' }],
+    ['s-2', { id: 's-2', name: 'Musa Bello', role: 'LOADING_OFFICER' }],
+  ]);
+
+  it('names the actor and their role, as the wire enum', () => {
+    expect(actorOf(actors, 's-1')).toEqual({
+      id: 's-1',
+      name: 'Ada Obi',
+      // Never display text — the portal maps it through formatRole().
+      role: 'REGIONAL_ADMIN',
+    });
+    expect(actorOf(actors, 's-2')?.role).toBe('LOADING_OFFICER');
+  });
+
+  it('is null on a live load', () => {
+    expect(actorOf(actors, null)).toBeNull();
+    expect(actorOf(actors, undefined)).toBeNull();
+  });
+
+  it('is null for a load cancelled before the actor was recorded', () => {
+    // Rows cancelled before L-1 carry no cancelledById. A plain "Cancelled" is
+    // the honest render — better than guessing who.
+    expect(actorOf(new Map(), 's-1')).toBeNull();
+  });
+
+  it('is null when the id no longer resolves to anyone', () => {
+    expect(actorOf(actors, 's-missing')).toBeNull();
   });
 });

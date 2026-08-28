@@ -68,7 +68,13 @@ export class HomeStockBalanceDto {
 
   @ApiProperty({
     example: 420,
-    description: 'Cartons paid for but not yet loaded (total - loaded)',
+    description:
+      'Cartons paid for but not yet loaded (total - loaded), from the ERP ' +
+      'sales-order feed: SUM(BUSINESS_QTY - DELIVERED_BUSINESS_QTY). This is ' +
+      'the SAME figure GET /customers/me/stock-balance returns as ' +
+      '`totalRemainingCartons` - the two share one calculation and cannot ' +
+      'disagree. Falls back to the locally projected purchases only where the ' +
+      'ERP feed is absent or holds no orders for the customer.',
   })
   remainingCartons: number;
 
@@ -137,6 +143,17 @@ export class HomeResponseDto {
   @ApiProperty({ type: HomeStockBalanceDto })
   stockBalance: HomeStockBalanceDto;
 
+  @ApiProperty({
+    example: 1000.1111,
+    description:
+      'Temporary (supplementary) credit in force TODAY, summed across every ' +
+      'ERP credit grant whose EFFECTIVE_DATE..INEFFECTIVE_DATE window contains ' +
+      'today (CREDIT_AMT1). 0 when no grant is currently active, when every ' +
+      'window has expired, or when the ERP credit feed is unavailable. ' +
+      'Full precision, never rounded.',
+  })
+  temporarilyCredit: number;
+
   @ApiProperty({ type: [HomeProductFlyerDto] })
   productFlyers: HomeProductFlyerDto[];
 
@@ -156,7 +173,12 @@ export class StockBalanceProductDto {
   @ApiProperty({ example: 60 })
   quantityLoaded: number;
 
-  @ApiProperty({ example: 40 })
+  @ApiProperty({
+    example: 40,
+    description:
+      'Ordered minus delivered for this product, floored at 0 so a rare ' +
+      'over-delivered line cannot show a negative quantity.',
+  })
   quantityRemaining: number;
 }
 
@@ -177,7 +199,11 @@ export class StockBalanceBreakdownDto {
   @ApiProperty({
     example: 420,
     description:
-      'Total cartons paid for but not yet loaded (purchased - loaded)',
+      'Total cartons paid for but not yet loaded (purchased - loaded), from ' +
+      'the ERP sales-order feed: SUM(BUSINESS_QTY - DELIVERED_BUSINESS_QTY). ' +
+      'Identical to `stockBalance.remainingCartons` on ' +
+      'GET /customers/me/home - one shared calculation. The `products` rows ' +
+      'sum to exactly this total.',
   })
   totalRemainingCartons: number;
 

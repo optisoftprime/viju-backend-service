@@ -300,6 +300,7 @@ export class AdminController {
   // Declared BEFORE @Patch('customers/:id/reassign') so the literal
   // 'bulk-reassign' segment is not swallowed as a customer id.
   @Patch('customers/bulk-reassign')
+  @Roles('ADMIN', 'REGIONAL_ADMIN')
   @ApiOperation({
     summary: 'Assign a selection of customers to one account officer',
     description:
@@ -317,17 +318,34 @@ export class AdminController {
       'holding exactly the officer that was asked for, which is the point of ' +
       'the call. (The single route still refuses it, so an operator acting on ' +
       'one customer is told why nothing changed.)\n\n' +
-      'Duplicate ids are collapsed. Maximum 500 per call.',
+      'Duplicate ids are collapsed. Maximum 500 per call.\n\n' +
+      'BA-2 — a REGIONAL_ADMIN may call this, scoped to their own region on ' +
+      'BOTH sides. The receiving officer is checked ONCE up front, because it ' +
+      'is the same value for the whole batch: naming one outside their region ' +
+      'means the entire call is wrong, so it answers ' +
+      '`403 REGION_NOT_ALLOWED` and nothing is assigned, rather than eighty ' +
+      'identical per-item failures. Each CUSTOMER is checked per item, so a ' +
+      'partly-valid selection still moves the rows that are theirs and names ' +
+      'the rest in `failed[]`.',
   })
   @ApiOkResponse({ type: BulkOperationResultDto })
   @ApiBadRequestResponse({
     description:
       'Empty customerIds, more than 500 ids, or a missing officer id',
   })
-  async bulkReassignCustomers(@Body() dto: BulkReassignCustomersDto) {
+  @ApiForbiddenResponse({
+    description:
+      '`REGION_NOT_ALLOWED` — a regional admin named a receiving officer ' +
+      'outside their own region; nothing was assigned. Or `REGION_NOT_SET`.',
+  })
+  async bulkReassignCustomers(
+    @CurrentUser() user: RegionScopedActor,
+    @Body() dto: BulkReassignCustomersDto,
+  ) {
     return this.adminService.bulkReassignCustomers(
       dto.customerIds,
       dto.newOfficerId,
+      this.staffScopeOf(user),
     );
   }
 

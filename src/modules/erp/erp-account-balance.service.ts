@@ -9,6 +9,7 @@ import {
   ERP_ACCOUNT_BALANCE_FOR_CUSTOMER_SQL,
   ERP_ACCOUNT_BALANCES_FOR_CUSTOMERS_SQL,
   ERP_ACCOUNT_BALANCE_RECONCILE_SQL,
+  ERP_TEMPORARY_CREDIT_FOR_CUSTOMER_SQL,
 } from './account-balance';
 
 /** Result of one reconcile pass. */
@@ -248,6 +249,35 @@ export class ErpAccountBalanceService implements OnModuleInit, OnModuleDestroy {
         `getRunningBalances(${ids.length} customers) failed: ${(e as Error).message}`,
       );
       return new Map();
+    }
+  }
+
+  /**
+   * Temporary (supplementary) credit in force for one customer TODAY.
+   *
+   * Sums `CREDIT_AMT1` across every credit record whose
+   * EFFECTIVE_DATE..INEFFECTIVE_DATE window contains today. Returns 0 when the
+   * feed is absent, the customer has no record, or every window has expired -
+   * "no temporary credit" and "no feed" are both legitimately zero here, unlike
+   * the running balance, where a missing feed must fall back to the stored
+   * column rather than claim a zero.
+   */
+  async getTemporaryCredit(erpId: string): Promise<number> {
+    if (!erpId) return 0;
+    if (!(await this.isAvailable())) return 0;
+    try {
+      const rows = await this.prisma.$queryRawUnsafe<
+        { temporary_credit: string | number | null }[]
+      >(ERP_TEMPORARY_CREDIT_FOR_CUSTOMER_SQL, erpId);
+      const raw = rows[0]?.temporary_credit;
+      if (raw === undefined || raw === null) return 0;
+      const value = Number(raw);
+      return Number.isFinite(value) ? value : 0;
+    } catch (e) {
+      this.logger.error(
+        `getTemporaryCredit(${erpId}) failed: ${(e as Error).message}`,
+      );
+      return 0;
     }
   }
 
