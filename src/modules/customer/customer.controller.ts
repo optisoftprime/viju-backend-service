@@ -33,6 +33,7 @@ import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 import { MessageResponseDto } from '../../common/dto/message-response.dto';
 import {
   HomeResponseDto,
+  CustomerOfficerChatItemDto,
   StockBalanceBreakdownDto,
   CustomerProfileDto,
   PaginatedPurchasesResponseDto,
@@ -79,6 +80,31 @@ export class CustomerController {
     @Query() query: StatementRangeDto,
   ) {
     return this.ledger.build(user.id, this.ledger.resolvePeriod(query));
+  }
+
+  @Get('me/chats')
+  @ApiOperation({
+    summary: 'The distributor’s account officers, as a chat list',
+    description:
+      'One row per ACCOUNT OFFICER assigned to the caller, most recently ' +
+      'active first - the mirror of GET /officers/chats, from the ' +
+      'distributor’s side.\n\n' +
+      'This endpoint NAMES the officer. Every other customer-facing surface ' +
+      'renders staff as the generic "Viju Account Officer" (PRD F6); a ' +
+      'distributor picking who to message cannot do so when everyone is ' +
+      'called the same thing, so `name` and `avatarUrl` are exposed here.\n\n' +
+      'Unlike the officer version, an officer the distributor has NEVER ' +
+      'messaged still appears, with nulls for the preview and time: this is a ' +
+      'list of people to start a conversation with, not only of conversations ' +
+      'that exist. Deactivated officers are omitted - they cannot reply.\n\n' +
+      'Open a thread with GET /chat/{officerId} and reply with ' +
+      'POST /chat/{officerId}, using the `officerId` from a row. ' +
+      'PATCH /chat/me/read clears the unread counts.\n\n' +
+      'READ-ONLY: listing does not mark anything read.',
+  })
+  @ApiOkResponse({ type: [CustomerOfficerChatItemDto] })
+  async getOfficerChats(@CurrentUser() user: any) {
+    return this.customerService.getOfficerChats(user.id);
   }
 
   @Get('me/home')

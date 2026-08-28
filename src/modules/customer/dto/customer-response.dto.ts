@@ -161,6 +161,85 @@ export class HomeResponseDto {
   recentPurchases: HomeRecentPurchaseDto[];
 }
 
+// ─── Officer chat list (GET /customers/me/chats) ──────────
+
+/**
+ * One account officer the distributor can message.
+ *
+ * The mirror of a row on GET /officers/chats. Unlike every other
+ * customer-facing surface, this one NAMES the officer: a distributor cannot
+ * choose who to write to when everyone is labelled 'Viju Account Officer'.
+ */
+export class CustomerOfficerChatItemDto {
+  @ApiProperty({
+    example: '7c2a09d3-6f61-49c2-9a0e-8d5b1f2c3a44',
+    description:
+      'The officer to open a thread with: pass this as `{otherUserId}` to ' +
+      'GET /chat/{otherUserId} and as `{receiverId}` to POST /chat/{receiverId}.',
+  })
+  officerId: string;
+
+  @ApiProperty({
+    example: 'Ifeanyi Okon',
+    description:
+      "The officer's real name. Shown to the distributor so they can tell " +
+      'their officers apart.',
+  })
+  name: string;
+
+  @ApiProperty({
+    example: 'https://res.cloudinary.com/viju/staff/ifeanyi.jpg',
+    nullable: true,
+    description: 'Officer profile picture; null when they have not set one.',
+  })
+  avatarUrl: string | null;
+
+  @ApiProperty({
+    example: true,
+    description:
+      'The primary officer - the one a message sent through POST /chat/me is ' +
+      'routed to. Exactly one row carries true.',
+  })
+  isPrimary: boolean;
+
+  @ApiProperty({
+    example: 'Your waybill is ready for collection.',
+    nullable: true,
+    description:
+      'Excerpt of the newest message on THIS officer’s thread, either side. ' +
+      '120 characters, whitespace collapsed, "📎 Attachment" for an ' +
+      'attachment-only message. Null when they have never exchanged a message.',
+  })
+  lastMessagePreview: string | null;
+
+  @ApiProperty({
+    enum: ['CUSTOMER', 'STAFF'],
+    nullable: true,
+    example: 'STAFF',
+    description: 'Who wrote it — prefix "You: " when this is CUSTOMER.',
+  })
+  lastMessageSenderType: 'CUSTOMER' | 'STAFF' | null;
+
+  @ApiProperty({
+    example: '2026-08-28T08:12:00.000Z',
+    format: 'date-time',
+    nullable: true,
+    description:
+      'When the newest message on this thread arrived. Rows are sorted on ' +
+      'this, newest first; an officer never messaged sorts last.',
+  })
+  lastMessageAt: Date | null;
+
+  @ApiProperty({
+    example: 2,
+    description:
+      'Messages THIS OFFICER sent that the distributor has not read yet - the ' +
+      'mirror of `unreadMessages` on GET /officers/chats. Cleared by ' +
+      'PATCH /chat/me/read. Always a number, 0 rather than omitted.',
+  })
+  unreadMessages: number;
+}
+
 // ─── Stock balance breakdown (GET /customers/me/stock-balance) ─
 
 export class StockBalanceProductDto {
