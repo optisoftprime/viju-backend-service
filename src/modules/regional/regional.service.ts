@@ -105,6 +105,7 @@ export class RegionalService {
       // L-2 / L-1 — the DESCRIPTION column and the cancellation stamps, on
       // every row so the list renders without a call per row.
       description: request.description,
+      descriptionUpdatedAt: request.descriptionUpdatedAt,
       cancelledAt: request.cancelledAt,
       cancelReason: request.cancelReason,
     };

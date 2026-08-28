@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { paginate } from '../../common/pagination/paginate';
+import { NotificationTypes } from '../../common/notifications/notification-types';
 
 @Injectable()
 export class NotificationsService {
@@ -36,11 +37,36 @@ export class NotificationsService {
     return { unread, ...page };
   }
 
+  /**
+   * The staff bell.
+   *
+   * NB-1 — `CHAT_MESSAGE` rows are EXCLUDED. The staff portal already says
+   * "you have unread chat" twice: the unread badge on the Chat sidebar entry
+   * and the per-conversation count. A third copy in the notification panel
+   * buried the things that only appear there — assignments, tickets, waybill
+   * movements.
+   *
+   * Filtered on READ rather than by not writing the row, deliberately:
+   *
+   *   • `unread` and `data` are then filtered by the SAME predicate, so the
+   *     bell count matches the list exactly. That is the actual bug — the
+   *     panel is paginated, so a client-side filter forced the badge to be
+   *     recounted from one page and it under-reported past the first.
+   *   • The row is still written, so the push dispatch and the realtime frame
+   *     are untouched, and nothing is lost if this is ever reversed.
+   *
+   * THE DISTRIBUTOR'S OWN FEED IS UNCHANGED — see `listForCustomer`, which has
+   * no such exclusion. This is a staff-portal concern only; the mobile app has
+   * no badge to replace them with.
+   */
   async listForStaff(
     staffId: string,
     pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
   ) {
-    const where = { staffId };
+    const where = {
+      staffId,
+      type: { not: NotificationTypes.CHAT_MESSAGE },
+    };
     const [unread, page] = await Promise.all([
       this.prisma.notification.count({ where: { ...where, isRead: false } }),
       paginate(
@@ -73,11 +99,18 @@ export class NotificationsService {
     });
   }
 
+  /**
+   * NB-1 — "mark all read" clears what the caller can SEE.
+   *
+   * For staff that excludes CHAT_MESSAGE, matching `listForStaff`. Clearing
+   * rows the bell never showed would be a hidden side effect, and those rows
+   * are read by opening the conversation instead.
+   */
   async markAllRead(userType: 'CUSTOMER' | 'STAFF', userId: string) {
     const where =
       userType === 'CUSTOMER'
         ? { customerId: userId, staffId: null }
-        : { staffId: userId };
+        : { staffId: userId, type: { not: NotificationTypes.CHAT_MESSAGE } };
     await this.prisma.notification.updateMany({
       where: { ...where, isRead: false },
       data: { isRead: true },

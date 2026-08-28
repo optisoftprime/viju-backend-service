@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Controller,
+  HttpStatus,
   Post,
   Query,
   UploadedFile,
@@ -22,6 +23,10 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { StorageService } from '../../infrastructure/storage/storage.service';
 import { UploadFileDto, UploadFolder } from './dto/upload.dto';
 import { UploadResponseDto } from './dto/uploads-response.dto';
+import {
+  ACCEPTED_IMAGE_FORMATS,
+  isAcceptedImage,
+} from '../../common/uploads/image-signature';
 
 interface UploadedFileShape {
   originalname: string;
@@ -42,33 +47,43 @@ interface UploadedFileShape {
  *   - Flyer (F19 AC2):  image only (any reasonable size)
  *   - Profile (F8 AC4): image only
  */
-const FOLDER_RULES: Record<UploadFolder, { mime: string[]; maxBytes: number }> =
-  {
-    [UploadFolder.PROFILE_PHOTOS]: {
-      mime: ['image/'],
-      maxBytes: 5 * 1024 * 1024,
-    },
-    [UploadFolder.CHAT_ATTACHMENTS]: {
-      mime: ['image/'],
-      maxBytes: 5 * 1024 * 1024,
-    },
-    [UploadFolder.TICKET_ATTACHMENTS]: {
-      mime: ['image/'],
-      maxBytes: 5 * 1024 * 1024,
-    },
-    [UploadFolder.WAYBILL_DOCUMENTS]: {
-      mime: ['image/', 'application/pdf'],
-      maxBytes: 10 * 1024 * 1024,
-    },
-    [UploadFolder.PRODUCT_FLYERS]: {
-      mime: ['image/'],
-      maxBytes: 10 * 1024 * 1024,
-    },
-    [UploadFolder.MISC]: {
-      mime: ['image/', 'application/pdf'],
-      maxBytes: 10 * 1024 * 1024,
-    },
-  };
+const FOLDER_RULES: Record<
+  UploadFolder,
+  { mime: string[]; maxBytes: number; imagesOnly: boolean }
+> = {
+  [UploadFolder.PROFILE_PHOTOS]: {
+    mime: ['image/'],
+    maxBytes: 5 * 1024 * 1024,
+    imagesOnly: true,
+  },
+  [UploadFolder.CHAT_ATTACHMENTS]: {
+    mime: ['image/'],
+    maxBytes: 5 * 1024 * 1024,
+    imagesOnly: true,
+  },
+  [UploadFolder.TICKET_ATTACHMENTS]: {
+    mime: ['image/'],
+    maxBytes: 5 * 1024 * 1024,
+    imagesOnly: true,
+  },
+  // PR-3: PDFs are the point of this folder, so the image signature check
+  // does not apply — the MIME rule above still does.
+  [UploadFolder.WAYBILL_DOCUMENTS]: {
+    mime: ['image/', 'application/pdf'],
+    maxBytes: 10 * 1024 * 1024,
+    imagesOnly: false,
+  },
+  [UploadFolder.PRODUCT_FLYERS]: {
+    mime: ['image/'],
+    maxBytes: 10 * 1024 * 1024,
+    imagesOnly: true,
+  },
+  [UploadFolder.MISC]: {
+    mime: ['image/', 'application/pdf'],
+    maxBytes: 10 * 1024 * 1024,
+    imagesOnly: false,
+  },
+};
 
 /**
  * CC-01: uploads are authenticated. Any signed-in principal (customer or
@@ -145,6 +160,23 @@ export class UploadsController {
       throw new BadRequestException(
         `MIME type "${file.mimetype}" not allowed for folder "${query.folder}". Allowed: ${rules.mime.join(', ')}`,
       );
+    }
+
+    // PR-3 — the real control. Everything above this line trusts the client:
+    // `mimetype` comes off the multipart part and the filename is just a
+    // string, so a renamed PDF or an SVG carrying a script passes both and is
+    // then served back to every viewer of that profile. The file's own first
+    // bytes are the one thing that cannot be renamed.
+    //
+    // Applied only to IMAGE-ONLY folders. `waybill-documents` and `misc`
+    // legitimately accept PDFs, so they keep the MIME rule above rather than
+    // having one rule forced on every folder.
+    if (rules.imagesOnly && !isAcceptedImage(file.buffer)) {
+      throw new BadRequestException({
+        message: `That file is not a ${ACCEPTED_IMAGE_FORMATS.join(', ').replace(/, ([^,]*)$/, ' or $1')} image.`,
+        code: 'UNSUPPORTED_IMAGE_TYPE',
+        statusCode: HttpStatus.BAD_REQUEST,
+      });
     }
 
     return this.storage.upload({

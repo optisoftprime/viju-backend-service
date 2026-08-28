@@ -189,9 +189,10 @@ describe('Loading cancel + description (L-1, L-2)', () => {
         description: note,
       });
 
-      expect(prisma.loadingRequest.update.mock.calls[0][0].data).toEqual({
-        description: note,
-      });
+      // TS-1 — the note and its own timestamp are written together.
+      const data = prisma.loadingRequest.update.mock.calls[0][0].data;
+      expect(data.description).toBe(note);
+      expect(data.descriptionUpdatedAt).toBeInstanceOf(Date);
       // The whole assignment comes back, so the screen re-renders from one body.
       expect(result.description).toBe(note);
       expect(result.waybill).toBe('WB-00231');
@@ -210,8 +211,11 @@ describe('Loading cancel + description (L-1, L-2)', () => {
         description: '',
       });
 
+      // TS-1 — clearing the note clears its timestamp alongside it, rather
+      // than leaving a stamp on a note that no longer exists.
       expect(prisma.loadingRequest.update.mock.calls[0][0].data).toEqual({
         description: null,
+        descriptionUpdatedAt: null,
       });
     });
 
