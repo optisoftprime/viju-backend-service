@@ -10,6 +10,7 @@ import * as bcrypt from 'bcryptjs';
 import { paginate } from '../../common/pagination/paginate';
 import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
 import { ErpStockBalanceService } from '../erp/erp-stock-balance.service';
+import { messagePreview } from '../../common/messaging/message-preview';
 
 @Injectable()
 export class CustomerService {
@@ -146,6 +147,172 @@ export class CustomerService {
       productFlyers,
       recentPurchases,
     };
+  }
+
+  /**
+   * The distributor's conversation list - one row per ACCOUNT OFFICER assigned
+   * to them, most recently active first.
+   *
+   * The mirror of GET /officers/chats, with two deliberate differences:
+   *
+   * 1. It shows the OFFICER'S NAME. Every other customer-facing surface
+   *    renders staff as the generic 'Viju Account Officer' (PRD F6); this
+   *    endpoint deliberately does not, because a distributor cannot choose who
+   *    to message when everyone is called the same thing.
+   *
+   * 2. It lists officers with NO MESSAGES YET. The officer version omits
+   *    empty threads because it is a list of conversations; this one is a list
+   *    of people to start a conversation WITH, so an officer the distributor
+   *    has never written to still has to appear.
+   *
+   * A thread is per officer: messages carrying that officer's `staffId`.
+   */
+  async getOfficerChats(customerId: string) {
+    const assignments = await this.prisma.customerOfficer.findMany({
+      where: { customerId },
+      select: {
+        isPrimary: true,
+        staff: {
+          select: {
+            id: true,
+            name: true,
+            profilePhotoUrl: true,
+            isActive: true,
+          },
+        },
+      },
+    });
+
+    // The primary pointer is authoritative even when no CustomerOfficer row
+    // exists for it yet - a reassignment writes the pointer first.
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: {
+        assignedOfficerId: true,
+        assignedOfficer: {
+          select: {
+            id: true,
+            name: true,
+            profilePhotoUrl: true,
+            isActive: true,
+          },
+        },
+      },
+    });
+    if (!customer) throw new NotFoundException('Customer profile not found');
+
+    const officers = new Map<
+      string,
+      {
+        id: string;
+        name: string;
+        profilePhotoUrl: string | null;
+        isActive: boolean;
+        isPrimary: boolean;
+      }
+    >();
+    for (const a of assignments) {
+      if (a.staff)
+        officers.set(a.staff.id, { ...a.staff, isPrimary: a.isPrimary });
+    }
+    if (customer.assignedOfficer) {
+      const existing = officers.get(customer.assignedOfficer.id);
+      officers.set(customer.assignedOfficer.id, {
+        ...customer.assignedOfficer,
+        // The pointer wins: it is what sendFromCustomer routes to.
+        isPrimary: true,
+        ...(existing ? {} : {}),
+      });
+    }
+
+    // A deactivated officer cannot answer, so listing them as someone to
+    // message would be a dead end.
+    const active = [...officers.values()].filter((o) => o.isActive);
+    if (active.length === 0) return [];
+
+    const staffIds = active.map((o) => o.id);
+    const [lastAt, unread, previews] = await Promise.all([
+      this.prisma.message.groupBy({
+        by: ['staffId'],
+        where: { customerId, staffId: { in: staffIds } },
+        _max: { createdAt: true },
+      }),
+      // The mirror of the officer side's unread count: messages the OFFICER
+      // sent that this distributor has not read yet.
+      this.prisma.message.groupBy({
+        by: ['staffId'],
+        where: {
+          customerId,
+          staffId: { in: staffIds },
+          senderType: 'STAFF',
+          readAt: null,
+        },
+        _count: { _all: true },
+      }),
+      this.lastMessagePerOfficer(customerId, staffIds),
+    ]);
+
+    const lastAtMap = new Map(lastAt.map((r) => [r.staffId, r._max.createdAt]));
+    const unreadMap = new Map(unread.map((r) => [r.staffId, r._count._all]));
+
+    const rows = active.map((o) => ({
+      officerId: o.id,
+      // PRD F6 is deliberately not applied here - see the method comment.
+      name: o.name,
+      avatarUrl: o.profilePhotoUrl,
+      isPrimary: o.isPrimary,
+      lastMessagePreview: messagePreview(previews.get(o.id)),
+      lastMessageSenderType: previews.get(o.id)?.senderType ?? null,
+      lastMessageAt: lastAtMap.get(o.id) ?? null,
+      unreadMessages: unreadMap.get(o.id) ?? 0,
+    }));
+
+    // Most recently active first; an officer never messaged sinks to the
+    // bottom rather than floating, with the primary leading that tail so the
+    // distributor's default contact is the first one they can start with.
+    rows.sort((a, b) => {
+      const at = a.lastMessageAt?.getTime() ?? null;
+      const bt = b.lastMessageAt?.getTime() ?? null;
+      if (at !== null && bt !== null) return bt - at;
+      if (at !== null) return -1;
+      if (bt !== null) return 1;
+      if (a.isPrimary !== b.isPrimary) return a.isPrimary ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    return rows;
+  }
+
+  /** Newest message per officer on this customer's account. */
+  private async lastMessagePerOfficer(
+    customerId: string,
+    staffIds: string[],
+  ): Promise<
+    Map<
+      string,
+      {
+        content: string | null;
+        attachmentUrl: string | null;
+        senderType: string;
+      }
+    >
+  > {
+    if (staffIds.length === 0) return new Map();
+    const rows = await this.prisma.$queryRaw<
+      {
+        staffId: string;
+        content: string | null;
+        attachmentUrl: string | null;
+        senderType: string;
+      }[]
+    >`
+      SELECT DISTINCT ON ("staffId")
+             "staffId", content, "attachmentUrl", "senderType"
+        FROM "Message"
+       WHERE "customerId" = ${customerId}
+         AND "staffId" = ANY(${staffIds})
+       ORDER BY "staffId", "createdAt" DESC`;
+    return new Map(rows.map((r) => [r.staffId, r]));
   }
 
   async getStockBalanceBreakdown(customerId: string) {
