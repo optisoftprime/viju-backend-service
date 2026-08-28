@@ -42,12 +42,37 @@ describe('Admin user-management authorization', () => {
   });
 
   it.each<keyof AdminController>([
-    'createOfficer',
-    'updateOfficerStatus',
     'deactivateOfficer',
     'reassignAllCustomers',
+    'bulkOfficerRegion',
+    'bulkReassignCustomers',
   ])('keeps %s ADMIN-only', (method) => {
     expect(rolesFor(method)).toEqual(['ADMIN']);
+  });
+
+  it.each<keyof AdminController>(['createOfficer', 'updateOfficerStatus'])(
+    'opens %s to REGIONAL_ADMIN (RU-2 / RU-3)',
+    (method) => {
+      // Spec 40 deliberately widens these two: a regional admin manages the
+      // account officers and loading officers in their OWN region. The
+      // escalation guards that replace the blanket ADMIN-only rule are
+      // asserted in admin-regional-parity.spec.ts — role limited to
+      // OFFICER / LOADING_OFFICER, region derived from the token.
+      expect(rolesFor(method)).toEqual(['ADMIN', 'REGIONAL_ADMIN']);
+    },
+  );
+
+  it.each<keyof AdminController>([
+    'listFlyers',
+    'createFlyer',
+    'updateFlyer',
+    'deleteFlyer',
+    'reorderFlyers',
+  ])('opens %s to REGIONAL_ADMIN (RF-1)', (method) => {
+    // Flyers carry no region and reach every distributor's carousel, so there
+    // is nothing to scope — reading (a) of RF-1, which is what the frontend
+    // built for.
+    expect(rolesFor(method)).toEqual(['ADMIN', 'REGIONAL_ADMIN']);
   });
 
   it('lets a regional admin read officers but never manage them', () => {
@@ -88,7 +113,10 @@ describe('Admin user-management authorization', () => {
         switchToHttp: () => ({ getRequest: () => ({ user: { role } }) }),
       }) as unknown as ExecutionContext;
 
-    it.each(['REGIONAL_ADMIN', 'OFFICER', 'LOADING_OFFICER', 'CUSTOMER'])(
+    // RU-2 / RU-3 — REGIONAL_ADMIN is no longer refused here; it is admitted
+    // and then held to its own region and to the two field roles inside the
+    // service. Everyone BELOW it is still refused at the door.
+    it.each(['OFFICER', 'LOADING_OFFICER', 'CUSTOMER'])(
       'refuses %s at POST /admin/officers',
       (role) => {
         expect(() =>
@@ -97,7 +125,7 @@ describe('Admin user-management authorization', () => {
       },
     );
 
-    it.each(['REGIONAL_ADMIN', 'OFFICER', 'LOADING_OFFICER'])(
+    it.each(['OFFICER', 'LOADING_OFFICER', 'CUSTOMER'])(
       'refuses %s at PATCH /admin/officers/:id',
       (role) => {
         expect(() =>
@@ -105,6 +133,29 @@ describe('Admin user-management authorization', () => {
         ).toThrow(ForbiddenException);
       },
     );
+
+    it('admits REGIONAL_ADMIN at the two user-management routes', () => {
+      expect(
+        guard.canActivate(contextFor('createOfficer', 'REGIONAL_ADMIN')),
+      ).toBe(true);
+      expect(
+        guard.canActivate(contextFor('updateOfficerStatus', 'REGIONAL_ADMIN')),
+      ).toBe(true);
+    });
+
+    it('still refuses REGIONAL_ADMIN at the ADMIN-only lifecycle routes', () => {
+      // Deleting an account and bulk-moving officers between regions stay
+      // organisation-wide operations.
+      for (const method of [
+        'deactivateOfficer',
+        'bulkOfficerRegion',
+        'bulkReassignCustomers',
+      ] as (keyof AdminController)[]) {
+        expect(() =>
+          guard.canActivate(contextFor(method, 'REGIONAL_ADMIN')),
+        ).toThrow(ForbiddenException);
+      }
+    });
 
     it('refuses a request with no role at all', () => {
       expect(() =>

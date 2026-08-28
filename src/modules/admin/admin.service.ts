@@ -31,9 +31,14 @@ import {
   CREATABLE_STAFF_ROLE_VALUES,
   MANAGED_STAFF_ROLES,
   isManagedStaffRole,
+  isRegionalAdminManagedRole,
   normalizeManagedRole,
   requiresRegion,
 } from '../../common/roles/managed-roles';
+import {
+  assertOwnRegion,
+  forbidRole,
+} from '../../common/region/regional-scope';
 import {
   MAX_PAGE_SIZE,
   buildPaginationMeta,
@@ -69,6 +74,15 @@ interface OfficerListFilter {
   role?: StaffRole;
   /** When true, lists every internally managed role instead of one. */
   managed?: boolean;
+  /**
+   * RU-1 — an explicit role set, which overrides both `role` and `managed`.
+   *
+   * Used to hold a REGIONAL_ADMIN to the two roles they manage (OFFICER and
+   * LOADING_OFFICER) when they ask for the managed view, so `managed=true`
+   * becomes useful to them without ever returning an ADMIN or a fellow
+   * regional admin.
+   */
+  roles?: readonly StaffRole[];
   /** Filter on account status; omit for both. */
   isActive?: boolean;
   sortBy?: OfficerSortField;
@@ -932,9 +946,14 @@ export class AdminService {
       // is a parameter. Defaults to OFFICER, which is what it always listed.
       // `managed=true` widens it to every internally managed role in one page
       // (PRD 10 "List/get managed users").
-      role: filter.managed
-        ? { in: [...MANAGED_STAFF_ROLES] }
-        : (filter.role ?? StaffRole.OFFICER),
+      // RU-1 — an explicit `roles` set wins over both `managed` and `role`,
+      // so a regional admin's managed view can be the two field roles rather
+      // than all four.
+      role: filter.roles
+        ? { in: [...filter.roles] }
+        : filter.managed
+          ? { in: [...MANAGED_STAFF_ROLES] }
+          : (filter.role ?? StaffRole.OFFICER),
       ...(filter.isActive === undefined ? {} : { isActive: filter.isActive }),
       ...(filter.region ? { region: filter.region } : {}),
       ...(filter.search
@@ -1106,7 +1125,46 @@ export class AdminService {
    * A role in the request body is validated against the managed set; the
    * caller's own role is never read from the body (CC-01).
    */
-  async createOfficer(dto: CreateOfficerDto, actor: AdminActor) {
+  /**
+   * RU-2 / RU-3 — the two limits a REGIONAL_ADMIN is held to when managing
+   * users, applied identically on create and on edit.
+   *
+   * `scope` is their own region, resolved from the token by the controller,
+   * and undefined for an ADMIN (who is unrestricted). Passing it in rather
+   * than reading the actor's role here keeps the rule in one place while
+   * leaving the service usable by both callers.
+   */
+  private assertRegionalAdminMayManage(
+    scope: Region | undefined,
+    target: { role: string; region?: Region | null },
+    what: 'create' | 'edit',
+  ): void {
+    if (!scope) return;
+
+    // The escalation guard: a regional admin who could mint or edit an ADMIN
+    // could put themselves outside their own region.
+    if (!isRegionalAdminManagedRole(target.role)) {
+      forbidRole(
+        what === 'create'
+          ? `A regional admin cannot create ${target.role === StaffRole.ADMIN ? 'an administrator' : 'a ' + target.role.toLowerCase().replace('_', ' ')}.`
+          : `A regional admin cannot edit ${target.role === StaffRole.ADMIN ? 'an administrator' : 'a ' + target.role.toLowerCase().replace('_', ' ')}.`,
+      );
+    }
+
+    assertOwnRegion(
+      scope,
+      target.region ?? null,
+      what === 'create'
+        ? 'You can only create users in your own region.'
+        : 'You can only manage users in your own region.',
+    );
+  }
+
+  async createOfficer(
+    dto: CreateOfficerDto,
+    actor: AdminActor,
+    scope?: Region,
+  ) {
     // Defence in depth: the DTO already restricts `role` to the creatable
     // set, but the service must not depend on a pipe having run.
     const role = normalizeManagedRole(dto.role ?? StaffRole.OFFICER);
@@ -1127,6 +1185,17 @@ export class AdminService {
       );
     }
 
+    // RU-2 — a REGIONAL_ADMIN may create OFFICER and LOADING_OFFICER only.
+    // Checked BEFORE the region rules below, so trying to mint an admin is
+    // refused as ROLE_NOT_ALLOWED rather than as a confusing region error.
+    if (scope && !isRegionalAdminManagedRole(role)) {
+      forbidRole(
+        role === StaffRole.ADMIN
+          ? 'A regional admin cannot create an administrator.'
+          : `A regional admin cannot create a ${role.toLowerCase().replace('_', ' ')}.`,
+      );
+    }
+
     // ADMIN is organisation-wide; every other managed role is region-scoped
     // and half the portal filters on it, so it cannot be left null.
     if (role === StaffRole.ADMIN && dto.region) {
@@ -1144,7 +1213,12 @@ export class AdminService {
         statusCode: HttpStatus.BAD_REQUEST,
       });
     }
-    const region = role === StaffRole.ADMIN ? null : (dto.region ?? null);
+    // RU-2 — for a regional admin the region is DERIVED FROM THE TOKEN and
+    // overrides whatever was sent, matching the audit rule. The frontend
+    // hides the picker and sends their own region anyway, so this is a no-op
+    // in practice and a guard against a hand-built request.
+    const region =
+      scope ?? (role === StaffRole.ADMIN ? null : (dto.region ?? null));
 
     await this.assertStaffIdentityFree(email, phone);
 
@@ -1510,12 +1584,28 @@ export class AdminService {
       region?: Region;
       password?: string;
     },
+    scope?: Region,
   ) {
     const officer = await this.prisma.staff.findUnique({
       where: { id: officerId },
       select: { id: true, role: true, name: true, phone: true, region: true },
     });
     if (!officer) throw new NotFoundException('Officer not found');
+
+    // RU-3 — a REGIONAL_ADMIN may only touch OFFICER / LOADING_OFFICER
+    // records inside their own region.
+    this.assertRegionalAdminMayManage(scope, officer, 'edit');
+
+    // RU-3 — and may not MOVE a user out of their region. That is a transfer
+    // into someone else's scope, which the receiving region's admin has not
+    // agreed to. The frontend hides the field for them and omits it entirely.
+    if (scope && dto.region !== undefined) {
+      throw new ForbiddenException({
+        message: 'A regional admin cannot change a user’s region.',
+        code: 'REGION_NOT_ALLOWED',
+        statusCode: HttpStatus.FORBIDDEN,
+      });
+    }
 
     if (!isManagedStaffRole(officer.role)) {
       throw new BadRequestException({
@@ -1677,6 +1767,7 @@ export class AdminService {
     officerId: string,
     isActive: boolean,
     actor: AdminActor = { id: null },
+    scope?: Region,
   ) {
     if (typeof isActive !== 'boolean') {
       throw new BadRequestException('isActive must be a boolean.');
@@ -1687,9 +1778,14 @@ export class AdminService {
 
     const officer = await this.prisma.staff.findUnique({
       where: { id: officerId },
-      select: { id: true, isActive: true, role: true },
+      select: { id: true, isActive: true, role: true, region: true },
     });
     if (!officer) throw new NotFoundException('Officer not found');
+
+    // RU-3 — same gate as the profile edit. Every 409 guard below
+    // (OFFICER_HAS_CUSTOMERS, LAST_ACTIVE_ADMIN, SELF_DEACTIVATION) still
+    // applies unchanged afterwards.
+    this.assertRegionalAdminMayManage(scope, officer, 'edit');
 
     // Guard against retiring an account whose lifecycle this service does not
     // own (today: WAREHOUSE_OFFICER, still mirrored from the ERP).

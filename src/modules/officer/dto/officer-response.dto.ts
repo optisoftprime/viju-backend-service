@@ -116,6 +116,38 @@ export class AssignedCustomerListItemDto {
   lastMessageAt: Date | null;
 
   @ApiProperty({
+    example: 'Has my waybill been assigned?',
+    nullable: true,
+    description:
+      'CH-1 — a one-line excerpt of the most recent message on the thread, ' +
+      'either side. Plain text, whitespace collapsed, truncated to 120 ' +
+      'characters with an ellipsis. `null` on an empty thread. An ' +
+      'attachment-only message previews as "📎 Attachment" rather than an ' +
+      'empty string.',
+  })
+  lastMessagePreview: string | null;
+
+  @ApiProperty({
+    enum: ['CUSTOMER', 'STAFF'],
+    nullable: true,
+    example: 'CUSTOMER',
+    description:
+      'CH-1 — who wrote the previewed message, so the row can prefix the ' +
+      'officer’s own last message with "You: ". `null` on an empty thread.',
+  })
+  lastMessageSenderType: 'CUSTOMER' | 'STAFF' | null;
+
+  @ApiProperty({
+    example: 'https://res.cloudinary.com/…/avatars/adlak.jpg',
+    nullable: true,
+    description:
+      'CH-2 — the distributor’s own profile picture, which they set in the ' +
+      'mobile app (PATCH /customers/me/photo). `null` when they have not set ' +
+      'one — keep drawing initials in that case.',
+  })
+  avatarUrl: string | null;
+
+  @ApiProperty({
     example: '2026-06-09T08:16:56.533Z',
     format: 'date-time',
     nullable: true,
@@ -135,6 +167,90 @@ export class AssignedCustomerListItemDto {
 export class PaginatedAssignedCustomersResponseDto {
   @ApiProperty({ type: [AssignedCustomerListItemDto] })
   data: AssignedCustomerListItemDto[];
+
+  @ApiProperty({ type: PaginationMetaDto })
+  meta: PaginationMetaDto;
+}
+
+// ---------------------------------------------------------------------------
+// GET /officers/chats  ->  OfficerService.getChats      (CH-3)
+// ---------------------------------------------------------------------------
+
+/**
+ * CH-3 — one conversation, at the shape a WhatsApp-style row renders.
+ *
+ * Deliberately narrower than AssignedCustomerListItemDto: no wallet balance,
+ * no stock figure, no ticket count. A conversation list does not render them,
+ * and deriving them cost an ERP credit lookup per page.
+ */
+export class OfficerChatListItemDto {
+  @ApiProperty({
+    example: 'bd5d1f0e-3c44-4a91-8f22-71c0a9d6e455',
+    description:
+      'The distributor. Pass this to GET /chat/{otherUserId} to open the ' +
+      'thread — which is also what marks it read.',
+  })
+  customerId: string;
+
+  @ApiProperty({ example: 'ADLAK' })
+  name: string;
+
+  @ApiProperty({
+    example: '10110003',
+    description:
+      'The ERP account code. Still returned — it is what tells two ' +
+      'similarly-named distributors apart.',
+  })
+  accountNumber: string;
+
+  @ApiProperty({
+    example: null,
+    nullable: true,
+    description:
+      'CH-2 — the distributor’s profile picture, or null. Draw initials when ' +
+      'null.',
+  })
+  avatarUrl: string | null;
+
+  @ApiProperty({
+    example: 'Has my waybill been assigned?',
+    nullable: true,
+    description:
+      'CH-1 — excerpt of the newest message, either side. 120 characters, ' +
+      'whitespace collapsed, "📎 Attachment" for an attachment-only message.',
+  })
+  lastMessagePreview: string | null;
+
+  @ApiProperty({
+    enum: ['CUSTOMER', 'STAFF'],
+    nullable: true,
+    example: 'CUSTOMER',
+    description: 'Who wrote it — prefix "You: " when this is STAFF.',
+  })
+  lastMessageSenderType: 'CUSTOMER' | 'STAFF' | null;
+
+  @ApiProperty({
+    example: '2026-08-27T08:12:00.000Z',
+    format: 'date-time',
+    nullable: true,
+    description: 'When the newest message arrived. Rows are sorted on this.',
+  })
+  lastMessageAt: Date | null;
+
+  @ApiProperty({
+    example: 3,
+    description:
+      'Messages the DISTRIBUTOR sent that are still unread by staff — the ' +
+      'same definition and the same predicate as `unreadMessages` on ' +
+      'GET /officers/customers (AO-C1), so the two cannot disagree. Always a ' +
+      'number, `0` rather than omitted.',
+  })
+  unreadMessages: number;
+}
+
+export class PaginatedOfficerChatsResponseDto {
+  @ApiProperty({ type: [OfficerChatListItemDto] })
+  data: OfficerChatListItemDto[];
 
   @ApiProperty({ type: PaginationMetaDto })
   meta: PaginationMetaDto;

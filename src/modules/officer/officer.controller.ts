@@ -28,7 +28,10 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
-import { AssignedCustomersFilterDto } from './dto/officer-request.dto';
+import {
+  AssignedCustomersFilterDto,
+  OfficerChatsQueryDto,
+} from './dto/officer-request.dto';
 import { Query } from '@nestjs/common';
 import {
   OfficerDashboardSummaryDto,
@@ -40,6 +43,7 @@ import {
   CustomerStockDto,
   PaginatedCustomerWaybillsResponseDto,
   PaginatedStockResponseDto,
+  PaginatedOfficerChatsResponseDto,
 } from './dto/officer-response.dto';
 
 /**
@@ -259,6 +263,37 @@ export class OfficerController {
       customerId,
       pagination,
     );
+  }
+
+  @Get('chats')
+  @ApiOperation({
+    summary: 'The officer’s conversation list',
+    description:
+      'CH-3 — one row per CONVERSATION, most recent first, for the whole ' +
+      'portfolio.\n\n' +
+      'A different resource from GET /officers/customers, not a filtered ' +
+      'view of it: it carries only what a WhatsApp-style row renders — name, ' +
+      'picture, excerpt, time, unread count — and omits the wallet balance, ' +
+      'stock figure and ticket count that list derives. A customer the ' +
+      'officer has never exchanged a message with does not appear, so there ' +
+      'is nothing to filter client-side.\n\n' +
+      'ORDERING IS ACROSS THE WHOLE PORTFOLIO, then paged — page 1 starts at ' +
+      'the most recent conversation the officer has, not the most recent ' +
+      'within some window of accounts. Rows with no message sink rather than ' +
+      'float.\n\n' +
+      '`search` matches name, account number and phone, exactly as it does ' +
+      'on GET /officers/customers.\n\n' +
+      'READ-ONLY: listing conversations does NOT mark anything read. Only ' +
+      'opening a thread (GET /chat/{customerId}) does.\n\n' +
+      'An ADMIN sees every conversation; an OFFICER sees their own portfolio ' +
+      '(primary or secondary).',
+  })
+  @ApiOkResponse({ type: PaginatedOfficerChatsResponseDto })
+  async getChats(
+    @CurrentUser() user: any,
+    @Query() query: OfficerChatsQueryDto,
+  ) {
+    return this.officerService.getChats(user, query);
   }
 
   @Get('stock')

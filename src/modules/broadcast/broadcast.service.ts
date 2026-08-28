@@ -2,11 +2,15 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
+  HttpStatus,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
 import { NotificationTypes } from '../../common/notifications/notification-types';
 import { paginate } from '../../common/pagination/paginate';
+import { Region } from '../../common/region/region.constants';
 import {
   SendRegionalBroadcastDto,
   SendIndividualBroadcastDto,
@@ -50,7 +54,37 @@ export class BroadcastService {
     private readonly notifications: NotificationService,
   ) {}
 
-  async sendRegional(adminId: string, dto: SendRegionalBroadcastDto) {
+  /**
+   * RB-2 — a regional admin may broadcast to their OWN region and no other.
+   *
+   * `restrictToRegion` is the caller's own region when they are a regional
+   * admin, and undefined for an ADMIN. Naming any other region — or more than
+   * one — is REFUSED rather than silently narrowed: an admin who believes they
+   * reached three regions and reached one has been misled, which is worse than
+   * an error.
+   */
+  async sendRegional(
+    adminId: string,
+    dto: SendRegionalBroadcastDto,
+    restrictToRegion?: Region,
+  ) {
+    if (restrictToRegion) {
+      const outside = dto.regions.filter((r) => r !== restrictToRegion);
+      if (dto.regions.length !== 1 || outside.length > 0) {
+        throw new ForbiddenException({
+          message: 'You can only broadcast to your own region.',
+          code: 'REGION_NOT_ALLOWED',
+          statusCode: HttpStatus.FORBIDDEN,
+        });
+      }
+    }
+    return this.sendRegionalUnchecked(adminId, dto);
+  }
+
+  private async sendRegionalUnchecked(
+    adminId: string,
+    dto: SendRegionalBroadcastDto,
+  ) {
     const customers = await this.prisma.customer.findMany({
       where: { region: { in: dto.regions } },
       select: { id: true },
@@ -108,13 +142,42 @@ export class BroadcastService {
    * Returns the single broadcast when one recipient was named — byte-identical
    * to the old response — and the array when several were.
    */
-  async sendIndividual(adminId: string, dto: SendIndividualBroadcastDto) {
+  async sendIndividual(
+    adminId: string,
+    dto: SendIndividualBroadcastDto,
+    restrictToRegion?: Region,
+  ) {
     const ids = dto.customerIds ?? (dto.customerId ? [dto.customerId] : []);
     const unique = [...new Set(ids)];
     if (unique.length === 0) {
       throw new BadRequestException(
         'Provide customerId or a non-empty customerIds.',
       );
+    }
+
+    // RB-3 — a regional admin may only message customers in their own region,
+    // and the WHOLE CALL is rejected if any recipient falls outside it.
+    //
+    // Not a partial `failed[]` half, deliberately, and unlike the O-2 / C-2
+    // bulk routes: a broadcast is NOT idempotent. A half-sent announcement
+    // that the sender then retries double-messages everyone who did receive
+    // it. Checking every recipient up-front means nothing is sent at all.
+    if (restrictToRegion) {
+      const recipients = await this.prisma.customer.findMany({
+        where: { id: { in: unique } },
+        select: { id: true, region: true },
+      });
+      const outside = recipients.filter((c) => c.region !== restrictToRegion);
+      if (outside.length > 0) {
+        throw new ForbiddenException({
+          message:
+            outside.length === unique.length
+              ? 'You can only message distributors in your own region.'
+              : `${outside.length} of ${unique.length} recipients are outside your region — nothing was sent.`,
+          code: 'REGION_NOT_ALLOWED',
+          statusCode: HttpStatus.FORBIDDEN,
+        });
+      }
     }
 
     const sent: Awaited<ReturnType<typeof this.sendToOneCustomer>>[] = [];
@@ -227,31 +290,62 @@ export class BroadcastService {
     return broadcast;
   }
 
+  /**
+   * Broadcast history.
+   *
+   * RB-1 — `scopeRegion`, when given, limits the result to what one region's
+   * admin may see, SERVER-SIDE. It is resolved from the caller's token by the
+   * controller and overrides anything the client sent, matching the audit
+   * routes (RA-T2).
+   *
+   * A broadcast is in a region's scope when either:
+   *   • it is REGIONAL and its `targetRegions` contains that region, or
+   *   • it is INDIVIDUAL and the target customer lives in that region.
+   *
+   * The scope and the B-1 search are combined with AND rather than merged, so
+   * SEARCH APPLIES WITHIN THE SCOPE and can never reach across it. Two bare
+   * `OR` keys on one object would have silently overwritten each other and
+   * leaked the whole history — the `AND` array is what keeps them separate.
+   */
   async listHistory(
     filter: BroadcastHistoryFilterDto,
     pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+    scopeRegion?: Region,
   ) {
     const search = filter.search?.trim();
-    const where = {
+    const and: Prisma.BroadcastWhereInput[] = [];
+
+    if (scopeRegion) {
+      and.push({
+        OR: [
+          { targetRegions: { has: scopeRegion } },
+          { targetCustomer: { region: scopeRegion } },
+        ],
+      });
+    }
+
+    // B-1 — reference, message body, and the recipient (the target
+    // customer's name on an individual broadcast). Server-side, so it
+    // searches the whole history rather than the newest page of it, and
+    // `meta.total` is the size of the filtered set.
+    if (search) {
+      and.push({
+        OR: [
+          { reference: { contains: search, mode: 'insensitive' } },
+          { message: { contains: search, mode: 'insensitive' } },
+          {
+            targetCustomer: {
+              name: { contains: search, mode: 'insensitive' },
+            },
+          },
+        ],
+      });
+    }
+
+    const where: Prisma.BroadcastWhereInput = {
       ...(filter.type ? { type: filter.type } : {}),
       ...(filter.region ? { targetRegions: { has: filter.region } } : {}),
-      // B-1 — reference, message body, and the recipient (the target
-      // customer's name on an individual broadcast). Server-side, so it
-      // searches the whole history rather than the newest page of it, and
-      // `meta.total` is the size of the filtered set.
-      ...(search
-        ? {
-            OR: [
-              { reference: { contains: search, mode: 'insensitive' as const } },
-              { message: { contains: search, mode: 'insensitive' as const } },
-              {
-                targetCustomer: {
-                  name: { contains: search, mode: 'insensitive' as const },
-                },
-              },
-            ],
-          }
-        : {}),
+      ...(and.length > 0 ? { AND: and } : {}),
       ...(filter.startDate || filter.endDate
         ? {
             sentAt: {

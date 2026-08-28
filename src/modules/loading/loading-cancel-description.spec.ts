@@ -3,7 +3,7 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
 import { LoadingService } from './loading.service';
-import { assertCancellable } from './loading-status';
+import { assertCancellable, assertLoadingTransition } from './loading-status';
 
 /**
  * L-1 (cancellation) and L-2 (the loading note) on the loading officer's own
@@ -55,16 +55,53 @@ describe('Loading cancel + description (L-1, L-2)', () => {
 
   afterEach(() => jest.clearAllMocks());
 
-  describe('L-1 — the transition table', () => {
-    it('allows cancelling from PENDING, ASSIGNED and IN_PROGRESS', () => {
+  describe('L-1 / LC-1 — the cancellation window', () => {
+    it('allows cancelling from PENDING and ASSIGNED', () => {
       expect(() => assertCancellable('PENDING_ASSIGNMENT')).not.toThrow();
       expect(() => assertCancellable('ASSIGNED')).not.toThrow();
-      expect(() => assertCancellable('LOADING_IN_PROGRESS')).not.toThrow();
+    });
+
+    it('LC-1 — refuses to cancel a load that is already being loaded', () => {
+      // Narrowed from L-1, which allowed this. Stock integrity, not tidiness:
+      // cancelling mid-load leaves goods physically moved with no waybill
+      // accounting for them, and the portal cannot reconcile that.
+      expect(() => assertCancellable('LOADING_IN_PROGRESS')).toThrow(
+        ConflictException,
+      );
     });
 
     it('refuses to cancel a COMPLETED load', () => {
       // The button is hidden for those rows, but the API is the control.
       expect(() => assertCancellable('COMPLETED')).toThrow(ConflictException);
+    });
+
+    it('explains WHY an in-progress load cannot be cancelled', () => {
+      // The portal renders `message` verbatim, so it has to say something an
+      // operator can act on rather than restate the enum values.
+      try {
+        assertCancellable('LOADING_IN_PROGRESS');
+        throw new Error('expected a refusal');
+      } catch (e) {
+        const body = (e as { response?: Record<string, unknown> }).response;
+        expect(body?.message).toBe(
+          'This load is already being loaded and cannot be cancelled.',
+        );
+        expect(body?.code).toBe('INVALID_STATUS_TRANSITION');
+        expect(body?.statusCode).toBe(409);
+      }
+    });
+
+    it('still allows the forward moves LC-1 does not touch', () => {
+      // ASSIGNED -> IN_PROGRESS -> COMPLETED must be unaffected.
+      expect(() =>
+        assertLoadingTransition('ASSIGNED', 'LOADING_IN_PROGRESS'),
+      ).not.toThrow();
+      expect(() =>
+        assertLoadingTransition('LOADING_IN_PROGRESS', 'COMPLETED'),
+      ).not.toThrow();
+      expect(() =>
+        assertLoadingTransition('ASSIGNED', 'COMPLETED'),
+      ).not.toThrow();
     });
   });
 

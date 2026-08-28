@@ -9,6 +9,7 @@ import {
 } from '../../common/pagination/sort.dto';
 import { AssignedCustomerSortField } from './dto/officer-request.dto';
 import { stockBalanceByCustomer } from '../../common/customers/stock-balance';
+import { messagePreview } from '../../common/messaging/message-preview';
 import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
 
 /**
@@ -271,6 +272,9 @@ export class OfficerService {
     outstandingBalance: true,
     accountStatus: true,
     updatedAt: true,
+    // CH-2 — the distributor's own profile picture, set from the mobile app
+    // via PATCH /customers/me/photo. Surfaced as `avatarUrl`.
+    profilePhotoUrl: true,
     _count: {
       select: { supportTickets: { where: { status: 'OPEN' as const } } },
     },
@@ -317,6 +321,7 @@ export class OfficerService {
       outstandingBalance: number;
       accountStatus: string;
       updatedAt: Date;
+      profilePhotoUrl: string | null;
       _count: { supportTickets: number };
     }[],
   ) {
@@ -327,6 +332,7 @@ export class OfficerService {
       unread,
       stockBalances,
       accountBalances,
+      lastMessageRows,
     ] = await Promise.all([
       this.prisma.purchase.groupBy({
         by: ['customerId'],
@@ -345,6 +351,11 @@ export class OfficerService {
       }),
       stockBalanceByCustomer(this.prisma, customerIds),
       this.balancesFor(rows),
+      // CH-1 — the newest message on each thread, either side. `groupBy` above
+      // gives the TIMESTAMP but not the row, so the messages themselves are
+      // fetched here and reduced to one per customer below. One query for the
+      // whole page, not one per row.
+      this.lastMessagesFor(customerIds),
     ]);
     const lastPurchaseMap = new Map(
       lastPurchases.map((r) => [r.customerId, r._max.orderDate]),
@@ -370,9 +381,173 @@ export class OfficerService {
       // Null when the distributor has never messaged, unlike lastContactDate
       // which falls back to updatedAt.
       lastMessageAt: lastMessageMap.get(c.id) ?? null,
+      // CH-1 — the excerpt and who wrote it, so the row can prefix the
+      // officer's own last message with "You: ". Both null on an empty thread.
+      lastMessagePreview: messagePreview(lastMessageRows.get(c.id)),
+      lastMessageSenderType: lastMessageRows.get(c.id)?.senderType ?? null,
+      // CH-2 — the distributor's own picture, or null to keep the client's
+      // initials fallback.
+      avatarUrl: c.profilePhotoUrl,
       lastPurchaseDate: lastPurchaseMap.get(c.id) ?? null,
       lastContactDate: lastMessageMap.get(c.id) ?? c.updatedAt,
     }));
+  }
+
+  /**
+   * CH-1 — the newest message on each of these threads, keyed by customer.
+   *
+   * `DISTINCT ON` picks one row per customer in a single pass, which is what
+   * keeps this one query rather than one per conversation. Ordered by
+   * `createdAt` then `id`, so two messages sharing a timestamp still resolve
+   * to the same one every time rather than flickering between renders.
+   */
+  private async lastMessagesFor(customerIds: string[]): Promise<
+    Map<
+      string,
+      {
+        content: string | null;
+        attachmentUrl: string | null;
+        senderType: string;
+      }
+    >
+  > {
+    if (customerIds.length === 0) return new Map();
+
+    const rows = await this.prisma.$queryRaw<
+      {
+        customerId: string;
+        content: string | null;
+        attachmentUrl: string | null;
+        senderType: string;
+      }[]
+    >`
+      SELECT DISTINCT ON ("customerId")
+             "customerId", "content", "attachmentUrl", "senderType"
+        FROM "Message"
+       WHERE "customerId" IN (${Prisma.join(customerIds)})
+       ORDER BY "customerId", "createdAt" DESC, "id" DESC`;
+
+    return new Map(rows.map((r) => [r.customerId, r]));
+  }
+
+  /**
+   * CH-3 — the officer's conversation list.
+   *
+   * A DIFFERENT RESOURCE from "my customers", deliberately. A conversation
+   * list needs a name, a picture, an excerpt, a time and an unread count, and
+   * nothing else: modelling it as a filtered customer list made the screen pay
+   * for wallet balances, stock figures and ERP credit lookups it never
+   * renders, and forced the client to fetch a window of accounts and narrow it
+   * in the browser.
+   *
+   * CONVERSATIONS ONLY: a customer the officer has never exchanged a message
+   * with does not appear at all, so there is nothing for the client to filter
+   * out. Ordered by recency across the WHOLE portfolio, then paged — not one
+   * page of customers re-sorted, which is what silently went wrong past 100
+   * accounts.
+   *
+   * `search` matches name, account number and phone, exactly as it does on
+   * GET /officers/customers, so the two screens agree on what a search means.
+   *
+   * READ-ONLY: listing conversations does NOT mark anything read. The unread
+   * count is shared across staff, so a list that cleared it would clear it for
+   * everyone and destroy the only signal saying who is waiting. Only opening a
+   * thread (GET /chat/{customerId}) marks it read.
+   */
+  async getChats(
+    user: OfficerPortalUser,
+    query: {
+      page: number;
+      pageSize: number;
+      search?: string;
+    } = { page: 1, pageSize: 20 },
+  ) {
+    const roleScope: Prisma.CustomerWhereInput =
+      user.role === 'ADMIN' ? {} : this.portfolioOf(user.id);
+
+    const and: Prisma.CustomerWhereInput[] = [
+      roleScope,
+      // The whole point of the resource: a thread with at least one message.
+      { messages: { some: {} } },
+    ];
+
+    const term = query.search?.trim();
+    if (term) {
+      and.push({
+        OR: [
+          { name: { contains: term, mode: 'insensitive' } },
+          { erpId: { contains: term, mode: 'insensitive' } },
+          { phone: { contains: term, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    const where: Prisma.CustomerWhereInput = { AND: and };
+
+    // Recency lives on Message, not Customer, so the ordering cannot be a
+    // Prisma orderBy. The matching set is resolved first, sorted by last
+    // message, and only then paged — so the top of page 1 is the most recent
+    // conversation in the whole portfolio rather than of one window.
+    const customers = await this.prisma.customer.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        erpId: true,
+        profilePhotoUrl: true,
+      },
+      orderBy: { name: 'asc' },
+    });
+    if (customers.length === 0) {
+      return paginateInMemory([], {
+        page: query.page,
+        pageSize: query.pageSize,
+      });
+    }
+
+    const customerIds = customers.map((c) => c.id);
+    const [lastMessages, unread, lastMessageRows] = await Promise.all([
+      this.prisma.message.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: customerIds } },
+        _max: { createdAt: true },
+      }),
+      this.prisma.message.groupBy({
+        by: ['customerId'],
+        where: { customerId: { in: customerIds }, ...UNREAD_FROM_CUSTOMER },
+        _count: { _all: true },
+      }),
+      this.lastMessagesFor(customerIds),
+    ]);
+
+    const lastAtMap = new Map(
+      lastMessages.map((r) => [r.customerId, r._max.createdAt]),
+    );
+    const unreadMap = new Map(unread.map((r) => [r.customerId, r._count._all]));
+
+    const rows = customers.map((c) => ({
+      customerId: c.id,
+      name: c.name,
+      accountNumber: c.erpId,
+      avatarUrl: c.profilePhotoUrl,
+      lastMessagePreview: messagePreview(lastMessageRows.get(c.id)),
+      lastMessageSenderType: lastMessageRows.get(c.id)?.senderType ?? null,
+      lastMessageAt: lastAtMap.get(c.id) ?? null,
+      // The same count GET /officers/customers reports, from the same
+      // predicate — the two appearing on one screen and disagreeing would be
+      // worse than either being absent.
+      unreadMessages: unreadMap.get(c.id) ?? 0,
+    }));
+
+    // Newest first. `compareBy` sorts nulls last in both directions, so a
+    // thread whose messages were somehow all removed sinks rather than
+    // floating to the top.
+    rows.sort(compareBy((r) => r.lastMessageAt, 'desc'));
+
+    return paginateInMemory(rows, {
+      page: query.page,
+      pageSize: query.pageSize,
+    });
   }
 
   /**
