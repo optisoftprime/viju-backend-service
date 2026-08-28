@@ -112,10 +112,10 @@ describe('Sender role and chat notification scoping (S-1, N-1)', () => {
       );
     });
 
-    it('hides staff identity from a CUSTOMER caller (PRD F6)', async () => {
-      // A distributor sees one label, "Viju Account Officer", and never an
-      // individual staff name. Returning `staff` here would leak exactly what
-      // F6 hides.
+    it('names the author to a CUSTOMER caller too', async () => {
+      // Officers are named to distributors now. GET /customers/me/chats sends
+      // them to GET /chat/{officerId}, so suppressing the author on that very
+      // thread would leave every message unattributed.
       const { service, prisma } = build();
 
       const thread = await service.getMessages(
@@ -124,9 +124,18 @@ describe('Sender role and chat notification scoping (S-1, N-1)', () => {
       );
 
       expect(prisma.message.findMany).toHaveBeenCalledWith(
-        expect.not.objectContaining({ include: expect.anything() }),
+        expect.objectContaining({
+          include: { staff: { select: STAFF_SELECT } },
+        }),
       );
-      expect(thread.every((m) => m.staff === null)).toBe(true);
+      // The staff block is still nulled on a CUSTOMER-authored row, whose
+      // staffId names the officer it was routed TO rather than its author.
+      expect(thread[0].staff).toEqual({
+        id: 'admin-1',
+        name: 'Chidi Nwosu',
+        role: 'ADMIN',
+      });
+      expect(thread[1].staff).toBeNull();
     });
 
     it('echoes the author on the message it just created', async () => {
@@ -210,11 +219,13 @@ describe('Sender role and chat notification scoping (S-1, N-1)', () => {
       });
 
       expect(notifications.notify).toHaveBeenCalledTimes(1);
+      // The push now NAMES the sender. It used to read 'Viju Account Officer'
+      // for everyone, which a distributor with two officers could not act on.
       expect(notifications.notify).toHaveBeenCalledWith(
         expect.objectContaining({
           recipientType: 'CUSTOMER',
           recipientId: 'c-1',
-          title: 'Viju Account Officer',
+          title: 'Chidi Nwosu',
         }),
       );
     });

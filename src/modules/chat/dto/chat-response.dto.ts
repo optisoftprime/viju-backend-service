@@ -4,8 +4,13 @@ import { StaffSenderDto } from '../../../common/messaging/staff-sender.dto';
 const SENDER_TYPE_VALUES = ['CUSTOMER', 'STAFF'] as const;
 type SenderType = (typeof SENDER_TYPE_VALUES)[number];
 
-const SENDER_LABEL_VALUES = ['Viju Account Officer', 'You'] as const;
-type SenderLabel = (typeof SENDER_LABEL_VALUES)[number];
+/**
+ * `senderLabel` is no longer a closed set. A staff message carries the
+ * OFFICER'S NAME; the distributor's own carries 'You'. It was previously
+ * fixed to 'Viju Account Officer' for every staff message (PRD F6), which
+ * made a thread with two officers impossible to follow.
+ */
+type SenderLabel = string;
 
 // ─── Raw message row (officer / legacy / audit endpoints) ──
 // Mirrors the full Prisma `Message` model returned by findMany/create
@@ -66,7 +71,7 @@ export class MessageDto {
 
 // ─── Customer-facing thread message (GET /chat/me) ─────────
 // Service selects a subset of columns (no customerId/staffId) and adds a
-// derived `senderLabel`. Real officer identities are never exposed (PRD F6).
+// derived `senderLabel` carrying the officer's real name.
 
 export class CustomerThreadMessageDto {
   @ApiProperty({ example: 'message-uuid-1' })
@@ -98,10 +103,12 @@ export class CustomerThreadMessageDto {
   readAt: Date | null;
 
   @ApiProperty({
-    enum: SENDER_LABEL_VALUES,
-    example: 'Viju Account Officer',
+    example: 'Ifeanyi Okon',
     description:
-      'Generic display label — "Viju Account Officer" for staff messages, "You" for the customer’s own messages.',
+      'Who wrote the message, as the distributor should see it: the ' +
+      'OFFICER’S NAME for a staff message, "You" for the distributor’s own. ' +
+      'Falls back to "Viju Account Officer" only when the staff record cannot ' +
+      'be read. Free text — do not treat it as a closed set.',
   })
   senderLabel: SenderLabel;
 }
@@ -112,7 +119,6 @@ export class CustomerThreadMessageDto {
 
 export class CustomerSentMessageDto extends MessageDto {
   @ApiProperty({
-    enum: SENDER_LABEL_VALUES,
     example: 'You',
     description: 'Always "You" — this is the customer’s own message.',
   })

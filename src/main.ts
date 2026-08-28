@@ -101,7 +101,8 @@ async function bootstrap() {
     )
     .addTag(
       'Direct Messages',
-      "Customer-officer chat. Customer sees only 'Viju Account Officer' label (PRD F6).",
+      'Customer-officer chat. Staff messages carry the officer’s real name, ' +
+        'so a distributor with several officers can tell them apart.',
     )
     .addTag('Support Tickets', 'Support tickets (PRD F7, F11)')
     .addTag(

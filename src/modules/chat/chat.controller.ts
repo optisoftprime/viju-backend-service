@@ -43,12 +43,19 @@ export class ChatController {
   @Get('me')
   @Roles('CUSTOMER')
   @ApiOperation({
-    summary: 'Customer chat thread with the Viju Account Officer',
+    summary: 'Customer chat thread with their account officers',
     description:
-      'Returns all messages on this account in chronological order. Each ' +
-      'message carries senderLabel: "Viju Account Officer" (either of the ' +
-      'two assigned officers) or "You" — individual officer names are not ' +
-      'exposed to the customer.',
+      'Returns all messages on this account in chronological order, every ' +
+      'officer merged into one timeline. Each message carries `senderLabel`: ' +
+      'the OFFICER’S NAME for a staff message, "You" for the ' +
+      'distributor’s own.\n\n' +
+      'This label used to be the fixed string "Viju Account Officer" for ' +
+      'every staff message; a distributor with more than one officer could ' +
+      'not tell who had written what. Treat it as free text, not a closed ' +
+      'set. It falls back to "Viju Account Officer" only when the staff ' +
+      'record cannot be read.\n\n' +
+      'For a per-officer view, use GET /customers/me/chats to list the ' +
+      'officers and GET /chat/{officerId} for one officer’s thread.',
   })
   @ApiOkResponse({
     type: [CustomerThreadMessageDto],
@@ -188,8 +195,9 @@ export class ChatController {
       'A staff message is stored as `senderType: "STAFF"` with the SENDER OWN ' +
       '`staffId` - an admin reply is attributed to the admin, not to the ' +
       'assigned officer, so the audit trail shows who actually replied. The ' +
-      'distributor still sees it under the "Viju Account Officer" label ' +
-      '(PRD F6).\n\n' +
+      'distributor sees it under the SENDER’S OWN NAME - staff are named ' +
+      'to distributors now, so an admin stepping in is visible as ' +
+      'themselves.\n\n' +
       'Returns the SINGLE created message.',
   })
   @ApiParam({

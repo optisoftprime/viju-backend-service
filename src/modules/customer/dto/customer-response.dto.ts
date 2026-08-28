@@ -166,9 +166,8 @@ export class HomeResponseDto {
 /**
  * One account officer the distributor can message.
  *
- * The mirror of a row on GET /officers/chats. Unlike every other
- * customer-facing surface, this one NAMES the officer: a distributor cannot
- * choose who to write to when everyone is labelled 'Viju Account Officer'.
+ * The mirror of a row on GET /officers/chats, naming the officer so a
+ * distributor can tell their officers apart and pick who to write to.
  */
 export class CustomerOfficerChatItemDto {
   @ApiProperty({
@@ -301,8 +300,20 @@ export class StockBalanceBreakdownDto {
 
 export class AccountOfficerDto {
   @ApiProperty({
-    example: 'Viju Account Officer',
-    description: 'Generic label — customers never see the officer’s real name',
+    example: '7c2a09d3-6f61-49c2-9a0e-8d5b1f2c3a44',
+    description:
+      'The officer’s id — pass it to GET /chat/{officerId} to open their ' +
+      'thread. Matches an `officerId` from GET /customers/me/chats.',
+  })
+  id: string;
+
+  @ApiProperty({
+    example: 'Ifeanyi Okon',
+    description:
+      'The PRIMARY officer’s real name. This used to be the fixed label ' +
+      '"Viju Account Officer"; distributors now see who their officer is. ' +
+      'The field name is unchanged so existing clients keep binding to it. ' +
+      'For the full list of assigned officers use GET /customers/me/chats.',
   })
   displayName: string;
 }

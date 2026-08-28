@@ -155,15 +155,16 @@ describe('Chat access for ADMIN / REGIONAL_ADMIN (AD-C1)', () => {
       expect(created).toMatchObject({ id: 'm-1', senderType: 'STAFF' });
     });
 
-    it('still shows the customer only the Viju Account Officer label', async () => {
+    it('falls back to the generic label when the staff row cannot be read', async () => {
+      // Distributors are named their officer now. This mock returns a created
+      // message with no `staff` relation, which is the safety net: a missing
+      // staff row must not render as a blank sender.
       const { service, notifications } = build(lagosCustomer);
 
       await service.sendMessage({ id: 'admin-1', role: 'ADMIN' }, 'c-1', {
         content: 'Looking into it now.',
       });
 
-      // PRD F6 — individual staff names are never exposed to a distributor,
-      // whether the sender was the officer or an admin.
       expect(notifications.notify).toHaveBeenCalledWith(
         expect.objectContaining({
           recipientType: 'CUSTOMER',

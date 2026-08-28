@@ -155,10 +155,9 @@ export class CustomerService {
    *
    * The mirror of GET /officers/chats, with two deliberate differences:
    *
-   * 1. It shows the OFFICER'S NAME. Every other customer-facing surface
-   *    renders staff as the generic 'Viju Account Officer' (PRD F6); this
-   *    endpoint deliberately does not, because a distributor cannot choose who
-   *    to message when everyone is called the same thing.
+   * 1. It shows the OFFICER'S NAME - as every customer-facing surface now
+   *    does. A distributor cannot choose who to message when everyone is
+   *    called the same thing.
    *
    * 2. It lists officers with NO MESSAGES YET. The officer version omits
    *    empty threads because it is a list of conversations; this one is a list
@@ -437,13 +436,16 @@ export class CustomerService {
         accountStatus: true,
         outstandingBalance: true,
         profilePhotoUrl: true,
-        assignedOfficer: { select: { id: true } },
+        assignedOfficer: { select: { id: true, name: true } },
       },
     });
 
     if (!customer) throw new NotFoundException('Customer profile not found');
 
-    // PRD F8 AC2 + F6: customer never sees individual officer names.
+    // The distributor now sees their officer's real name. This used to be the
+    // fixed 'Viju Account Officer' label (PRD F6). `displayName` is kept as
+    // the field name so existing clients bind unchanged - only the value moves
+    // from a constant to the officer's name.
     const { assignedOfficer, ...rest } = customer;
     return {
       ...rest,
@@ -452,7 +454,10 @@ export class CustomerService {
         customer.outstandingBalance,
       ),
       accountOfficer: assignedOfficer
-        ? { displayName: 'Viju Account Officer' }
+        ? {
+            id: assignedOfficer.id,
+            displayName: assignedOfficer.name,
+          }
         : null,
     };
   }
