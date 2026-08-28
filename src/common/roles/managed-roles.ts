@@ -26,6 +26,29 @@ export const MANAGED_STAFF_ROLES = [
 
 export type ManagedStaffRole = (typeof MANAGED_STAFF_ROLES)[number];
 
+/**
+ * Spec 40 — the roles a REGIONAL_ADMIN may list, create and edit.
+ *
+ * The two field roles and nothing else. ADMIN and REGIONAL_ADMIN are
+ * deliberately absent: a regional admin who could mint an administrator could
+ * escalate themselves out of their own region, which is the one thing this
+ * must never allow.
+ */
+export const REGIONAL_ADMIN_MANAGED_ROLES = [
+  StaffRole.OFFICER,
+  StaffRole.LOADING_OFFICER,
+] as const;
+
+/** True when a REGIONAL_ADMIN is allowed to manage accounts of this role. */
+export function isRegionalAdminManagedRole(
+  role: string | null | undefined,
+): boolean {
+  return (
+    typeof role === 'string' &&
+    (REGIONAL_ADMIN_MANAGED_ROLES as readonly string[]).includes(role)
+  );
+}
+
 /** The same list as plain strings, for Swagger `enum:` and @IsIn(). */
 export const MANAGED_STAFF_ROLE_VALUES: readonly string[] = MANAGED_STAFF_ROLES;
 

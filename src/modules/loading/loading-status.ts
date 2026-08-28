@@ -95,19 +95,23 @@ export function toDbStatus(value: string): LoadingRequestStatus | null {
 const ALLOWED_TRANSITIONS: Readonly<
   Partial<Record<LoadingRequestStatus, LoadingRequestStatus[]>>
 > = Object.freeze({
-  // L-1 - CANCELLED is legal from PENDING, ASSIGNED and IN_PROGRESS. A
-  // COMPLETED load is final: cancelling one answers 409, which is the API
-  // being the control rather than trusting the button to be hidden.
+  // L-1 / LC-1 - the cancellation window is PENDING and ASSIGNED ONLY.
+  //
+  // IN_PROGRESS was legal in the first cut (L-1) and is deliberately closed
+  // here. The reason is stock integrity, not tidiness: once loading has
+  // started the goods are physically moving, and cancelling leaves stock off
+  // the shelf with no waybill accounting for it — a state the portal has no
+  // way to reconcile. COMPLETED was already terminal.
+  //
+  // The frontend hides the button at IN_PROGRESS, but a rule only the client
+  // enforces is not enforced, so the API is the control.
   [LoadingRequestStatus.PENDING_ASSIGNMENT]: [LoadingRequestStatus.CANCELLED],
   [LoadingRequestStatus.ASSIGNED]: [
     LoadingRequestStatus.LOADING_IN_PROGRESS,
     LoadingRequestStatus.COMPLETED,
     LoadingRequestStatus.CANCELLED,
   ],
-  [LoadingRequestStatus.LOADING_IN_PROGRESS]: [
-    LoadingRequestStatus.COMPLETED,
-    LoadingRequestStatus.CANCELLED,
-  ],
+  [LoadingRequestStatus.LOADING_IN_PROGRESS]: [LoadingRequestStatus.COMPLETED],
 });
 
 /**
@@ -133,11 +137,35 @@ export function assertLoadingTransition(
   if (ALLOWED_TRANSITIONS[from]?.includes(to)) return;
 
   throw new ConflictException({
-    message:
-      from === LoadingRequestStatus.COMPLETED
-        ? 'A completed load cannot be reopened.'
-        : `A load in ${toApiStatus(from)} cannot move to ${toApiStatus(to)}.`,
+    message: refusalMessage(from, to),
     code: 'INVALID_STATUS_TRANSITION',
     statusCode: HttpStatus.CONFLICT,
   });
+}
+
+/**
+ * The wording for a refused transition.
+ *
+ * The portal renders these verbatim, so each says WHY rather than restating
+ * the enum values back at the operator. LC-1's case is called out separately
+ * because "a load in IN_PROGRESS cannot move to CANCELLED" tells someone
+ * nothing about the stock that has already been moved.
+ */
+function refusalMessage(
+  from: LoadingRequestStatus,
+  to: LoadingRequestStatus,
+): string {
+  if (from === LoadingRequestStatus.COMPLETED) {
+    return 'A completed load cannot be reopened.';
+  }
+  if (
+    from === LoadingRequestStatus.LOADING_IN_PROGRESS &&
+    to === LoadingRequestStatus.CANCELLED
+  ) {
+    return 'This load is already being loaded and cannot be cancelled.';
+  }
+  if (from === LoadingRequestStatus.CANCELLED) {
+    return 'A cancelled load cannot be changed.';
+  }
+  return `A load in ${toApiStatus(from)} cannot move to ${toApiStatus(to)}.`;
 }

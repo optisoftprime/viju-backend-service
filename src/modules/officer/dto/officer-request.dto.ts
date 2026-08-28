@@ -2,6 +2,7 @@ import { IsBoolean, IsIn, IsOptional, IsString } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { SortQueryDto } from '../../../common/pagination/sort.dto';
+import { PaginationQueryDto } from '../../../common/pagination/pagination.dto';
 
 const toBool = ({ value }: { value: unknown }) =>
   value === true || value === 'true' || value === '1';
@@ -82,4 +83,23 @@ export class AssignedCustomersFilterDto extends SortQueryDto {
   @IsOptional()
   @IsIn(ASSIGNED_CUSTOMER_SORT_FIELDS)
   sortBy?: AssignedCustomerSortField;
+}
+
+/**
+ * CH-3 — query params for GET /officers/chats.
+ *
+ * Deliberately just pagination and search. A conversation list has one
+ * meaningful order (most recent first), so there is no `sortBy` to get wrong,
+ * and no `hasMessages` filter because the resource is conversations by
+ * definition.
+ */
+export class OfficerChatsQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({
+    description:
+      'Search by distributor name, account number (erpId) or phone — the ' +
+      'same matching GET /officers/customers applies.',
+  })
+  @IsOptional()
+  @IsString()
+  search?: string;
 }

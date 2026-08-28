@@ -47,6 +47,12 @@ import {
 } from './dto/admin.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Region } from '../../common/region/region.constants';
+import {
+  RegionScopedActor,
+  isRegionalAdmin,
+  requireOwnRegion,
+} from '../../common/region/regional-scope';
+import { REGIONAL_ADMIN_MANAGED_ROLES } from '../../common/roles/managed-roles';
 import { StaffRole } from '@prisma/client';
 import { PaginatedCustomersResponseDto } from './dto/customer-response.dto';
 import { MessageResponseDto } from '../../common/dto/message-response.dto';
@@ -180,6 +186,17 @@ export class AdminController {
    * returning `undefined` would hand them every region at once. That is a
    * misconfigured account, so it is refused rather than widened.
    */
+  /**
+   * RU-2 / RU-3 — the region a REGIONAL_ADMIN is confined to when managing
+   * users, or `undefined` for an ADMIN, who is organisation-wide.
+   *
+   * Read from the token. An unconfigured regional admin is refused with
+   * `REGION_NOT_SET` rather than being handed every region.
+   */
+  private staffScopeOf(user: RegionScopedActor): Region | undefined {
+    return isRegionalAdmin(user) ? requireOwnRegion(user) : undefined;
+  }
+
   private customerListRegion(
     user: { role: string; region?: Region | null },
     requested: Region | undefined,
@@ -429,17 +446,42 @@ export class AdminController {
           ? query.role
           : StaffRole.OFFICER;
 
+    // RU-1 — `managed=true` now means something for a REGIONAL_ADMIN: the two
+    // roles they actually manage, instead of being ignored and quietly
+    // returning account officers only (which left loading officers missing
+    // from their default Users view).
+    //
+    // It is an explicit role SET rather than the full managed list, so an
+    // ADMIN or a fellow regional admin can never appear in it. `region` above
+    // already pins the rows — and therefore the search — to their own region.
+    const roles =
+      user.role === 'REGIONAL_ADMIN' && query.managed
+        ? REGIONAL_ADMIN_MANAGED_ROLES
+        : undefined;
+
     return this.adminService.getOfficers(
-      { ...query, region, role, managed: isAdmin ? query.managed : false },
+      {
+        ...query,
+        region,
+        role,
+        roles,
+        managed: isAdmin ? query.managed : false,
+      },
       query,
     );
   }
 
   @Post('officers')
+  @Roles('ADMIN', 'REGIONAL_ADMIN')
   @ApiOperation({
     summary: 'Create an internally managed staff user',
     description:
-      'ADMIN-only. Provisions one of the four roles this service owns — ' +
+      'RU-2 — a REGIONAL_ADMIN may create `OFFICER` and `LOADING_OFFICER` ' +
+      'ONLY, and their `region` is DERIVED FROM THE TOKEN, overriding ' +
+      'anything sent. Creating an `ADMIN` or a fellow `REGIONAL_ADMIN` is a ' +
+      '403 `ROLE_NOT_ALLOWED` — a regional admin minting an administrator ' +
+      'could escalate themselves out of their own region.\n\n' +
+      'Provisions one of the four roles this service owns — ' +
       '`OFFICER` (account officer, the default and the pre-existing ' +
       'behaviour), `LOADING_OFFICER`, `REGIONAL_ADMIN` or `ADMIN`. ' +
       '`ACCOUNT_OFFICER` is accepted as an alias for `OFFICER`. Any other ' +
@@ -467,10 +509,14 @@ export class AdminController {
   })
   async createOfficer(
     @Body() dto: CreateOfficerDto,
-    @CurrentUser() user: { id: string },
+    @CurrentUser() user: { id: string } & RegionScopedActor,
   ) {
     // The acting admin comes from the verified JWT, never from the body.
-    return this.adminService.createOfficer(dto, { id: user.id });
+    return this.adminService.createOfficer(
+      dto,
+      { id: user.id },
+      this.staffScopeOf(user),
+    );
   }
 
   @Get('officers/:id')
@@ -526,6 +572,7 @@ export class AdminController {
   }
 
   @Patch('officers/:id')
+  @Roles('ADMIN', 'REGIONAL_ADMIN')
   @ApiOperation({
     summary: 'Deactivate or reactivate an internally managed user',
     description:
@@ -566,12 +613,14 @@ export class AdminController {
   async updateOfficerStatus(
     @Param('id') id: string,
     @Body() dto: UpdateOfficerStatusDto,
-    @CurrentUser() user: { id: string },
+    @CurrentUser() user: { id: string } & RegionScopedActor,
   ) {
     const { isActive, ...profile } = dto;
     const wantsProfileEdit = Object.values(profile).some(
       (v) => v !== undefined,
     );
+    // RU-3 — undefined for an ADMIN; a REGIONAL_ADMIN's own region otherwise.
+    const scope = this.staffScopeOf(user);
 
     // O-1 — the profile edit runs FIRST, so that a body carrying both a
     // profile change and a deactivation cannot leave the user deactivated
@@ -579,7 +628,7 @@ export class AdminController {
     // 409 (customers still assigned), and if it does, the profile change has
     // already been applied and reported rather than silently dropped.
     const edited = wantsProfileEdit
-      ? await this.adminService.updateOfficerProfile(id, profile)
+      ? await this.adminService.updateOfficerProfile(id, profile, scope)
       : null;
 
     if (isActive === undefined) {
@@ -593,9 +642,12 @@ export class AdminController {
       });
     }
 
-    const status = await this.adminService.setOfficerActive(id, isActive, {
-      id: user.id,
-    });
+    const status = await this.adminService.setOfficerActive(
+      id,
+      isActive,
+      { id: user.id },
+      scope,
+    );
     // `changed` reports whether ANYTHING moved, across both halves.
     return edited
       ? { ...status, ...edited, changed: edited.changed || status.changed }
@@ -626,6 +678,7 @@ export class AdminController {
 
   // ─── Product Flyer ──────────────────────────
   @Get('product-flyers')
+  @Roles('ADMIN', 'REGIONAL_ADMIN')
   @ApiOperation({
     summary: 'List product flyer cards in current order',
     description:
@@ -639,6 +692,7 @@ export class AdminController {
   }
 
   @Post('product-flyers')
+  @Roles('ADMIN', 'REGIONAL_ADMIN')
   @ApiOperation({
     summary:
       'Create a product flyer card (uploads come pre-resolved as imageUrl)',
@@ -658,6 +712,7 @@ export class AdminController {
   }
 
   @Patch('product-flyers/reorder')
+  @Roles('ADMIN', 'REGIONAL_ADMIN')
   @ApiOperation({
     summary: 'Reorder flyer cards — order in payload = order shown on mobile',
   })
@@ -667,6 +722,7 @@ export class AdminController {
   }
 
   @Patch('product-flyers/:id')
+  @Roles('ADMIN', 'REGIONAL_ADMIN')
   @ApiOperation({
     summary: 'Update / deactivate a flyer card',
     description:
@@ -685,6 +741,7 @@ export class AdminController {
   }
 
   @Delete('product-flyers/:id')
+  @Roles('ADMIN', 'REGIONAL_ADMIN')
   @ApiOperation({ summary: 'Delete a flyer card permanently' })
   @ApiOkResponse({ type: MessageResponseDto })
   async deleteFlyer(@Param('id') id: string) {
