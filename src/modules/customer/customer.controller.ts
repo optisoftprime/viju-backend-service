@@ -89,10 +89,9 @@ export class CustomerController {
       'One row per ACCOUNT OFFICER assigned to the caller, most recently ' +
       'active first - the mirror of GET /officers/chats, from the ' +
       'distributor’s side.\n\n' +
-      'This endpoint NAMES the officer. Every other customer-facing surface ' +
-      'renders staff as the generic "Viju Account Officer" (PRD F6); a ' +
-      'distributor picking who to message cannot do so when everyone is ' +
-      'called the same thing, so `name` and `avatarUrl` are exposed here.\n\n' +
+      'Rows carry the officer’s real name and picture, as every ' +
+      'customer-facing surface now does, so a distributor can tell their ' +
+      'officers apart and pick who to message.\n\n' +
       'Unlike the officer version, an officer the distributor has NEVER ' +
       'messaged still appears, with nulls for the preview and time: this is a ' +
       'list of people to start a conversation with, not only of conversations ' +

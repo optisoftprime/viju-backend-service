@@ -33,6 +33,15 @@ export interface ChatActor {
  */
 const AUDIT_STAFF_ROLES = ['ADMIN', 'REGIONAL_ADMIN'] as const;
 
+/**
+ * Fallback shown to a distributor when a staff member's name cannot be read.
+ *
+ * Officers are named to distributors now, so this is no longer the norm - it
+ * is the safety net for a message whose staff row has gone, which would
+ * otherwise render as a blank sender.
+ */
+export const GENERIC_OFFICER_LABEL = 'Viju Account Officer';
+
 @Injectable()
 export class ChatService {
   constructor(
@@ -123,16 +132,16 @@ export class ChatService {
   }
 
   /**
-   * S-1 - the staff-facing thread names its author.
+   * S-1 - every thread names the author of each staff message.
    *
-   * A CUSTOMER caller is deliberately excluded: PRD F6 says a distributor sees
-   * one label, 'Viju Account Officer', and never an individual staff name.
-   * Returning `staff` to them on this legacy route would leak exactly what F6
-   * hides, so a customer's rows come back with `staff: null` and the label is
-   * still derived on the client.
+   * A CUSTOMER caller used to be excluded, because PRD F6 gave distributors
+   * one label, 'Viju Account Officer', and never an individual name. Officers
+   * are named to distributors now: GET /customers/me/chats sends them here
+   * with a specific officer's id, so suppressing the author on the very thread
+   * that list points at would leave the messages unattributed.
    */
-  private maySeeStaffAuthor(role: string): boolean {
-    return role !== 'CUSTOMER';
+  private maySeeStaffAuthor(_role: string): boolean {
+    return true;
   }
 
   /**
@@ -210,8 +219,8 @@ export class ChatService {
    * message is stored with the REPLYING ADMIN'S OWN `staffId`, so the audit
    * trail shows who actually answered rather than crediting the assigned
    * officer. The customer still sees the message under the
-   * 'Viju Account Officer' label (PRD F6) - individual staff names are never
-   * exposed to a distributor.
+   * sender's own name - staff are named to distributors now, so an admin
+   * stepping into a thread is visible as themselves.
    */
   async sendMessage(user: ChatActor, receiverId: string, dto: SendMessageDto) {
     let customerId = '';
@@ -258,11 +267,15 @@ export class ChatService {
 
     // PRD §6 notification triggers
     if (senderType === 'STAFF') {
-      // Customer-facing display name is always 'Viju Account Officer' (PRD F6)
+      // The distributor is told WHO wrote to them. This used to be the fixed
+      // 'Viju Account Officer' label (PRD F6); a distributor who deals with
+      // more than one officer cannot tell their conversations apart when every
+      // notification carries the same name. Falls back to the generic label
+      // only if the staff row could not be read.
       await this.notifications.notify({
         recipientType: 'CUSTOMER',
         recipientId: customerId,
-        title: 'Viju Account Officer',
+        title: message.staff?.name ?? GENERIC_OFFICER_LABEL,
         body: (dto.content ?? '').slice(0, 120),
         type: NotificationTypes.CHAT_MESSAGE,
         data: { messageId: message.id },
@@ -314,8 +327,16 @@ export class ChatService {
   }
 
   /**
-   * PRD F6: Customer-facing chat thread. Both officers route through
-   * here; messages from either officer appear under 'Viju Account Officer'.
+   * The distributor's merged chat thread, every officer in one timeline.
+   *
+   * `senderLabel` NAMES the officer who wrote each message. It used to be the
+   * fixed 'Viju Account Officer' for every staff message (PRD F6), which made
+   * a thread involving two officers unreadable - the distributor could not
+   * tell who had said what.
+   *
+   * A customer-authored message stays 'You'. Its `staffId` names the officer
+   * the message was routed TO, so labelling it with that name would credit the
+   * wrong author.
    */
   async getCustomerThread(customerId: string) {
     const messages = await this.prisma.message.findMany({
@@ -328,11 +349,17 @@ export class ChatService {
         senderType: true,
         createdAt: true,
         readAt: true,
+        staff: { select: { name: true } },
       },
     });
-    return messages.map((m) => ({
+    // `staff` is dropped from the row: the label is what the thread renders,
+    // and the raw relation would expose it on customer-authored rows too.
+    return messages.map(({ staff, ...m }) => ({
       ...m,
-      senderLabel: m.senderType === 'STAFF' ? 'Viju Account Officer' : 'You',
+      senderLabel:
+        m.senderType === 'STAFF'
+          ? (staff?.name ?? GENERIC_OFFICER_LABEL)
+          : 'You',
     }));
   }
 
