@@ -65,6 +65,13 @@ model Staff {
   username String?   @unique
   erpCode  String?
   password String?
+
+  /// PR-1 - the staff member's own profile picture, set by them through
+  /// PATCH /users/profile/photo. Null until they upload one; the portal draws
+  /// initials in that case. Must be a URL from this project's own upload host
+  /// - the field is rendered in an <img> for every viewer of that user, so an
+  /// arbitrary URL would be a tracking/SSRF vector.
+  profilePhotoUrl String?
   /// Locally owned account status. Only an ADMIN moves it (US-15.4); an ERP
   /// sync can neither deactivate nor resurrect an account (US-15.5).
   isActive Boolean   @default(true)

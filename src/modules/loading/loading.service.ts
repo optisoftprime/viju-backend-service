@@ -116,9 +116,16 @@ export class LoadingService {
     await this.ensureOwnAssignment(officerId, requestId);
 
     const trimmed = dto.description.trim();
+    const cleared = trimmed === '';
     const updated = await this.prisma.loadingRequest.update({
       where: { id: requestId },
-      data: { description: trimmed === '' ? null : trimmed },
+      data: {
+        description: cleared ? null : trimmed,
+        // TS-1 — stamped with the note, and cleared alongside it. Never
+        // touched by a status change, which is the whole reason `updatedAt`
+        // cannot stand in for it.
+        descriptionUpdatedAt: cleared ? null : new Date(),
+      },
       include: QUEUE_INCLUDE,
     });
 
@@ -281,6 +288,7 @@ export class LoadingService {
       // L-2 / L-1 — on every row, so the DESCRIPTION column and the cancelled
       // state render from the list without a second call per row.
       description: request.description,
+      descriptionUpdatedAt: request.descriptionUpdatedAt,
       cancelledAt: request.cancelledAt,
       cancelReason: request.cancelReason,
     };

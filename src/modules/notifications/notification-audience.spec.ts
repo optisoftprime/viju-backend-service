@@ -194,13 +194,50 @@ describe('Notification audience (N-2, N-3, N-4)', () => {
       );
     });
 
-    it('scopes a staff feed by staffId alone', async () => {
+    it('scopes a staff feed by staffId, and excludes chat rows (NB-1)', async () => {
+      // The staffId half is N-1: a staff row is addressed by staffId alone.
+      // The type half is NB-1: the portal already shows unread chat on the
+      // sidebar and per conversation, so a third copy in the bell buried
+      // assignments and tickets.
       const { service, prisma } = build();
 
       await service.listForStaff('o-1', { page: 1, pageSize: 20 });
 
       expect(prisma.notification.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { staffId: 'o-1' } }),
+        expect.objectContaining({
+          where: { staffId: 'o-1', type: { not: 'CHAT_MESSAGE' } },
+        }),
+      );
+    });
+
+    it('counts `unread` over the same rows the staff list returns', async () => {
+      // The reason NB-1 is a server change rather than a client filter: the
+      // panel is paginated, so a badge recounted from one page under-reports.
+      // Both halves must use the identical predicate.
+      const { service, prisma } = build();
+
+      await service.listForStaff('o-1', { page: 1, pageSize: 20 });
+
+      expect(prisma.notification.count).toHaveBeenCalledWith({
+        where: {
+          staffId: 'o-1',
+          type: { not: 'CHAT_MESSAGE' },
+          isRead: false,
+        },
+      });
+    });
+
+    it('leaves the distributor’s own feed carrying its chat rows', async () => {
+      // NB-1 is a staff-portal concern only — the mobile app has no badge to
+      // replace them with.
+      const { service, prisma } = build();
+
+      await service.listForCustomer('c-1', { page: 1, pageSize: 20 });
+
+      expect(prisma.notification.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { customerId: 'c-1', staffId: null },
+        }),
       );
     });
 

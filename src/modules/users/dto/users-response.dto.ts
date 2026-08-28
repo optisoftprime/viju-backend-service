@@ -76,7 +76,27 @@ export class CurrentUserDto {
   @ApiProperty({
     example: 'https://cdn.viju.example/photos/abc.jpg',
     nullable: true,
-    description: 'Customer only — profile photo. Always null for staff.',
+    description:
+      'The user’s own profile photo, or null when they have not set one — ' +
+      'draw initials in that case.\n\n' +
+      'PR-1: this is now populated for STAFF as well as customers. It ' +
+      'previously returned a hard-coded null for staff, because there was no ' +
+      'column to store one in. Set it with PATCH /users/profile/photo.',
   })
   profilePhotoUrl: string | null;
+}
+
+/**
+ * PR-2 — acknowledgement for PATCH /users/profile/password.
+ *
+ * A fixed envelope rather than the user record: nothing about the profile
+ * changed, and echoing it back would invite the client to re-render from a
+ * response whose only real content is "it worked".
+ */
+export class PasswordChangedDto {
+  @ApiProperty({ example: true })
+  success: boolean;
+
+  @ApiProperty({ example: 'Password changed' })
+  message: string;
 }

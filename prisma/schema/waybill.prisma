@@ -44,6 +44,14 @@ model LoadingRequest {
   /// own route. Null when never written; an empty save clears it back to null.
   description String?
 
+  /// TS-1 - when `description` was last written. Deliberately NOT `updatedAt`:
+  /// every status change bumps that, so on a completed load it would date the
+  /// note to the moment the load finished. The value of a handover note is
+  /// WHEN THE COUNT WAS TAKEN, and a wrong timestamp on one is worse than
+  /// none. Set with the description, cleared to null when it is cleared, and
+  /// left alone by a status change.
+  descriptionUpdatedAt DateTime?
+
   /// L-1 - when the load was called off, and why. `cancelReason` is optional:
   /// an operator who gives no reason leaves it null rather than blank, so
   /// "no reason recorded" and "reason was empty" cannot be confused.
