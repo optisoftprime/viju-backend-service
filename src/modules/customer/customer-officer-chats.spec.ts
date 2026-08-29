@@ -53,6 +53,8 @@ describe('Customer officer chat list', () => {
         {} as never,
         {} as never,
         {} as never,
+        {} as never,
+        {} as never,
       ),
     };
   };

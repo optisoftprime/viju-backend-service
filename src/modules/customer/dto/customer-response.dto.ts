@@ -161,6 +161,97 @@ export class HomeResponseDto {
   recentPurchases: HomeRecentPurchaseDto[];
 }
 
+// ─── ERP waybills (GET /customers/me/erp/waybills) ────────
+
+/**
+ * One goods-movement document as the ERP holds it.
+ *
+ * Distinct from GET /customers/me/waybills, which lists the loading requests
+ * raised through this app. This is the ERP's own record, whether or not it
+ * ever passed through the portal.
+ */
+export class ErpWaybillDto {
+  @ApiProperty({
+    example: '2300-202503070060',
+    description: 'The ERP document number (DOC_NO). Identifies the record.',
+  })
+  docNo: string;
+
+  @ApiProperty({ example: '2025-03-07 00:00:00', nullable: true })
+  docDate: string | null;
+
+  @ApiProperty({
+    example: '2025-03-07 00:00:00',
+    nullable: true,
+    description: 'Rows are sorted on this, newest first (docDate as fallback).',
+  })
+  orderDate: string | null;
+
+  @ApiProperty({
+    example: 'Lagos Depot',
+    nullable: true,
+    description: 'Ship-to address name as the ERP records it.',
+  })
+  shipTo: string | null;
+
+  @ApiProperty({
+    example: 2,
+    description:
+      'How many ERP line rows this document collapsed. `raw_sales_order` is ' +
+      'one row per line; the list is one row per document.',
+  })
+  lines: number;
+
+  @ApiProperty({
+    example: 1,
+    description: 'Distinct products on the document.',
+  })
+  products: number;
+
+  @ApiProperty({
+    example: 3640,
+    description: 'Cartons ordered (BUSINESS_QTY).',
+  })
+  quantityOrdered: number;
+
+  @ApiProperty({
+    example: 3500,
+    description: 'Cartons delivered (DELIVERED_BUSINESS_QTY).',
+  })
+  quantityDelivered: number;
+
+  @ApiProperty({
+    example: 140,
+    description: 'Ordered minus delivered, floored at 0.',
+  })
+  quantityRemaining: number;
+
+  @ApiProperty({
+    enum: ['PENDING', 'PROCESSING', 'DELIVERED', 'CLOSED'],
+    example: 'PROCESSING',
+    description:
+      'Derived with the same precedence the order reconciler uses, so a ' +
+      'document cannot read one status here and another on the order list.',
+  })
+  status: string;
+
+  @ApiProperty({
+    example: '2026-08-28T12:49:31.019Z',
+    format: 'date-time',
+    nullable: true,
+    description: 'When the ERP last changed any line of this document.',
+  })
+  lastChangedAt: Date | null;
+}
+
+export class PaginatedErpWaybillsResponseDto {
+  @ApiProperty({ type: [ErpWaybillDto] })
+  data: ErpWaybillDto[];
+
+  @ApiProperty({ type: PaginationMetaDto })
+  meta: PaginationMetaDto;
+}
+
 // ─── Officer chat list (GET /customers/me/chats) ──────────
 
 /**

@@ -34,6 +34,7 @@ import { MessageResponseDto } from '../../common/dto/message-response.dto';
 import {
   HomeResponseDto,
   CustomerOfficerChatItemDto,
+  PaginatedErpWaybillsResponseDto,
   StockBalanceBreakdownDto,
   CustomerProfileDto,
   PaginatedPurchasesResponseDto,
@@ -106,6 +107,32 @@ export class CustomerController {
     return this.customerService.getOfficerChats(user.id);
   }
 
+  @Get('me/erp/waybills')
+  @ApiOperation({
+    summary: 'The ERP’s own goods-movement records',
+    description:
+      'Paginated `{ data, meta }`, newest first, read live from the ERP ' +
+      'sales-order feed for the signed-in distributor.\n\n' +
+      'A DIFFERENT RESOURCE from GET /customers/me/waybills, not a filtered ' +
+      'view of it: that route lists the loading requests raised through this ' +
+      'app, this one lists what the ERP itself holds, whether or not it ever ' +
+      'passed through the portal.\n\n' +
+      '`raw_sales_order` is one row PER ORDER LINE, so rows are rolled up to ' +
+      'one per document (DOC_NO) - the thing a waybill actually is. `lines` ' +
+      'reports how many line rows each document collapsed.\n\n' +
+      '`status` is derived with the same precedence the order reconciler ' +
+      'uses, so it cannot disagree with the order list.\n\n' +
+      'An absent ERP feed or an unknown customer returns an empty page with ' +
+      'a valid `meta`, never an error.',
+  })
+  @ApiOkResponse({ type: PaginatedErpWaybillsResponseDto })
+  async getErpWaybills(
+    @CurrentUser() user: any,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.customerService.getErpWaybills(user.id, pagination);
+  }
+
   @Get('me/home')
   @ApiOperation({
     summary: 'Mobile home screen aggregate',
@@ -162,8 +189,19 @@ export class CustomerController {
     return { message: 'Password updated successfully' };
   }
 
-  @Get('me/purchases')
-  @ApiOperation({ summary: 'Get customer purchase history' })
+  @Get('me/invoices')
+  @ApiOperation({
+    summary: 'Order / invoice history',
+    description:
+      'Paginated `{ data, meta }`: `page`, `pageSize` (clamped to 200 and ' +
+      'echoed back as applied), plus `search` on order id or product name ' +
+      'and `startDate` / `endDate` on the order date. `meta.total` counts ' +
+      'the rows the current filter matches.\n\n' +
+      'Each row carries its `items` - read from the ERP sales-order feed ' +
+      'where the projector has not copied them locally.\n\n' +
+      'RENAMED: this was GET /customers/me/purchases. The old ' +
+      '/customers/me/invoices is now /customers/me/account.',
+  })
   @ApiOkResponse({ type: PaginatedPurchasesResponseDto })
   async getPurchases(
     @CurrentUser() user: any,
@@ -172,14 +210,21 @@ export class CustomerController {
     return this.customerService.getPurchases(user.id, query, query);
   }
 
-  @Get('me/purchases/:id')
+  @Get('me/invoices/:id')
   @ApiOperation({
     summary: 'Order detail with line items + linked invoice',
     description:
-      'Tapping any order on the Payment tab opens this detail view: ' +
-      'individual product lines, status, and the derived invoice number. ' +
-      'Invoice number is generated from the order ERP id until ERP supplies ' +
-      'the real link.',
+      'Tapping any order opens this detail view: individual product lines, ' +
+      'status, and the derived invoice number. The invoice number is ' +
+      'generated from the order ERP id until the ERP supplies the real ' +
+      'link.\n\n' +
+      '`lines` is read from the ERP sales-order feed when the projector has ' +
+      'not copied lines locally, which is the case for almost every order - ' +
+      'it used to come back empty. Each line carries `product`, `itemCode` ' +
+      'and `quantity`. `unitPrice` and `amount` are NULL: the ERP feed ' +
+      'states no per-line money, only the order total, which is on ' +
+      '`totalValue`.\n\n' +
+      'RENAMED: this was GET /customers/me/purchases/{id}.',
   })
   @ApiOkResponse({ type: PurchaseDetailDto })
   async getPurchaseDetail(
@@ -199,16 +244,18 @@ export class CustomerController {
     return this.customerService.getPayments(user.id, pagination);
   }
 
-  @Get('me/invoices')
+  @Get('me/account')
   @ApiOperation({
-    summary: 'Invoice tab aggregate',
+    summary: 'Account tab aggregate',
     description:
-      'Returns wallet balance, full invoice list with derived statuses ' +
+      'Wallet balance, the full invoice list with derived statuses ' +
       '(Paid / Part Paid / Unpaid), and payment history with running ' +
-      'balance. Read-only — no Pay-Now action exists.',
+      'balance. Read-only — no Pay-Now action exists.\n\n' +
+      'RENAMED: this was GET /customers/me/invoices. That path now serves ' +
+      'the order/invoice LIST (formerly /customers/me/purchases).',
   })
   @ApiOkResponse({ type: InvoicesResponseDto })
-  async getInvoices(@CurrentUser() user: any) {
+  async getAccount(@CurrentUser() user: any) {
     return this.customerService.getInvoices(user.id);
   }
 
@@ -273,12 +320,19 @@ export class CustomerController {
     res.send(buf);
   }
 
-  @Get('me/invoices/:id')
+  @Get('me/account/:id')
   @ApiOperation({
     summary: 'Invoice detail with line items',
     description:
-      'Tapping any invoice opens this detail view: line items, quantities, ' +
-      'unit prices, line totals, tax, grand total.',
+      'Tapping any invoice on the Account tab opens this detail view: line ' +
+      'items, quantities, tax and grand total.\n\n' +
+      '`lineItems` is read from the ERP sales-order feed when the projector ' +
+      'has not copied lines locally, which is the case for almost every ' +
+      'order - it used to come back empty. Each line carries `productName`, ' +
+      '`itemCode` and `quantity`. `unitPrice` and `lineTotal` are NULL: the ' +
+      'ERP feed states no per-line money, only the order total, which is on ' +
+      '`grandTotal`.\n\n' +
+      'RENAMED: this was GET /customers/me/invoices/{id}.',
   })
   @ApiOkResponse({ type: InvoiceDetailDto })
   async getInvoiceDetail(
