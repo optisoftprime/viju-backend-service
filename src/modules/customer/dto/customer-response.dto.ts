@@ -772,8 +772,28 @@ export class InvoicesResponseDto {
   })
   contactNote: string;
 
-  @ApiProperty({ type: [InvoiceSummaryDto] })
+  @ApiProperty({
+    type: [InvoiceSummaryDto],
+    description: 'One page of invoices, newest first. Paged by `meta`.',
+  })
   invoices: InvoiceSummaryDto[];
+
+  @ApiProperty({
+    type: PaginationMetaDto,
+    description:
+      'Pagination for `invoices`. `page` / `pageSize` are shared with ' +
+      '`paymentHistory`, but the totals here count invoices only.',
+  })
+  meta: PaginationMetaDto;
+
+  @ApiProperty({
+    type: PaginationMetaDto,
+    description:
+      'Pagination for `paymentHistory`. Separate from `meta` because the two ' +
+      'lists are different lengths - one block could not describe both ' +
+      'without silently truncating the longer.',
+  })
+  paymentHistoryMeta: PaginationMetaDto;
 
   @ApiProperty({ type: [PaymentHistoryItemDto] })
   paymentHistory: PaymentHistoryItemDto[];

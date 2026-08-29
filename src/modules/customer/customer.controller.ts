@@ -248,15 +248,25 @@ export class CustomerController {
   @ApiOperation({
     summary: 'Account tab aggregate',
     description:
-      'Wallet balance, the full invoice list with derived statuses ' +
+      'Wallet balance, the invoice list with derived statuses ' +
       '(Paid / Part Paid / Unpaid), and payment history with running ' +
       'balance. Read-only — no Pay-Now action exists.\n\n' +
+      'PAGINATED: `page` and `pageSize` apply to BOTH lists. `meta` describes ' +
+      '`invoices`; `paymentHistoryMeta` describes `paymentHistory`. The two ' +
+      'are different lengths, so one block could not describe both without ' +
+      'silently truncating the longer — read whichever you are paging. ' +
+      '`pageSize` is clamped to 200 and echoed back as applied.\n\n' +
+      'Both lists were previously unbounded: one distributor returned 4,660 ' +
+      'invoices and 6,796 payments in a single response.\n\n' +
       'RENAMED: this was GET /customers/me/invoices. That path now serves ' +
       'the order/invoice LIST (formerly /customers/me/purchases).',
   })
   @ApiOkResponse({ type: InvoicesResponseDto })
-  async getAccount(@CurrentUser() user: any) {
-    return this.customerService.getInvoices(user.id);
+  async getAccount(
+    @CurrentUser() user: any,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.customerService.getInvoices(user.id, pagination);
   }
 
   @Get('me/account-statement.pdf')
