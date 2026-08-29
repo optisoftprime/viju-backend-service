@@ -11,6 +11,8 @@ import { paginate } from '../../common/pagination/paginate';
 import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
 import { ErpStockBalanceService } from '../erp/erp-stock-balance.service';
 import { messagePreview } from '../../common/messaging/message-preview';
+import { ErpOrderLinesService } from '../erp/erp-order-lines.service';
+import { ErpWaybillsService } from '../erp/erp-waybills.service';
 
 @Injectable()
 export class CustomerService {
@@ -19,6 +21,8 @@ export class CustomerService {
     private readonly ledger: StatementLedgerService,
     private readonly accountBalance: ErpAccountBalanceService,
     private readonly stockBalance: ErpStockBalanceService,
+    private readonly orderLines: ErpOrderLinesService,
+    private readonly erpWaybills: ErpWaybillsService,
   ) {}
 
   /**
@@ -314,6 +318,24 @@ export class CustomerService {
     return new Map(rows.map((r) => [r.staffId, r]));
   }
 
+  /**
+   * The ERP's own goods-movement documents for this distributor.
+   *
+   * Keyed on the customer's ERP code, so it reports what the ERP holds even
+   * for orders the projector has never copied into `Purchase`.
+   */
+  async getErpWaybills(
+    customerId: string,
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { erpId: true },
+    });
+    if (!customer) throw new NotFoundException('Customer profile not found');
+    return this.erpWaybills.list(customer.erpId, pagination);
+  }
+
   async getStockBalanceBreakdown(customerId: string) {
     // Same ERP derivation as the home screen's Stock Balance card, so the two
     // can no longer report different numbers for the same distributor.
@@ -506,7 +528,7 @@ export class CustomerService {
       if (filter.endDate) where.orderDate.lte = new Date(filter.endDate);
     }
 
-    return paginate(
+    const page = await paginate(
       () => this.prisma.purchase.count({ where }),
       (skip, take) =>
         this.prisma.purchase.findMany({
@@ -518,6 +540,34 @@ export class CustomerService {
         }),
       pagination,
     );
+
+    // The projector has copied lines for 30 of 10,350 orders, so `items` is
+    // empty on almost every row. Fill the gaps from the ERP feed - one batched
+    // query for the page, never one per row.
+    const missing = page.data.filter((p) => p.items.length === 0);
+    if (missing.length === 0) return page;
+    const erpLines = await this.orderLines.getLinesByOrder(
+      missing.map((p) => p.erpId),
+    );
+    return {
+      ...page,
+      data: page.data.map((purchase) =>
+        purchase.items.length > 0
+          ? purchase
+          : {
+              ...purchase,
+              items: (erpLines.get(purchase.erpId) ?? []).map((l) => ({
+                id: l.id,
+                purchaseId: purchase.id,
+                productName: l.productName,
+                itemCode: l.itemCode,
+                quantity: l.quantity,
+                unitPrice: l.unitPrice,
+                lineTotal: l.lineTotal,
+              })),
+            },
+      ),
+    };
   }
 
   async getPurchaseDetail(customerId: string, purchaseId: string) {
@@ -545,6 +595,26 @@ export class CustomerService {
     const balances = await this.ledger.balanceByPurchase(customerId);
     const accountBalance = balances.get(purchase.id) ?? 0;
 
+    // `lines` used to render empty for almost every order, because the
+    // projector copies PurchaseItem for barely any of them. Fall back to the
+    // ERP feed, which states the product and quantity per line but no
+    // per-line money - see order-lines.ts.
+    const erpLines =
+      purchase.items.length === 0
+        ? await this.orderLines.getLines(purchase.erpId)
+        : [];
+    const lineSource =
+      purchase.items.length > 0
+        ? purchase.items.map((i) => ({
+            id: i.id,
+            productName: i.productName,
+            itemCode: i.itemCode ?? null,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice,
+            lineTotal: i.lineTotal,
+          }))
+        : erpLines;
+
     return {
       id: purchase.id,
       orderId: purchase.erpId,
@@ -555,16 +625,24 @@ export class CustomerService {
       totalValue: purchase.totalValue,
       linkedInvoiceNumber: this.deriveInvoiceNumber(purchase.erpId),
       accountBalance,
-      lines: purchase.items.map((i) => ({
+      lines: lineSource.map((i) => ({
         product: i.productName,
-        itemCode: i.itemCode ?? null,
+        itemCode: i.itemCode,
         quantity: i.quantity,
         unitPrice: i.unitPrice,
         amount: i.lineTotal,
         accountBalance,
       })),
       // Retained for the existing screens; `lines` is the B-5.4 shape.
-      items: purchase.items,
+      items: lineSource.map((i) => ({
+        id: i.id,
+        purchaseId: purchase.id,
+        productName: i.productName,
+        itemCode: i.itemCode,
+        quantity: i.quantity,
+        unitPrice: i.unitPrice,
+        lineTotal: i.lineTotal,
+      })),
     };
   }
 
@@ -677,7 +755,31 @@ export class CustomerService {
     });
     if (!purchase) throw new NotFoundException('Invoice not found');
 
-    const subtotal = purchase.items.reduce((a, i) => a + i.lineTotal, 0);
+    // Same gap as the order detail: PurchaseItem is empty for almost every
+    // order, so `lineItems` rendered blank. The ERP feed supplies product and
+    // quantity per line, but no per-line money - see order-lines.ts.
+    const erpLines =
+      purchase.items.length === 0
+        ? await this.orderLines.getLines(purchase.erpId)
+        : [];
+    const lineItems =
+      purchase.items.length > 0
+        ? purchase.items.map((i) => ({
+            id: i.id,
+            productName: i.productName,
+            itemCode: null as string | null,
+            quantity: i.quantity,
+            unitPrice: i.unitPrice,
+            lineTotal: i.lineTotal,
+          }))
+        : erpLines;
+
+    // Summing null line totals would report 0 for an order worth millions, so
+    // the ERP-sourced case falls back to the order total the ERP does state.
+    const subtotal =
+      purchase.items.length > 0
+        ? purchase.items.reduce((a, i) => a + i.lineTotal, 0)
+        : purchase.totalValue;
     const tax = 0;
     return {
       id: purchase.id,
@@ -685,7 +787,7 @@ export class CustomerService {
       orderId: purchase.erpId,
       date: purchase.orderDate,
       status: this.deriveInvoiceStatus(purchase.status),
-      lineItems: purchase.items,
+      lineItems,
       subtotal,
       tax,
       grandTotal: subtotal + tax,

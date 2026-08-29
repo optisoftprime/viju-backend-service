@@ -4,6 +4,8 @@ import { ErpService } from './erp.service';
 import { ErpOrderStatusService } from './erp-order-status.service';
 import { ErpAccountBalanceService } from './erp-account-balance.service';
 import { ErpStockBalanceService } from './erp-stock-balance.service';
+import { ErpOrderLinesService } from './erp-order-lines.service';
+import { ErpWaybillsService } from './erp-waybills.service';
 import { DefaultOfficerService } from './default-officer.service';
 
 @Module({
@@ -13,12 +15,16 @@ import { DefaultOfficerService } from './default-officer.service';
     ErpOrderStatusService,
     ErpAccountBalanceService,
     ErpStockBalanceService,
+    ErpOrderLinesService,
+    ErpWaybillsService,
     DefaultOfficerService,
   ],
   exports: [
     ErpOrderStatusService,
     ErpAccountBalanceService,
     ErpStockBalanceService,
+    ErpOrderLinesService,
+    ErpWaybillsService,
     DefaultOfficerService,
   ],
 })

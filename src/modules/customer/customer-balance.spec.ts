@@ -4,6 +4,8 @@ import { CustomerService } from './customer.service';
 import { StatementLedgerService } from './statement-ledger.service';
 import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
 import { ErpStockBalanceService } from '../erp/erp-stock-balance.service';
+import { ErpOrderLinesService } from '../erp/erp-order-lines.service';
+import { ErpWaybillsService } from '../erp/erp-waybills.service';
 
 /**
  * The balance the customer app shows must come from the ERP credit feed
@@ -54,6 +56,14 @@ describe('Customer account balance (ERP-derived)', () => {
     getStockBalance: jest.fn().mockResolvedValue(null),
   };
 
+  // No ERP sales-order feed here either, so line items stay local.
+  const mockOrderLines = {
+    getLines: jest.fn().mockResolvedValue([]),
+    getLinesByOrder: jest.fn().mockResolvedValue(new Map()),
+  };
+
+  const mockErpWaybills = { list: jest.fn() };
+
   const mockLedger = {
     balanceByPurchase: jest.fn().mockResolvedValue(new Map()),
   };
@@ -66,6 +76,8 @@ describe('Customer account balance (ERP-derived)', () => {
         { provide: StatementLedgerService, useValue: mockLedger },
         { provide: ErpAccountBalanceService, useValue: mockAccountBalance },
         { provide: ErpStockBalanceService, useValue: mockStockBalance },
+        { provide: ErpOrderLinesService, useValue: mockOrderLines },
+        { provide: ErpWaybillsService, useValue: mockErpWaybills },
       ],
     }).compile();
     service = module.get(CustomerService);
