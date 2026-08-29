@@ -39,8 +39,15 @@ describe('Customer account balance (ERP-derived)', () => {
 
   const mockPrisma = {
     customer: { findUnique: jest.fn() },
-    purchase: { findMany: jest.fn().mockResolvedValue([]) },
-    payment: { findMany: jest.fn().mockResolvedValue([]) },
+    // The Account tab pages both lists, so each needs a count alongside.
+    purchase: {
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    },
+    payment: {
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    },
     productFlyer: { findMany: jest.fn().mockResolvedValue([]) },
   };
 
@@ -139,7 +146,7 @@ describe('Customer account balance (ERP-derived)', () => {
     });
   });
 
-  describe('GET /customers/me/invoices', () => {
+  describe('GET /customers/me/account', () => {
     it('reports the derived balance and derives isOverdue from it', async () => {
       mockAccountBalance.getRunningBalance.mockResolvedValue(DERIVED);
 

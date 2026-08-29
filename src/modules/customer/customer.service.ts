@@ -7,7 +7,11 @@ import {
   PurchaseFilterDto,
 } from './dto/customer.dto';
 import * as bcrypt from 'bcryptjs';
-import { paginate } from '../../common/pagination/paginate';
+import {
+  MAX_PAGE_SIZE,
+  buildPaginationMeta,
+  paginate,
+} from '../../common/pagination/paginate';
 import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
 import { ErpStockBalanceService } from '../erp/erp-stock-balance.service';
 import { messagePreview } from '../../common/messaging/message-preview';
@@ -675,40 +679,65 @@ export class CustomerService {
     );
   }
 
-  async getInvoices(customerId: string) {
-    const [customer, purchases, payments] = await Promise.all([
-      this.prisma.customer.findUnique({
-        where: { id: customerId },
-        select: {
-          erpId: true,
-          outstandingBalance: true,
-          updatedAt: true,
-          assignedOfficer: { select: { id: true } },
-        },
-      }),
-      this.prisma.purchase.findMany({
-        where: { customerId },
-        orderBy: { orderDate: 'desc' },
-        select: {
-          id: true,
-          erpId: true,
-          orderDate: true,
-          totalValue: true,
-          status: true,
-        },
-      }),
-      this.prisma.payment.findMany({
-        where: { customerId },
-        orderBy: { date: 'desc' },
-        select: {
-          id: true,
-          date: true,
-          amount: true,
-          reference: true,
-          runningBalance: true,
-        },
-      }),
-    ]);
+  /**
+   * The Account tab: wallet balance, invoices and payment history.
+   *
+   * BOTH lists are paginated. They were unbounded, and they grow without
+   * limit - one distributor already has 4,660 invoices and 6,796 payments,
+   * so a single response carried 11,456 rows. `page` and `pageSize` apply to
+   * both; each reports its own totals, so neither is silently truncated.
+   */
+  async getInvoices(
+    customerId: string,
+    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+  ) {
+    const page = Math.max(1, Math.floor(pagination.page || 1));
+    const pageSize = Math.min(
+      MAX_PAGE_SIZE,
+      Math.max(1, Math.floor(pagination.pageSize || 20)),
+    );
+    const skip = (page - 1) * pageSize;
+
+    const [customer, purchases, invoiceTotal, payments, paymentTotal] =
+      await Promise.all([
+        this.prisma.customer.findUnique({
+          where: { id: customerId },
+          select: {
+            erpId: true,
+            outstandingBalance: true,
+            updatedAt: true,
+            assignedOfficer: { select: { id: true } },
+          },
+        }),
+        this.prisma.purchase.findMany({
+          where: { customerId },
+          orderBy: { orderDate: 'desc' },
+          select: {
+            id: true,
+            erpId: true,
+            orderDate: true,
+            totalValue: true,
+            status: true,
+          },
+          skip,
+          take: pageSize,
+        }),
+        this.prisma.purchase.count({ where: { customerId } }),
+        this.prisma.payment.findMany({
+          where: { customerId },
+          orderBy: { date: 'desc' },
+          select: {
+            id: true,
+            date: true,
+            amount: true,
+            reference: true,
+            runningBalance: true,
+          },
+          skip,
+          take: pageSize,
+        }),
+        this.prisma.payment.count({ where: { customerId } }),
+      ]);
     if (!customer) throw new NotFoundException('Customer not found');
 
     const invoices = purchases.map((p) => ({
@@ -731,10 +760,14 @@ export class CustomerService {
         isOverdue: walletAmount < 0,
         lastUpdated: customer.updatedAt,
       },
-      // PRD F4 AC8 + F6: generic label only — never officer's actual name
       contactNote: 'To make a payment, contact your Viju Account Officer.',
       invoices,
+      // Paginates `invoices`, the tab's primary list.
+      meta: buildPaginationMeta(invoiceTotal, page, pageSize),
       paymentHistory: payments,
+      // Its own totals: the two lists are different lengths, so one meta
+      // could not describe both without silently truncating the longer.
+      paymentHistoryMeta: buildPaginationMeta(paymentTotal, page, pageSize),
     };
   }
 
