@@ -24,7 +24,7 @@ export class WaybillService {
     pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
   ) {
     const where = { customerId };
-    return paginate(
+    const page = await paginate(
       () => this.prisma.loadingRequest.count({ where }),
       (skip, take) =>
         this.prisma.loadingRequest.findMany({
@@ -41,13 +41,28 @@ export class WaybillService {
             destination: true,
             status: true,
             createdAt: true,
+            warehouseName: true,
+            loadingCapacity: true,
             linkedPurchase: { select: { erpId: true } },
+            items: {
+              select: {
+                id: true,
+                productId: true,
+                productName: true,
+                quantity: true,
+                weightPerCarton: true,
+              },
+            },
           },
           skip,
           take,
         }),
       pagination,
     );
+    return {
+      ...page,
+      data: page.data.map(({ items, ...row }) => ({ ...row, products: items })),
+    };
   }
 
   async getForCustomer(customerId: string, id: string) {
@@ -55,13 +70,26 @@ export class WaybillService {
       where: { id, customerId },
       include: {
         linkedPurchase: { select: { id: true, erpId: true } },
+        items: {
+          select: {
+            id: true,
+            productId: true,
+            productName: true,
+            quantity: true,
+            weightPerCarton: true,
+          },
+        },
       },
     });
     if (!wb) throw new NotFoundException('Waybill not found');
     // PRD F6: customers never see an officer's real name — surface a generic
     // label, never the assigned loading officer's identity.
+    const { items, ...rest } = wb;
     return {
-      ...wb,
+      ...rest,
+      // Named `products` on the wire, matching the submit body; `items` is
+      // only the Prisma relation name.
+      products: items,
       assignedOfficer: wb.assignedOfficerId
         ? { displayName: 'Viju Loading Officer' }
         : null,
@@ -125,6 +153,13 @@ export class WaybillService {
       );
     }
 
+    const products = dto.products ?? [];
+    // `loadingCapacity` is the TRUCK's capacity, not the load. The load is the
+    // sum of the product lines, and it is mirrored onto `quantityCartons` so
+    // every existing stock calculation - which reads that column on COMPLETED
+    // requests - keeps working without knowing about product lines.
+    const loadedCartons = products.reduce((sum, p) => sum + p.quantity, 0);
+
     const reference = `WB-${Date.now().toString().slice(-6)}`;
     const request = await this.prisma.loadingRequest.create({
       data: {
@@ -136,12 +171,32 @@ export class WaybillService {
         driverName: dto.driverName,
         driverPhone: dto.driverPhone,
         requestedLoadingDate: new Date(dto.requestedLoadingDate),
-        quantityCartons: dto.quantityCartons,
+        quantityCartons:
+          products.length > 0 ? loadedCartons : dto.quantityCartons,
         destination: dto.destination,
+        warehouseName: dto.warehouseName,
+        loadingCapacity: dto.loadingCapacity,
         termsAcceptedAt: recentTerms.acceptedAt,
         status: 'PENDING_ASSIGNMENT',
+        // Stored as sent, never re-resolved: this records what the distributor
+        // declared they were loading, and it must not change under them if the
+        // specification sheet is later corrected.
+        ...(products.length > 0
+          ? {
+              items: {
+                create: products.map((p) => ({
+                  productId: p.productId ?? null,
+                  productName: p.productName,
+                  quantity: p.quantity,
+                  weightPerCarton: p.weightPerCarton ?? null,
+                })),
+              },
+            }
+          : {}),
       },
+      include: { items: true },
     });
+    const { items: createdItems, ...created } = request;
 
     // PRD F5 AC7 + §6 / N-2: one row per REGIONAL_ADMIN OF THIS REGION, and
     // nobody else. A loading request is raised against one region and only
@@ -172,6 +227,6 @@ export class WaybillService {
       });
     }
 
-    return request;
+    return { ...created, products: createdItems };
   }
 }

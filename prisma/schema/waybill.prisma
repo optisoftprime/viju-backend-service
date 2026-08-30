@@ -25,6 +25,22 @@ model LoadingRequest {
   quantityCartons      Int?
   destination          String?
 
+  /// The Viju warehouse the truck is loading from. Stored as text rather than
+  /// an enum because the wire value carries a space ("LAGOS WAREHOUSE") and a
+  /// Postgres enum label cannot round-trip that without a mapping layer that
+  /// would only ever hide the raw value. Validated against the closed set at
+  /// the DTO. Null on requests raised before the field existed.
+  warehouseName String?
+
+  /// The TRUCK's carton capacity, as the distributor states it - not the size
+  /// of this load. The load itself is the sum of `items.quantity`, mirrored
+  /// onto `quantityCartons` so every existing stock calculation keeps working.
+  loadingCapacity Int?
+
+  /// The products being loaded. Empty on requests raised before the field
+  /// existed, and on any raised without a product breakdown.
+  items LoadingRequestItem[]
+
   termsAcceptedAt DateTime
   externalFormUrl String?
 
@@ -81,4 +97,36 @@ model TermsAcceptance {
   userAgent    String?
 
   @@index([customerId])
+}
+
+/// One product line on a loading request.
+///
+/// The distributor picks these from GET /erp/orders/{orderId}/products, so the
+/// values originate in the ERP sales-order feed and the Viju product
+/// specification sheet. They are stored as sent rather than re-resolved: this
+/// is a record of what the distributor declared they were loading, and it must
+/// not silently change if the specification sheet is later corrected.
+model LoadingRequestItem {
+  id String @id @default(uuid())
+
+  loadingRequestId String
+  loadingRequest   LoadingRequest @relation(fields: [loadingRequestId], references: [id], onDelete: Cascade)
+
+  /// ERP item code from the specification sheet. Null when the sheet does not
+  /// cover the product - the products endpoint returns null there too.
+  productId String?
+
+  /// ITEM_DESCRIPTION as the ERP states it.
+  productName String
+
+  /// Cartons of this product on the load.
+  quantity Int
+
+  /// Kilograms per carton, as the specification sheet states it. Null when the
+  /// sheet does not cover the product.
+  weightPerCarton Float?
+
+  createdAt DateTime @default(now())
+
+  @@index([loadingRequestId])
 }

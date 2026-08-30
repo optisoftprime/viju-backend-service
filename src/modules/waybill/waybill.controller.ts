@@ -64,11 +64,24 @@ export class WaybillController {
   @ApiOperation({
     summary: 'Submit a loading request',
     description:
-      'Direct in-app submission. The in-app form is out of scope; ' +
-      'this endpoint is the dev surface and the future webhook target from ' +
-      'the external form. Requires a T&C acceptance within the last hour. ' +
-      'Returns the created request in PENDING_ASSIGNMENT status; regional ' +
-      'admin is notified.',
+      'Requires a T&C acceptance within the last hour (POST ' +
+      '/customers/me/waybills/accept-terms). Returns the created request in ' +
+      'PENDING_ASSIGNMENT status; the regional admin for the region is ' +
+      'notified.\n\n' +
+      'PRODUCT BREAKDOWN: send `products[]` with the lines being loaded, ' +
+      'taken from GET /erp/orders/{orderId}/products for the same ' +
+      '`linkedPurchaseId`. Echo `productId` and `weightPerCarton` back as ' +
+      'that endpoint returned them - both may be null, because the product ' +
+      'specification sheet does not cover every product. The lines are stored ' +
+      'as sent and never re-resolved, so a later correction to the sheet ' +
+      'cannot change what the distributor declared.\n\n' +
+      '`warehouseName` is one of LAGOS WAREHOUSE | OGUN WAREHOUSE | ABUJA ' +
+      'WAREHOUSE. `loadingCapacity` is the TRUCK’s carton capacity, not the ' +
+      'size of this load.\n\n' +
+      'When `products[]` is present, `quantityCartons` is DERIVED as the sum ' +
+      'of the line quantities and any value sent for it is ignored - so the ' +
+      'stock figures that read that column cannot disagree with the lines. ' +
+      'Without `products[]` the endpoint behaves exactly as before.',
   })
   @ApiCreatedResponse({ type: WaybillDto })
   async submit(@CurrentUser() user: any, @Body() dto: SubmitLoadingRequestDto) {

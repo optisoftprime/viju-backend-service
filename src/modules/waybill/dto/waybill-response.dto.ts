@@ -19,6 +19,39 @@ export class WaybillListLinkedPurchaseDto {
   erpId: string;
 }
 
+/**
+ * One product line on a loading request - what the distributor declared they
+ * were loading, stored as sent.
+ */
+export class WaybillProductDto {
+  @ApiProperty({ example: 'item-uuid-1' })
+  id: string;
+
+  @ApiProperty({
+    example: '101020104',
+    nullable: true,
+    description:
+      'ERP item code. Null when the product specification sheet does not ' +
+      'cover this product.',
+  })
+  productId: string | null;
+
+  @ApiProperty({ example: '750ml water(L-水)' })
+  productName: string;
+
+  @ApiProperty({ example: 120, description: 'Cartons of this product.' })
+  quantity: number;
+
+  @ApiProperty({
+    example: 9.38,
+    nullable: true,
+    description:
+      'Kilograms per carton. Null when the sheet does not cover this ' +
+      'product - check before doing arithmetic.',
+  })
+  weightPerCarton: number | null;
+}
+
 export class WaybillListItemDto {
   @ApiProperty({ example: 'waybill-uuid-1' })
   id: string;
@@ -43,6 +76,31 @@ export class WaybillListItemDto {
 
   @ApiProperty({ example: 'Yaba Warehouse', nullable: true })
   destination: string | null;
+
+  @ApiProperty({
+    enum: ['LAGOS WAREHOUSE', 'OGUN WAREHOUSE', 'ABUJA WAREHOUSE'],
+    example: 'LAGOS WAREHOUSE',
+    nullable: true,
+    description: 'Null on requests raised before this field existed.',
+  })
+  warehouseName: string | null;
+
+  @ApiProperty({
+    example: 1200,
+    nullable: true,
+    description:
+      'The TRUCK’s carton capacity, not the size of this load. The load is ' +
+      'the sum of `products[].quantity`, mirrored onto `quantityCartons`.',
+  })
+  loadingCapacity: number | null;
+
+  @ApiProperty({
+    type: [WaybillProductDto],
+    description:
+      'The products declared on this load. Empty on requests raised without ' +
+      'a breakdown, and on any predating the field.',
+  })
+  products: WaybillProductDto[];
 
   @ApiProperty({
     enum: LOADING_REQUEST_STATUS_VALUES,
@@ -117,6 +175,31 @@ export class WaybillDto {
 
   @ApiProperty({ example: 'Yaba Warehouse', nullable: true })
   destination: string | null;
+
+  @ApiProperty({
+    enum: ['LAGOS WAREHOUSE', 'OGUN WAREHOUSE', 'ABUJA WAREHOUSE'],
+    example: 'LAGOS WAREHOUSE',
+    nullable: true,
+    description: 'Null on requests raised before this field existed.',
+  })
+  warehouseName: string | null;
+
+  @ApiProperty({
+    example: 1200,
+    nullable: true,
+    description:
+      'The TRUCK’s carton capacity, not the size of this load. The load is ' +
+      'the sum of `products[].quantity`, mirrored onto `quantityCartons`.',
+  })
+  loadingCapacity: number | null;
+
+  @ApiProperty({
+    type: [WaybillProductDto],
+    description:
+      'The products declared on this load. Empty on requests raised without ' +
+      'a breakdown, and on any predating the field.',
+  })
+  products: WaybillProductDto[];
 
   @ApiProperty({ example: '2026-06-09T08:16:56.533Z', format: 'date-time' })
   termsAcceptedAt: Date;
