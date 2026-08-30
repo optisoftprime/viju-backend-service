@@ -4,11 +4,20 @@ import {
   ForbiddenException,
   BadRequestException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
 import { NotificationTypes } from '../../common/notifications/notification-types';
 import { AcceptTermsDto, SubmitLoadingRequestDto } from './dto/waybill.dto';
 import { paginate } from '../../common/pagination/paginate';
+
+/**
+ * How many reference variants to try before giving up.
+ *
+ * One order is loaded in parts a handful of times at most, so this only ever
+ * bites on a genuine collision storm rather than normal partial loading.
+ */
+const MAX_REFERENCE_ATTEMPTS = 25;
 
 const TNC_RECENT_WINDOW_MS = 60 * 60 * 1000; // 1h
 
@@ -119,6 +128,51 @@ export class WaybillService {
   }
 
   /**
+   * Creates the request with a reference derived from the ERP document.
+   *
+   * `reference` used to be `WB-<timestamp>`, which carried no relationship to
+   * anything the ERP or the distributor recognises. It is now the DOC_NO of
+   * the order being loaded - the same value `linkedPurchase.erpId` carries -
+   * so a reference can be matched against the ERP by eye.
+   *
+   * ONE ORDER CAN HAVE SEVERAL LOADS. A distributor may load an order in
+   * parts, and `reference` is @unique, so the bare DOC_NO cannot be used for
+   * the second. Later loads take a `-02`, `-03` suffix.
+   *
+   * The suffix is resolved by RETRYING on the unique violation rather than by
+   * counting first: two submissions racing on the same order would otherwise
+   * compute the same number and one would fail outright.
+   */
+  private async createWithOrderReference(
+    docNo: string,
+    data: Omit<Prisma.LoadingRequestUncheckedCreateInput, 'reference'>,
+  ) {
+    for (let attempt = 1; attempt <= MAX_REFERENCE_ATTEMPTS; attempt++) {
+      const reference =
+        attempt === 1 ? docNo : `${docNo}-${String(attempt).padStart(2, '0')}`;
+      try {
+        return await this.prisma.loadingRequest.create({
+          data: {
+            ...data,
+            reference,
+          },
+          include: { items: true },
+        });
+      } catch (e) {
+        // P2002 = unique violation. Any other failure is not ours to retry.
+        const isDuplicate =
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === 'P2002';
+        if (!isDuplicate || attempt === MAX_REFERENCE_ATTEMPTS) throw e;
+      }
+    }
+    // Unreachable: the loop either returns or throws on its last attempt.
+    throw new BadRequestException(
+      'Could not allocate a loading reference for this order. Please try again.',
+    );
+  }
+
+  /**
    * Direct in-app submission. PRD §7 marks the in-app form as out of
    * scope (external Google Form), but this endpoint stays as the dev
    * surface and as the receiver for the future form webhook so the FE
@@ -160,41 +214,36 @@ export class WaybillService {
     // requests - keeps working without knowing about product lines.
     const loadedCartons = products.reduce((sum, p) => sum + p.quantity, 0);
 
-    const reference = `WB-${Date.now().toString().slice(-6)}`;
-    const request = await this.prisma.loadingRequest.create({
-      data: {
-        reference,
-        customerId,
-        region: customer.region,
-        linkedPurchaseId: dto.linkedPurchaseId,
-        truckPlateNumber: dto.truckPlateNumber,
-        driverName: dto.driverName,
-        driverPhone: dto.driverPhone,
-        requestedLoadingDate: new Date(dto.requestedLoadingDate),
-        quantityCartons:
-          products.length > 0 ? loadedCartons : dto.quantityCartons,
-        destination: dto.destination,
-        warehouseName: dto.warehouseName,
-        loadingCapacity: dto.loadingCapacity,
-        termsAcceptedAt: recentTerms.acceptedAt,
-        status: 'PENDING_ASSIGNMENT',
-        // Stored as sent, never re-resolved: this records what the distributor
-        // declared they were loading, and it must not change under them if the
-        // specification sheet is later corrected.
-        ...(products.length > 0
-          ? {
-              items: {
-                create: products.map((p) => ({
-                  productId: p.productId ?? null,
-                  productName: p.productName,
-                  quantity: p.quantity,
-                  weightPerCarton: p.weightPerCarton ?? null,
-                })),
-              },
-            }
-          : {}),
-      },
-      include: { items: true },
+    const request = await this.createWithOrderReference(purchase.erpId, {
+      customerId,
+      region: customer.region,
+      linkedPurchaseId: dto.linkedPurchaseId,
+      truckPlateNumber: dto.truckPlateNumber,
+      driverName: dto.driverName,
+      driverPhone: dto.driverPhone,
+      requestedLoadingDate: new Date(dto.requestedLoadingDate),
+      quantityCartons:
+        products.length > 0 ? loadedCartons : dto.quantityCartons,
+      destination: dto.destination,
+      warehouseName: dto.warehouseName,
+      loadingCapacity: dto.loadingCapacity,
+      termsAcceptedAt: recentTerms.acceptedAt,
+      status: 'PENDING_ASSIGNMENT',
+      // Stored as sent, never re-resolved: this records what the distributor
+      // declared they were loading, and it must not change under them if the
+      // specification sheet is later corrected.
+      ...(products.length > 0
+        ? {
+            items: {
+              create: products.map((p) => ({
+                productId: p.productId ?? null,
+                productName: p.productName,
+                quantity: p.quantity,
+                weightPerCarton: p.weightPerCarton ?? null,
+              })),
+            },
+          }
+        : {}),
     });
     const { items: createdItems, ...created } = request;
 
