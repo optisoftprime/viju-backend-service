@@ -43,7 +43,13 @@ export const ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL = `
            sum(coalesce(nullif(so.payload->>'BUSINESS_QTY', '')::numeric, 0))
              AS ordered_qty,
            sum(coalesce(nullif(so.payload->>'DELIVERED_BUSINESS_QTY', '')::numeric, 0))
-             AS delivered_qty
+             AS delivered_qty,
+           -- ITEM_CODE is carried on only ~6% of line rows, and grouping is by
+           -- product NAME, so take any non-null code the product's lines
+           -- carry rather than dropping the whole group's code because one
+           -- line is silent. min() is deterministic; a product whose lines
+           -- disagree is a feed fault, not something to paper over.
+           min(nullif(so.payload->>'ITEM_CODE', '')) AS item_code
       FROM erp_raw.raw_sales_order so
      WHERE so.object_type = 'SALES_ORDER'
        AND so.payload->>'CUSTOMER_ID' = (

@@ -13,6 +13,7 @@ import {
   ApiBearerAuth,
   ApiOkResponse,
   ApiCreatedResponse,
+  ApiNotFoundResponse,
 } from '@nestjs/swagger';
 import { WaybillService } from './waybill.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
@@ -105,9 +106,30 @@ export class WaybillController {
 
   @Get(':id')
   @ApiOperation({
-    summary: 'Waybill detail',
+    summary: 'One loading request in full - the submitted-request preview',
+    description:
+      'Everything recorded when the request was raised: the truck and driver, ' +
+      'the warehouse, the requested date, the status, and the whole load.\n\n' +
+      'THE LOAD IS RETURNED TWICE, deliberately. `products` is the flat list ' +
+      'of lines, unchanged, for callers that already read it. `orders` is the ' +
+      'same lines GROUPED BY ORDER - primary first - each entry carrying that ' +
+      'order`s DOC_NO, date and status plus its own carton and kilogram ' +
+      'totals. A preview screen wants `orders`.\n\n' +
+      '`totals` sums the load across every order. `totalCartons` equals ' +
+      '`quantityCartons`. `weightIsComplete` is false when any line has no ' +
+      'carton weight - the product specification sheet does not cover every ' +
+      'product - so the kilogram figure is then a partial sum and should be ' +
+      'shown as a minimum rather than as the total.\n\n' +
+      'Scoped to the caller: another distributor`s request id returns 404, ' +
+      'not 403. The assigned officer is always the generic label ' +
+      '`Viju Loading Officer` (PRD F6), never a real name.',
   })
   @ApiOkResponse({ type: WaybillDetailDto })
+  @ApiNotFoundResponse({
+    description:
+      'No such loading request for this distributor: ' +
+      '`{ "message": "Waybill not found", "statusCode": 404 }`',
+  })
   async detail(@CurrentUser() user: any, @Param('id') id: string) {
     return this.waybillService.getForCustomer(user.id, id);
   }

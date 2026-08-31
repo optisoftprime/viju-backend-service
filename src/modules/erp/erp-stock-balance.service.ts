@@ -4,6 +4,8 @@ import { ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL } from './stock-balance';
 
 /** One product line of the stock-balance breakdown. */
 export interface ErpStockBalanceProduct {
+  /** ERP ITEM_CODE. Null when the feed carries none for this product. */
+  itemCode: string | null;
   productName: string;
   quantityPaid: number;
   quantityLoaded: number;
@@ -81,6 +83,7 @@ export class ErpStockBalanceService {
           product: string | null;
           ordered_qty: string | number | null;
           delivered_qty: string | number | null;
+          item_code: string | null;
         }[]
       >(ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL, erpId);
 
@@ -97,6 +100,7 @@ export class ErpStockBalanceService {
         const quantityPaid = num(r.ordered_qty);
         const quantityLoaded = num(r.delivered_qty);
         return {
+          itemCode: r.item_code ?? null,
           productName: r.product ?? 'Unspecified',
           quantityPaid,
           quantityLoaded,

@@ -12,9 +12,16 @@ import {
   ApiOperation,
   ApiBearerAuth,
   ApiOkResponse,
+  ApiParam,
+  ApiNotFoundResponse,
   ApiProduces,
 } from '@nestjs/swagger';
 import { CustomerService } from './customer.service';
+import {
+  COLLECTION_RECORD,
+  RECEIVABLE_RECORD,
+  REFUND_RECORD,
+} from '../erp/erp-financial-records';
 import { StatementService } from './statement.service';
 import { StatementLedgerService } from './statement-ledger.service';
 import { Res } from '@nestjs/common';
@@ -35,6 +42,9 @@ import {
   HomeResponseDto,
   CustomerOfficerChatItemDto,
   PaginatedErpWaybillsResponseDto,
+  ErpWaybillDetailDto,
+  ErpFinancialRecordDto,
+  PaginatedErpFinancialRecordsResponseDto,
   StockBalanceBreakdownDto,
   CustomerProfileDto,
   PaginatedPurchasesResponseDto,
@@ -122,6 +132,15 @@ export class CustomerController {
       'reports how many line rows each document collapsed.\n\n' +
       '`status` is derived with the same precedence the order reconciler ' +
       'uses, so it cannot disagree with the order list.\n\n' +
+      'Each document carries `quantity` (QTY_TOTAL - a DOCUMENT-level figure ' +
+      'the feed repeats per line, so it is NOT the sum of the items), plus ' +
+      '`totalAmountBeforeTax` (sum of the lines’ AMOUNT), `taxVat` (summed ' +
+      'per line as AMOUNT x TAX_RATE, since the rate can vary by line) and ' +
+      '`totalAmountAfterTax`. All four are NULL - not 0 - where the ERP ' +
+      'states no money, which is the majority of rows.\n\n' +
+      'Per-item `description`, `specification` and `price` live on ' +
+      'GET /customers/me/erp/waybills/{docNo}: 96.5% of documents carry more ' +
+      'than one item, so they cannot be single values here.\n\n' +
       'An absent ERP feed or an unknown customer returns an empty page with ' +
       'a valid `meta`, never an error.',
   })
@@ -131,6 +150,37 @@ export class CustomerController {
     @Query() pagination: PaginationQueryDto,
   ) {
     return this.customerService.getErpWaybills(user.id, pagination);
+  }
+
+  @Get('me/erp/waybills/:docNo')
+  @ApiOperation({
+    summary: 'One ERP goods-movement document, with its item lines',
+    description:
+      'The detail behind a row of GET /customers/me/erp/waybills. The ' +
+      'document keeps the same shape it has in the list, and gains `items` - ' +
+      'one entry per ERP line row, in the ERP’s own order.\n\n' +
+      'Per item: `itemCode` (ITEM_CODE), `description` (ITEM_DESCRIPTION), ' +
+      '`specification` (ITEM_SPECIFICATION with the Chinese category ' +
+      'characters removed), `price` (PRICE), `quantity` (BUSINESS_QTY, this ' +
+      'line’s own), and `totalAmountBeforeTax` / `taxVat` / ' +
+      '`totalAmountAfterTax`.\n\n' +
+      'MONEY IS NULL, NOT 0, where the ERP states none - it carries per-line ' +
+      'money on only ~6% of rows. Treat null as "not stated" and render a ' +
+      'dash rather than a zero.\n\n' +
+      'A document belonging to another distributor answers 404, exactly as an ' +
+      'unknown one does.',
+  })
+  @ApiParam({
+    name: 'docNo',
+    description: 'The ERP document number (DOC_NO), e.g. 2300-202503070060.',
+  })
+  @ApiOkResponse({ type: ErpWaybillDetailDto })
+  @ApiNotFoundResponse({ description: 'No such document for this distributor' })
+  async getErpWaybillDetail(
+    @CurrentUser() user: any,
+    @Param('docNo') docNo: string,
+  ) {
+    return this.customerService.getErpWaybillDetail(user.id, docNo);
   }
 
   @Get('me/home')
@@ -154,7 +204,14 @@ export class CustomerController {
       'Returns paid / loaded / remaining quantities per product, shown when ' +
       'the distributor taps the Stock Balance card. Loaded qty is apportioned ' +
       'across products on each purchase proportionally to ordered quantity ' +
-      '(mocked until ERP exposes per-product loading detail).',
+      '(mocked until ERP exposes per-product loading detail).\n\n' +
+      'Only products with `quantityRemaining > 0` appear in `products` - a ' +
+      'product collected in full is not part of a stock balance. The TOTALS ' +
+      'still describe the whole order history, so `products` does NOT sum to ' +
+      '`totalPurchasedCartons`; a distributor holding nothing gets an empty ' +
+      'array with non-zero totals.\n\n' +
+      'Each product carries the ERP `itemCode` (ITEM_CODE from the ' +
+      'sales-order feed), null where the feed states none.',
   })
   @ApiOkResponse({ type: StockBalanceBreakdownDto })
   async getStockBalance(@CurrentUser() user: any) {
@@ -350,5 +407,171 @@ export class CustomerController {
     @Param('id') invoiceId: string,
   ) {
     return this.customerService.getInvoiceDetail(user.id, invoiceId);
+  }
+
+  // ─── ERP financial ledgers ────────────────────────────────
+  // Three ledgers, six routes. Each names its own config at the call site, so
+  // the table can never be chosen by a path segment and there is no unknown
+  // ledger to 404 on. Every query is scoped to the signed-in distributor by
+  // CUSTOMER_CODE - another customer's document reads as not-found, exactly as
+  // a nonexistent one does.
+
+  @Get('me/erp/refund')
+  @ApiOperation({
+    summary: 'ERP AR refunds for this distributor',
+    description:
+      'Paginated `{ data, meta }`, newest first, read live from ' +
+      '`erp_raw.raw_ar_refund` and scoped to the signed-in distributor by ' +
+      'CUSTOMER_CODE.\n\n' +
+      'Money sits under `amounts`, keyed by name - this ledger carries ' +
+      '`refundAmount` among others. Each figure has the ERP\u2019s `fc` and `tc` ' +
+      'values, both NULL where it states none. Null means "not stated", not ' +
+      'zero.\n\n' +
+      'An absent ERP feed or an unknown customer returns an empty page with a ' +
+      'valid `meta`, never an error.',
+  })
+  @ApiOkResponse({ type: PaginatedErpFinancialRecordsResponseDto })
+  async getErpRefunds(
+    @CurrentUser() user: any,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.customerService.getErpFinancialRecords(
+      user.id,
+      REFUND_RECORD,
+      pagination,
+    );
+  }
+
+  @Get('me/erp/refund/:id')
+  @ApiOperation({
+    summary: 'One ERP AR refunds document',
+    description:
+      'The detail behind a row of GET /customers/me/erp/refund, in the same ' +
+      'shape.\n\n' +
+      'Scoped to the signed-in distributor: a document belonging to another ' +
+      'customer answers 404, exactly as an unknown one does, so a document ' +
+      'number cannot be probed.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'The ERP document number (DOC_NO).',
+    example: '6401-202606100001',
+  })
+  @ApiOkResponse({ type: ErpFinancialRecordDto })
+  @ApiNotFoundResponse({
+    description: 'No such document for this distributor',
+  })
+  async getErpRefund(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.customerService.getErpFinancialRecord(
+      user.id,
+      REFUND_RECORD,
+      id,
+    );
+  }
+
+  @Get('me/erp/collection')
+  @ApiOperation({
+    summary: 'ERP collections (money received) for this distributor',
+    description:
+      'Paginated `{ data, meta }`, newest first, read live from ' +
+      '`erp_raw.raw_collection` and scoped to the signed-in distributor by ' +
+      'CUSTOMER_CODE.\n\n' +
+      'Money sits under `amounts`, keyed by name - this ledger carries ' +
+      '`collectionAmount` among others. Each figure has the ERP\u2019s `fc` and `tc` ' +
+      'values, both NULL where it states none. Null means "not stated", not ' +
+      'zero.\n\n' +
+      'An absent ERP feed or an unknown customer returns an empty page with a ' +
+      'valid `meta`, never an error.',
+  })
+  @ApiOkResponse({ type: PaginatedErpFinancialRecordsResponseDto })
+  async getErpCollections(
+    @CurrentUser() user: any,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.customerService.getErpFinancialRecords(
+      user.id,
+      COLLECTION_RECORD,
+      pagination,
+    );
+  }
+
+  @Get('me/erp/collection/:id')
+  @ApiOperation({
+    summary: 'One ERP collections (money received) document',
+    description:
+      'The detail behind a row of GET /customers/me/erp/collection, in the same ' +
+      'shape.\n\n' +
+      'Scoped to the signed-in distributor: a document belonging to another ' +
+      'customer answers 404, exactly as an unknown one does, so a document ' +
+      'number cannot be probed.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'The ERP document number (DOC_NO).',
+    example: '6301-202606080107',
+  })
+  @ApiOkResponse({ type: ErpFinancialRecordDto })
+  @ApiNotFoundResponse({
+    description: 'No such document for this distributor',
+  })
+  async getErpCollection(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.customerService.getErpFinancialRecord(
+      user.id,
+      COLLECTION_RECORD,
+      id,
+    );
+  }
+
+  @Get('me/erp/receivable')
+  @ApiOperation({
+    summary: 'ERP other receivables for this distributor',
+    description:
+      'Paginated `{ data, meta }`, newest first, read live from ' +
+      '`erp_raw.raw_other_receivable` and scoped to the signed-in distributor by ' +
+      'CUSTOMER_CODE.\n\n' +
+      'Money sits under `amounts`, keyed by name - this ledger carries ' +
+      '`receivableAmount` among others. Each figure has the ERP\u2019s `fc` and `tc` ' +
+      'values, both NULL where it states none. Null means "not stated", not ' +
+      'zero.\n\n' +
+      'An absent ERP feed or an unknown customer returns an empty page with a ' +
+      'valid `meta`, never an error.',
+  })
+  @ApiOkResponse({ type: PaginatedErpFinancialRecordsResponseDto })
+  async getErpReceivables(
+    @CurrentUser() user: any,
+    @Query() pagination: PaginationQueryDto,
+  ) {
+    return this.customerService.getErpFinancialRecords(
+      user.id,
+      RECEIVABLE_RECORD,
+      pagination,
+    );
+  }
+
+  @Get('me/erp/receivable/:id')
+  @ApiOperation({
+    summary: 'One ERP other receivables document',
+    description:
+      'The detail behind a row of GET /customers/me/erp/receivable, in the same ' +
+      'shape.\n\n' +
+      'Scoped to the signed-in distributor: a document belonging to another ' +
+      'customer answers 404, exactly as an unknown one does, so a document ' +
+      'number cannot be probed.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'The ERP document number (DOC_NO).',
+    example: '6201-202004050003',
+  })
+  @ApiOkResponse({ type: ErpFinancialRecordDto })
+  @ApiNotFoundResponse({
+    description: 'No such document for this distributor',
+  })
+  async getErpReceivable(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.customerService.getErpFinancialRecord(
+      user.id,
+      RECEIVABLE_RECORD,
+      id,
+    );
   }
 }

@@ -28,14 +28,42 @@
  *
  * ─── The formula ────────────────────────────────────────────────────────
  *
- *   Running Balance = CREDIT_AMT + CREDIT_AMT1 − CREDIT_PAY
+ *   Running Balance = CREDIT_AMT + Σ(CREDIT_AMT1) − CREDIT_PAY
  *
- * Worked against live rows:
+ * CREDIT_AMT and CREDIT_PAY are read from the GOVERNING record - the newest by
+ * EFFECTIVE_DATE. Σ(CREDIT_AMT1) sums every supplementary grant whose
+ * EFFECTIVE_DATE..INEFFECTIVE_DATE window contains TODAY, across all of the
+ * customer's records: a customer can hold several concurrent allocations, one
+ * per FUND_DESC, and an expired one stops counting.
  *
- *   20410008  GLO-BARTH   50000 +   20000 −         0  =      70,000     in credit
- *   10120003  SALES3          0 +  500000 −    866000  =    −366,000     overdrawn
+ * The window gates ONLY the CREDIT_AMT1 term. Gating the whole record would
+ * strand almost every customer: 1,829 of the 1,831 records in the feed have
+ * already expired, so they would lose their derived balance entirely and fall
+ * back to the inverted stored column this file exists to correct.
+ *
+ * Because the window is evaluated against today, a balance can legitimately
+ * move with no change in the feed - the day a grant's INEFFECTIVE_DATE passes,
+ * it drops out.
+ *
+ * Worked against live rows (Σ counts only grants in force TODAY):
+ *
  *   10110017  ISEA        1000.2222 + 1000.1111 − (−33401031.14)
  *                                                     = 33,403,031.4733  in credit
+ *                         its grant runs 2026-08-10 → 2026-09-05, so it counts
+ *
+ *   10110003  ADLAK             0 + 10000.2345 − (−10140600.1232)
+ *                                                     = 10,150,600.3577  in credit
+ *
+ *   20410008  GLO-BARTH     50000 +         0 −         0  =  50,000     in credit
+ *                         its 20,000 grant has EXPIRED, so it no longer counts
+ *                         (it did under the previous single-record formula)
+ *
+ *   10120003  SALES3            0 +         0 −    866000  = −866,000     overdrawn
+ *                         its 500,000 grant has likewise expired
+ *
+ * Switching from the governing record's CREDIT_AMT1 to Σ moves 12 of the 1,831
+ * customers in the feed — in every case an expired grant dropping out. Row
+ * count is unchanged, so no customer loses their derived balance.
  *
  * The result is NOT rounded: every decimal the ERP supplies survives into the
  * balance, so the last example ends .4733 rather than .47.
@@ -60,9 +88,46 @@
  * column casts to float8.
  */
 export const ERP_RUNNING_BALANCE_SQL = `
-        coalesce(nullif(r.payload->>'CREDIT_AMT',  '')::numeric, 0)
-      + coalesce(nullif(r.payload->>'CREDIT_AMT1', '')::numeric, 0)
-      - coalesce(nullif(r.payload->>'CREDIT_PAY',  '')::numeric, 0)`;
+        coalesce(nullif(r.payload->>'CREDIT_AMT', '')::numeric, 0)
+      - coalesce(nullif(r.payload->>'CREDIT_PAY', '')::numeric, 0)`;
+
+/**
+ * The window test that decides whether a CREDIT_AMT1 grant counts today.
+ *
+ * ONE definition, shared by the balance and by
+ * ERP_TEMPORARY_CREDIT_FOR_CUSTOMER_SQL, so the `temporarilyCredit` figure the
+ * home screen shows is by construction the same money the balance already
+ * includes. If these two ever diverged the app would display a credit the
+ * balance did not account for.
+ *
+ * Comparison is by DATE: the ERP stores midnight on both ends, so
+ * INEFFECTIVE_DATE is the last day the grant applies, inclusive. The `~`
+ * guards make a malformed date skip its row rather than abort the query - this
+ * feeds the mobile home screen, which must not 500 because the ERP sent one
+ * bad date. The `0001-01-01` sentinel on expired rows fails the BETWEEN
+ * naturally, so it needs no special case.
+ */
+export const ERP_CREDIT_IN_FORCE_SQL = `
+       AND r.payload->>'EFFECTIVE_DATE'   ~ '^\\d{4}-\\d{2}-\\d{2}'
+       AND r.payload->>'INEFFECTIVE_DATE' ~ '^\\d{4}-\\d{2}-\\d{2}'
+       AND current_date BETWEEN (r.payload->>'EFFECTIVE_DATE')::date
+                            AND (r.payload->>'INEFFECTIVE_DATE')::date`;
+
+/**
+ * Sum of every CREDIT_AMT1 grant in force for a customer today.
+ *
+ * A customer may hold several concurrent grants (one per FUND_DESC), so this
+ * is a SUM across rows rather than a value read off the governing record.
+ * Joined onto the balance queries below; a customer with no live grant simply
+ * does not appear here and coalesces to 0.
+ */
+export const ERP_SUPPLEMENTARY_CREDIT_SQL = `
+    SELECT r.payload->>'CUSTOMER_CODE' AS erp_id,
+           sum(coalesce(nullif(r.payload->>'CREDIT_AMT1', '')::numeric, 0))
+             AS credit_amt1_total
+      FROM erp_raw.raw_customer_credit r
+     WHERE r.object_type = 'CUSTOMER_CREDIT'${ERP_CREDIT_IN_FORCE_SQL}
+     GROUP BY 1`;
 
 /**
  * The governing credit record per customer, with its running balance.
@@ -77,16 +142,25 @@ export const ERP_RUNNING_BALANCE_SQL = `
  * rather than a scan of the whole credit feed.
  */
 export const ERP_ACCOUNT_BALANCE_ROLLUP_SQL = `
-    SELECT DISTINCT ON (r.payload->>'CUSTOMER_CODE')
-           r.payload->>'CUSTOMER_CODE' AS erp_id,
-           ${ERP_RUNNING_BALANCE_SQL}  AS running_balance,
-           r.changed_at                AS changed_at
-      FROM erp_raw.raw_customer_credit r
-     WHERE r.object_type = 'CUSTOMER_CREDIT'
-       AND r.payload->>'CUSTOMER_CODE' IN (SELECT "erpId" FROM "Customer")
-     ORDER BY r.payload->>'CUSTOMER_CODE',
-              r.payload->>'EFFECTIVE_DATE' DESC NULLS LAST,
-              r.id DESC`;
+    WITH governing AS (
+      SELECT DISTINCT ON (r.payload->>'CUSTOMER_CODE')
+             r.payload->>'CUSTOMER_CODE' AS erp_id,
+             ${ERP_RUNNING_BALANCE_SQL}  AS base_balance,
+             r.changed_at                AS changed_at
+        FROM erp_raw.raw_customer_credit r
+       WHERE r.object_type = 'CUSTOMER_CREDIT'
+         AND r.payload->>'CUSTOMER_CODE' IN (SELECT "erpId" FROM "Customer")
+       ORDER BY r.payload->>'CUSTOMER_CODE',
+                r.payload->>'EFFECTIVE_DATE' DESC NULLS LAST,
+                r.id DESC
+    ),
+    supplementary AS (${ERP_SUPPLEMENTARY_CREDIT_SQL})
+    SELECT g.erp_id                                     AS erp_id,
+           g.base_balance + coalesce(s.credit_amt1_total, 0)
+                                                        AS running_balance,
+           g.changed_at                                 AS changed_at
+      FROM governing g
+      LEFT JOIN supplementary s ON s.erp_id = g.erp_id`;
 
 /**
  * The whole reconcile as one set-based statement.
@@ -113,13 +187,27 @@ UPDATE "Customer" c
  * answers for an ERP customer that has not been projected into `Customer` yet.
  */
 export const ERP_ACCOUNT_BALANCE_FOR_CUSTOMER_SQL = `
-    SELECT ${ERP_RUNNING_BALANCE_SQL} AS running_balance
-      FROM erp_raw.raw_customer_credit r
-     WHERE r.object_type = 'CUSTOMER_CREDIT'
-       AND r.payload->>'CUSTOMER_CODE' = $1
-     ORDER BY r.payload->>'EFFECTIVE_DATE' DESC NULLS LAST,
-              r.id DESC
-     LIMIT 1`;
+    WITH governing AS (
+      SELECT ${ERP_RUNNING_BALANCE_SQL} AS base_balance
+        FROM erp_raw.raw_customer_credit r
+       WHERE r.object_type = 'CUSTOMER_CREDIT'
+         AND r.payload->>'CUSTOMER_CODE' = $1
+       ORDER BY r.payload->>'EFFECTIVE_DATE' DESC NULLS LAST,
+                r.id DESC
+       LIMIT 1
+    ),
+    supplementary AS (
+      SELECT coalesce(
+               sum(coalesce(nullif(r.payload->>'CREDIT_AMT1', '')::numeric, 0)),
+               0
+             ) AS credit_amt1_total
+        FROM erp_raw.raw_customer_credit r
+       WHERE r.object_type = 'CUSTOMER_CREDIT'
+         AND r.payload->>'CUSTOMER_CODE' = $1${ERP_CREDIT_IN_FORCE_SQL}
+    )
+    SELECT g.base_balance + coalesce(s.credit_amt1_total, 0) AS running_balance
+      FROM governing g
+      CROSS JOIN supplementary s`;
 
 /**
  * Running balances for a SET of customers, by ERP code.
@@ -134,15 +222,30 @@ export const ERP_ACCOUNT_BALANCE_FOR_CUSTOMER_SQL = `
  * falls back to the stored column rather than inventing a zero.
  */
 export const ERP_ACCOUNT_BALANCES_FOR_CUSTOMERS_SQL = `
-    SELECT DISTINCT ON (r.payload->>'CUSTOMER_CODE')
-           r.payload->>'CUSTOMER_CODE' AS erp_id,
-           ${ERP_RUNNING_BALANCE_SQL}  AS running_balance
-      FROM erp_raw.raw_customer_credit r
-     WHERE r.object_type = 'CUSTOMER_CREDIT'
-       AND r.payload->>'CUSTOMER_CODE' = ANY($1)
-     ORDER BY r.payload->>'CUSTOMER_CODE',
-              r.payload->>'EFFECTIVE_DATE' DESC NULLS LAST,
-              r.id DESC`;
+    WITH governing AS (
+      SELECT DISTINCT ON (r.payload->>'CUSTOMER_CODE')
+             r.payload->>'CUSTOMER_CODE' AS erp_id,
+             ${ERP_RUNNING_BALANCE_SQL}  AS base_balance
+        FROM erp_raw.raw_customer_credit r
+       WHERE r.object_type = 'CUSTOMER_CREDIT'
+         AND r.payload->>'CUSTOMER_CODE' = ANY($1)
+       ORDER BY r.payload->>'CUSTOMER_CODE',
+                r.payload->>'EFFECTIVE_DATE' DESC NULLS LAST,
+                r.id DESC
+    ),
+    supplementary AS (
+      SELECT r.payload->>'CUSTOMER_CODE' AS erp_id,
+             sum(coalesce(nullif(r.payload->>'CREDIT_AMT1', '')::numeric, 0))
+               AS credit_amt1_total
+        FROM erp_raw.raw_customer_credit r
+       WHERE r.object_type = 'CUSTOMER_CREDIT'
+         AND r.payload->>'CUSTOMER_CODE' = ANY($1)${ERP_CREDIT_IN_FORCE_SQL}
+       GROUP BY 1
+    )
+    SELECT g.erp_id AS erp_id,
+           g.base_balance + coalesce(s.credit_amt1_total, 0) AS running_balance
+      FROM governing g
+      LEFT JOIN supplementary s ON s.erp_id = g.erp_id`;
 
 /**
  * Temporary (supplementary) credit currently in force for one customer.
@@ -170,11 +273,7 @@ export const ERP_TEMPORARY_CREDIT_FOR_CUSTOMER_SQL = `
            ) AS temporary_credit
       FROM erp_raw.raw_customer_credit r
      WHERE r.object_type = 'CUSTOMER_CREDIT'
-       AND r.payload->>'CUSTOMER_CODE' = $1
-       AND r.payload->>'EFFECTIVE_DATE'   ~ '^\\d{4}-\\d{2}-\\d{2}'
-       AND r.payload->>'INEFFECTIVE_DATE' ~ '^\\d{4}-\\d{2}-\\d{2}'
-       AND current_date BETWEEN (r.payload->>'EFFECTIVE_DATE')::date
-                            AND (r.payload->>'INEFFECTIVE_DATE')::date`;
+       AND r.payload->>'CUSTOMER_CODE' = $1${ERP_CREDIT_IN_FORCE_SQL}`;
 
 /**
  * Running balance from three already-parsed field values.
@@ -185,18 +284,30 @@ export const ERP_TEMPORARY_CREDIT_FOR_CUSTOMER_SQL = `
  *
  * Like the SQL, the result is returned unrounded.
  */
+type CreditValue = number | string | null | undefined;
+
 export function runningBalanceFromCredit(fields: {
-  creditAmt?: number | string | null;
-  creditAmt1?: number | string | null;
-  creditPay?: number | string | null;
+  creditAmt?: CreditValue;
+  /**
+   * One grant, or every grant in force. An array is SUMMED, matching
+   * Σ(CREDIT_AMT1) in the SQL - a customer can hold several concurrent
+   * supplementary allocations, one per FUND_DESC.
+   */
+  creditAmt1?: CreditValue | CreditValue[];
+  creditPay?: CreditValue;
 }): number {
-  const n = (v: number | string | null | undefined): number => {
+  const n = (v: CreditValue): number => {
     if (v === null || v === undefined) return 0;
     if (typeof v === 'string' && v.trim() === '') return 0;
     const parsed = Number(v);
     return Number.isFinite(parsed) ? parsed : 0;
   };
+  const sum = (v: CreditValue | CreditValue[]): number =>
+    Array.isArray(v)
+      ? v.reduce<number>((total, one) => total + n(one), 0)
+      : n(v);
+
   // Returned exactly as the sum produces it — no rounding, so every decimal
   // the ERP supplied survives.
-  return n(fields.creditAmt) + n(fields.creditAmt1) - n(fields.creditPay);
+  return n(fields.creditAmt) + sum(fields.creditAmt1) - n(fields.creditPay);
 }

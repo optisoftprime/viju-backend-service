@@ -161,6 +161,103 @@ export class HomeResponseDto {
   recentPurchases: HomeRecentPurchaseDto[];
 }
 
+// ─── ERP financial ledgers (GET /customers/me/erp/{ledger}) ───
+
+/** One money figure, as the ERP states it in both currencies. */
+export class ErpMoneyDto {
+  @ApiProperty({
+    example: 230000,
+    nullable: true,
+    description:
+      'Foreign-currency figure (_FC). Null when the ERP states none.',
+  })
+  fc: number | null;
+
+  @ApiProperty({
+    example: 230000,
+    nullable: true,
+    description:
+      'Transaction-currency figure (_TC). Null when the ERP states none.',
+  })
+  tc: number | null;
+}
+
+/**
+ * One document from an ERP financial ledger - a collection, an AR refund or
+ * an other-receivable.
+ */
+export class ErpFinancialRecordDto {
+  @ApiProperty({
+    example: 'SK2300-202503070060',
+    description: 'The ERP document number (DOC_NO). Identifies the record.',
+  })
+  docNo: string;
+
+  @ApiProperty({ example: '2025-03-07 00:00:00', nullable: true })
+  docDate: string | null;
+
+  @ApiProperty({
+    example: '2025-03-07 00:00:00',
+    nullable: true,
+    description:
+      'BOOKKEEPING_DATE. Used as the sort fallback when DOC_DATE is absent.',
+  })
+  bookkeepingDate: string | null;
+
+  @ApiProperty({ example: '10110017', nullable: true })
+  customerCode: string | null;
+
+  @ApiProperty({ example: 'ISEA INTEGRATED', nullable: true })
+  customerName: string | null;
+
+  @ApiProperty({
+    example: 'Y',
+    nullable: true,
+    description: "The ERP's own approval flag - 'Y' when approved.",
+  })
+  approveStatus: string | null;
+
+  @ApiProperty({ example: '2025-03-07 11:02:00', nullable: true })
+  approveDate: string | null;
+
+  @ApiProperty({ example: 'Part payment', nullable: true })
+  remark: string | null;
+
+  @ApiProperty({ example: 1, nullable: true })
+  exchangeRate: number | null;
+
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: { $ref: '#/components/schemas/ErpMoneyDto' },
+    description:
+      'The money this ledger carries, keyed by name. The KEYS DIFFER BY ' +
+      'LEDGER - a collection has `collectionAmount`, a refund has ' +
+      '`refundAmount`, and so on - so read them by name rather than by ' +
+      'position. Every figure is null where the ERP states none, never 0.',
+    example: {
+      collectionAmount: { fc: 230000, tc: 230000 },
+      cashDiscountAmount: { fc: null, tc: null },
+    },
+  })
+  amounts: Record<string, ErpMoneyDto>;
+
+  @ApiProperty({
+    example: '2026-08-30T00:06:35.000Z',
+    format: 'date-time',
+    nullable: true,
+    description: 'When the ERP feed last changed this record.',
+  })
+  lastChangedAt: Date | null;
+}
+
+export class PaginatedErpFinancialRecordsResponseDto {
+  @ApiProperty({ type: [ErpFinancialRecordDto] })
+  data: ErpFinancialRecordDto[];
+
+  @ApiProperty({ type: PaginationMetaDto })
+  meta: PaginationMetaDto;
+}
+
 // ─── ERP waybills (GET /customers/me/erp/waybills) ────────
 
 /**
@@ -242,6 +339,136 @@ export class ErpWaybillDto {
     description: 'When the ERP last changed any line of this document.',
   })
   lastChangedAt: Date | null;
+
+  @ApiProperty({
+    example: 202,
+    nullable: true,
+    description:
+      "The ERP's own QTY_TOTAL for this document. A DOCUMENT-level figure " +
+      'that the feed repeats on every line (verified constant across all ' +
+      '292,886 documents), so it is taken once rather than summed - it is NOT ' +
+      'the sum of the item quantities. Null when the feed states none.',
+  })
+  quantity: number | null;
+
+  @ApiProperty({
+    example: 230000,
+    nullable: true,
+    description:
+      'Sum of the items\u2019 AMOUNT, i.e. the document total before tax. NULL - ' +
+      'not 0 - when no line carries money: the ERP populates per-line money ' +
+      'on only ~6% of rows, and a silent line must not read as "cost nothing".',
+  })
+  totalAmountBeforeTax: number | null;
+
+  @ApiProperty({
+    example: 17250,
+    nullable: true,
+    description:
+      'Tax on the document. Computed PER LINE as AMOUNT x TAX_RATE and then ' +
+      'summed, because the rate can differ line to line. TAX_RATE is already ' +
+      'a decimal fraction in the feed (0.075 = 7.5%).',
+  })
+  taxVat: number | null;
+
+  @ApiProperty({
+    example: 247250,
+    nullable: true,
+    description: '`totalAmountBeforeTax` + `taxVat`. Null when both are null.',
+  })
+  totalAmountAfterTax: number | null;
+}
+
+/**
+ * One item line of an ERP goods-movement document
+ * (GET /customers/me/erp/waybills/{docNo}).
+ */
+export class ErpWaybillItemDto {
+  @ApiProperty({
+    example: '9f1c2b40-1f4e-4c3a-9a11-0b6d2f7c8e51',
+    description: 'Stable id of the underlying feed row.',
+  })
+  id: string;
+
+  @ApiProperty({
+    example: '101010317',
+    nullable: true,
+    description:
+      "The ERP's ITEM_CODE. Null where the feed carries none (~94% of lines).",
+  })
+  itemCode: string | null;
+
+  @ApiProperty({
+    example: 'viju apple bbstar milk(25)O',
+    nullable: true,
+    description: 'ITEM_DESCRIPTION, verbatim from the feed.',
+  })
+  description: string | null;
+
+  @ApiProperty({
+    example: '210ML(O)',
+    nullable: true,
+    description:
+      'ITEM_SPECIFICATION with the ERP\u2019s Chinese category characters removed ' +
+      "- '210ML\u679C\u5473(O)' becomes '210ML(O)'. The category is already carried in " +
+      'English by `description`. Null when the value was entirely Chinese.',
+  })
+  specification: string | null;
+
+  @ApiProperty({
+    example: 1150,
+    nullable: true,
+    description: 'Unit price (PRICE). Null where the feed states none.',
+  })
+  price: number | null;
+
+  @ApiProperty({
+    example: 200,
+    description:
+      "This line's own quantity (BUSINESS_QTY) - unlike the document-level " +
+      '`quantity` on the parent, which is QTY_TOTAL.',
+  })
+  quantity: number;
+
+  @ApiProperty({ example: 150 })
+  quantityDelivered: number;
+
+  @ApiProperty({
+    example: 50,
+    description: 'Ordered minus delivered, floored at 0.',
+  })
+  quantityRemaining: number;
+
+  @ApiProperty({ example: 230000, nullable: true, description: 'AMOUNT.' })
+  totalAmountBeforeTax: number | null;
+
+  @ApiProperty({
+    example: 17250,
+    nullable: true,
+    description: 'AMOUNT x TAX_RATE for this line.',
+  })
+  taxVat: number | null;
+
+  @ApiProperty({ example: 247250, nullable: true })
+  totalAmountAfterTax: number | null;
+
+  @ApiProperty({
+    example: 0.075,
+    nullable: true,
+    description: 'The decimal rate the tax came from. 0.075 means 7.5%.',
+  })
+  taxRate: number | null;
+}
+
+/** One ERP document with its item lines. */
+export class ErpWaybillDetailDto extends ErpWaybillDto {
+  @ApiProperty({
+    type: [ErpWaybillItemDto],
+    description:
+      'The document\u2019s lines, in the ERP\u2019s own order (DCMS_ROWNUM). Averages ' +
+      '3.4 per document; 96.5% of documents carry more than one.',
+  })
+  items: ErpWaybillItemDto[];
 }
 
 export class PaginatedErpWaybillsResponseDto {
@@ -333,6 +560,17 @@ export class CustomerOfficerChatItemDto {
 // ─── Stock balance breakdown (GET /customers/me/stock-balance) ─
 
 export class StockBalanceProductDto {
+  @ApiProperty({
+    example: '101020104',
+    nullable: true,
+    description:
+      "The ERP's own ITEM_CODE for this product, read from the sales-order " +
+      'feed. NULL when the feed carries no code on any of the product’s ' +
+      'lines - it is populated on only a minority of rows, and no code is ' +
+      'invented to fill the gap.',
+  })
+  itemCode: string | null;
+
   @ApiProperty({ example: 'Viju Chivita 1L' })
   productName: string;
 
