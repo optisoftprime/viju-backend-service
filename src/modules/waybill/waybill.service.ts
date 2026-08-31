@@ -8,7 +8,11 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { NotificationService } from '../../infrastructure/notification/notification.service';
 import { NotificationTypes } from '../../common/notifications/notification-types';
-import { AcceptTermsDto, SubmitLoadingRequestDto } from './dto/waybill.dto';
+import {
+  AcceptTermsDto,
+  LoadingRequestProductDto,
+  SubmitLoadingRequestDto,
+} from './dto/waybill.dto';
 import { paginate } from '../../common/pagination/paginate';
 
 /**
@@ -19,7 +23,32 @@ import { paginate } from '../../common/pagination/paginate';
  */
 const MAX_REFERENCE_ATTEMPTS = 25;
 
+/**
+ * Ceiling on product lines across every order on one request. The DTO caps the
+ * single-order array; this is the same bound applied to the multi-order map,
+ * whose total is only known once the orders are flattened.
+ */
+const MAX_LOADING_REQUEST_LINES = 200;
+
 const TNC_RECENT_WINDOW_MS = 60 * 60 * 1000; // 1h
+
+/**
+ * Every order a request draws on, primary first.
+ *
+ * The primary lives in the `linkedPurchaseId` column; the rest are only
+ * recorded as the orders the product lines came from, so the full set is the
+ * union of the two. Deriving it here keeps one answer for the list, the
+ * detail and the submit response.
+ */
+function linkedPurchaseIdsOf(
+  linkedPurchaseId: string | null,
+  items: { purchaseId: string | null }[],
+): string[] {
+  const ids = new Set<string>();
+  if (linkedPurchaseId) ids.add(linkedPurchaseId);
+  for (const item of items) if (item.purchaseId) ids.add(item.purchaseId);
+  return [...ids];
+}
 
 @Injectable()
 export class WaybillService {
@@ -52,10 +81,13 @@ export class WaybillService {
             createdAt: true,
             warehouseName: true,
             loadingCapacity: true,
+            linkedPurchaseId: true,
             linkedPurchase: { select: { erpId: true } },
             items: {
               select: {
                 id: true,
+                purchaseId: true,
+                orderReference: true,
                 productId: true,
                 productName: true,
                 quantity: true,
@@ -70,7 +102,11 @@ export class WaybillService {
     );
     return {
       ...page,
-      data: page.data.map(({ items, ...row }) => ({ ...row, products: items })),
+      data: page.data.map(({ items, ...row }) => ({
+        ...row,
+        linkedPurchaseIds: linkedPurchaseIdsOf(row.linkedPurchaseId, items),
+        products: items,
+      })),
     };
   }
 
@@ -82,6 +118,8 @@ export class WaybillService {
         items: {
           select: {
             id: true,
+            purchaseId: true,
+            orderReference: true,
             productId: true,
             productName: true,
             quantity: true,
@@ -96,6 +134,7 @@ export class WaybillService {
     const { items, ...rest } = wb;
     return {
       ...rest,
+      linkedPurchaseIds: linkedPurchaseIdsOf(wb.linkedPurchaseId, items),
       // Named `products` on the wire, matching the submit body; `items` is
       // only the Prisma relation name.
       products: items,
@@ -125,6 +164,169 @@ export class WaybillService {
       acceptedAt: new Date(),
       note: 'Open this URL in a browser / in-app web view. Form submission triggers the regional admin assignment flow.',
     };
+  }
+
+  /**
+   * Resolves `linkedPurchaseId` - one order id or a list of them - to the
+   * orders the request is raised against.
+   *
+   * A truck loads from several sales orders, so the field takes an array. The
+   * FIRST entry is the primary: it goes in the `linkedPurchaseId` column and
+   * its DOC_NO becomes the request's `reference`. A bare string is still
+   * accepted and behaves exactly as it did.
+   *
+   * Every entry is scoped to the caller, so a distributor cannot file a
+   * request against another distributor's order.
+   */
+  private async resolveLinkedOrders(
+    customerId: string,
+    linkedPurchaseId: string | string[],
+  ): Promise<{ id: string; erpId: string }[]> {
+    const isList = Array.isArray(linkedPurchaseId);
+    const raw = isList ? linkedPurchaseId : [linkedPurchaseId];
+    if (raw.length === 0) {
+      throw new BadRequestException(
+        'linkedPurchaseId must name at least one order.',
+      );
+    }
+    if (raw.some((id) => typeof id !== 'string' || id.trim() === '')) {
+      throw new BadRequestException(
+        'linkedPurchaseId must be an order id, or an array of order ids.',
+      );
+    }
+    // The same order twice is a duplicate, not two orders. Order is kept
+    // because the first entry decides the reference.
+    const ids = [...new Set(raw.map((id) => id.trim()))];
+
+    const orders: { id: string; erpId: string }[] = [];
+    for (const id of ids) {
+      const order = await this.prisma.purchase.findFirst({
+        where: { OR: [{ id }, { erpId: id }], customerId },
+        select: { id: true, erpId: true },
+      });
+      if (!order) {
+        // The single-order form keeps its original wording: clients already
+        // match on it.
+        throw new BadRequestException(
+          isList
+            ? `Linked order "${id}" was not found or does not belong to this customer.`
+            : 'Linked order not found or does not belong to this customer.',
+        );
+      }
+      orders.push(order);
+    }
+    return orders;
+  }
+
+  /**
+   * Flattens the submitted product lines, resolving which order each came from.
+   *
+   * Two shapes are accepted. `orders` keys the lines by order, so one request
+   * can draw on several; `products` is the single-order form and is treated as
+   * belonging to `linkedPurchaseId`. `orders` wins if both are sent.
+   *
+   * EVERY order named must belong to the caller. Without that check a
+   * distributor could attach another distributor's order by id and have its
+   * products recorded against their own load.
+   */
+  private async resolveOrderLines(
+    customerId: string,
+    dto: SubmitLoadingRequestDto,
+    linked: { id: string; erpId: string }[],
+  ): Promise<
+    {
+      purchaseId: string | null;
+      orderReference: string | null;
+      productId: string | null;
+      productName: string;
+      quantity: number;
+      weightPerCarton: number | null;
+    }[]
+  > {
+    const toLine = (
+      p: LoadingRequestProductDto,
+      order: { id: string; erpId: string } | null,
+    ) => ({
+      purchaseId: order?.id ?? null,
+      orderReference: order?.erpId ?? null,
+      productId: p.productId ?? null,
+      productName: p.productName,
+      quantity: p.quantity,
+      weightPerCarton: p.weightPerCarton ?? null,
+    });
+
+    const primary = linked[0];
+    if (!dto.orders) {
+      return (dto.products ?? []).map((p) => toLine(p, primary));
+    }
+
+    const entries = Object.entries(dto.orders);
+    const covered = new Set<string>();
+    const lines: ReturnType<typeof toLine>[] = [];
+    for (const [key, products] of entries) {
+      if (!Array.isArray(products)) {
+        throw new BadRequestException(
+          `orders["${key}"] must be an array of products.`,
+        );
+      }
+      // The key may be a Purchase.id uuid or the ERP DOC_NO; both identify one
+      // order, and the customer scope is what makes it safe.
+      const order =
+        linked.find((o) => o.id === key || o.erpId === key) ??
+        (await this.prisma.purchase.findFirst({
+          where: { OR: [{ id: key }, { erpId: key }], customerId },
+          select: { id: true, erpId: true },
+        }));
+      if (!order) {
+        throw new BadRequestException(
+          `Order "${key}" was not found or does not belong to this customer.`,
+        );
+      }
+      covered.add(order.id);
+      for (const product of products) {
+        if (!product?.productName || typeof product.quantity !== 'number') {
+          throw new BadRequestException(
+            `orders["${key}"] contains a line without a productName or quantity.`,
+          );
+        }
+        if (product.quantity < 1) {
+          throw new BadRequestException(
+            `orders["${key}"] contains a line with a quantity below 1.`,
+          );
+        }
+        lines.push(
+          toLine(
+            {
+              ...product,
+              // A number is coerced here too, matching the single-order form.
+              productId:
+                typeof product.productId === 'number'
+                  ? String(product.productId)
+                  : product.productId,
+            },
+            order,
+          ),
+        );
+      }
+    }
+    if (lines.length > MAX_LOADING_REQUEST_LINES) {
+      throw new BadRequestException(
+        `A loading request cannot carry more than ${MAX_LOADING_REQUEST_LINES} product lines.`,
+      );
+    }
+    // An order named in the LIST form but absent from `orders` would be
+    // dropped: the lines are the only record of which orders a request draws
+    // on. Say so rather than lose it. The single-order form is left alone -
+    // it never promised the two agreed.
+    if (Array.isArray(dto.linkedPurchaseId)) {
+      const missing = linked.find((o) => !covered.has(o.id));
+      if (missing) {
+        throw new BadRequestException(
+          `Order "${missing.erpId}" is listed in linkedPurchaseId but has no products in \`orders\`.`,
+        );
+      }
+    }
+    return lines;
   }
 
   /**
@@ -198,32 +400,31 @@ export class WaybillService {
     });
     if (!customer) throw new NotFoundException('Customer not found');
 
-    const purchase = await this.prisma.purchase.findFirst({
-      where: { id: dto.linkedPurchaseId, customerId },
-    });
-    if (!purchase) {
-      throw new BadRequestException(
-        'Linked order not found or does not belong to this customer.',
-      );
-    }
+    // The first is the PRIMARY order: the request is filed under it and its
+    // DOC_NO becomes the reference.
+    const linkedOrders = await this.resolveLinkedOrders(
+      customerId,
+      dto.linkedPurchaseId,
+    );
+    const purchase = linkedOrders[0];
 
-    const products = dto.products ?? [];
+    const lines = await this.resolveOrderLines(customerId, dto, linkedOrders);
     // `loadingCapacity` is the TRUCK's capacity, not the load. The load is the
-    // sum of the product lines, and it is mirrored onto `quantityCartons` so
-    // every existing stock calculation - which reads that column on COMPLETED
-    // requests - keeps working without knowing about product lines.
-    const loadedCartons = products.reduce((sum, p) => sum + p.quantity, 0);
+    // sum of the product lines ACROSS EVERY ORDER, and it is mirrored onto
+    // `quantityCartons` so every existing stock calculation - which reads that
+    // column on COMPLETED requests - keeps working without knowing about
+    // product lines.
+    const loadedCartons = lines.reduce((sum, l) => sum + l.quantity, 0);
 
     const request = await this.createWithOrderReference(purchase.erpId, {
       customerId,
       region: customer.region,
-      linkedPurchaseId: dto.linkedPurchaseId,
+      linkedPurchaseId: purchase.id,
       truckPlateNumber: dto.truckPlateNumber,
       driverName: dto.driverName,
       driverPhone: dto.driverPhone,
       requestedLoadingDate: new Date(dto.requestedLoadingDate),
-      quantityCartons:
-        products.length > 0 ? loadedCartons : dto.quantityCartons,
+      quantityCartons: lines.length > 0 ? loadedCartons : dto.quantityCartons,
       destination: dto.destination,
       warehouseName: dto.warehouseName,
       loadingCapacity: dto.loadingCapacity,
@@ -232,20 +433,10 @@ export class WaybillService {
       // Stored as sent, never re-resolved: this records what the distributor
       // declared they were loading, and it must not change under them if the
       // specification sheet is later corrected.
-      ...(products.length > 0
-        ? {
-            items: {
-              create: products.map((p) => ({
-                productId: p.productId ?? null,
-                productName: p.productName,
-                quantity: p.quantity,
-                weightPerCarton: p.weightPerCarton ?? null,
-              })),
-            },
-          }
-        : {}),
+      ...(lines.length > 0 ? { items: { create: lines } } : {}),
     });
-    const { items: createdItems, ...created } = request;
+    const { items, ...created } = request;
+    const createdItems = items ?? [];
 
     // PRD F5 AC7 + §6 / N-2: one row per REGIONAL_ADMIN OF THIS REGION, and
     // nobody else. A loading request is raised against one region and only
@@ -276,6 +467,15 @@ export class WaybillService {
       });
     }
 
-    return { ...created, products: createdItems };
+    return {
+      ...created,
+      // Every order this request draws on, primary first - the array the
+      // client sent, resolved to uuids.
+      linkedPurchaseIds: linkedPurchaseIdsOf(created.linkedPurchaseId, [
+        ...linkedOrders.map((o) => ({ purchaseId: o.id })),
+        ...createdItems,
+      ]),
+      products: createdItems,
+    };
   }
 }

@@ -28,6 +28,23 @@ export class WaybillProductDto {
   id: string;
 
   @ApiProperty({
+    example: '56d62263-6cab-4e6f-b98c-91f50fa1f61d',
+    nullable: true,
+    description:
+      'The order this line was taken from. One loading request can span ' +
+      'several orders, so group on this rather than assuming they all belong ' +
+      'to `linkedPurchaseId`. Null on lines predating multi-order support.',
+  })
+  purchaseId: string | null;
+
+  @ApiProperty({
+    example: '2310-202606110033',
+    nullable: true,
+    description: 'The ERP DOC_NO of that order - what to show the distributor.',
+  })
+  orderReference: string | null;
+
+  @ApiProperty({
     example: '101020104',
     nullable: true,
     description:
@@ -111,6 +128,20 @@ export class WaybillListItemDto {
   @ApiProperty({ example: '2026-06-09T08:16:56.533Z', format: 'date-time' })
   createdAt: Date;
 
+  @ApiProperty({
+    type: [String],
+    example: [
+      'f7a86c0a-1ee9-40d0-85a0-5334f6da100c',
+      'ea95bb9e-e470-4743-ab20-618841ea9abf',
+    ],
+    description:
+      'EVERY order this request draws on, primary first. One truck loads ' +
+      'from several sales orders, so read this rather than `linkedPurchaseId` ' +
+      'when showing which orders are on the load. Single-entry on requests ' +
+      'raised against one order.',
+  })
+  linkedPurchaseIds: string[];
+
   @ApiProperty({ type: WaybillListLinkedPurchaseDto, nullable: true })
   linkedPurchase: WaybillListLinkedPurchaseDto | null;
 }
@@ -155,8 +186,28 @@ export class WaybillDto {
   @ApiProperty({ enum: REGION_VALUES, example: 'LAGOS' })
   region: Region;
 
-  @ApiProperty({ example: 'purchase-uuid-1', nullable: true })
+  @ApiProperty({
+    example: 'f7a86c0a-1ee9-40d0-85a0-5334f6da100c',
+    nullable: true,
+    description:
+      'The PRIMARY order - the one the request is filed under and whose ' +
+      'DOC_NO became `reference`. See `linkedPurchaseIds` for the full set.',
+  })
   linkedPurchaseId: string | null;
+
+  @ApiProperty({
+    type: [String],
+    example: [
+      'f7a86c0a-1ee9-40d0-85a0-5334f6da100c',
+      'ea95bb9e-e470-4743-ab20-618841ea9abf',
+    ],
+    description:
+      'EVERY order this request draws on, primary first. One truck loads ' +
+      'from several sales orders, so read this rather than `linkedPurchaseId` ' +
+      'when showing which orders are on the load. Single-entry on requests ' +
+      'raised against one order.',
+  })
+  linkedPurchaseIds: string[];
 
   @ApiProperty({ example: 'LAG-234-XY' })
   truckPlateNumber: string;

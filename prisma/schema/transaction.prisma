@@ -30,8 +30,9 @@ model Purchase {
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  items           PurchaseItem[]
-  loadingRequests LoadingRequest[]
+  items               PurchaseItem[]
+  loadingRequests     LoadingRequest[]
+  loadingRequestItems LoadingRequestItem[]
 }
 
 model PurchaseItem {
