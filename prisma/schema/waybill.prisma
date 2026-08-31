@@ -112,6 +112,16 @@ model LoadingRequestItem {
   loadingRequestId String
   loadingRequest   LoadingRequest @relation(fields: [loadingRequestId], references: [id], onDelete: Cascade)
 
+  /// The order this line was taken from. A single loading request can span
+  /// several orders, so the order lives on the LINE, not on the request -
+  /// `LoadingRequest.linkedPurchaseId` names only the primary one.
+  purchaseId String?
+  purchase   Purchase? @relation(fields: [purchaseId], references: [id])
+
+  /// The ERP DOC_NO of that order, denormalised so a line can still say where
+  /// it came from if the local Purchase row is ever removed.
+  orderReference String?
+
   /// ERP item code from the specification sheet. Null when the sheet does not
   /// cover the product - the products endpoint returns null there too.
   productId String?
@@ -129,4 +139,5 @@ model LoadingRequestItem {
   createdAt DateTime @default(now())
 
   @@index([loadingRequestId])
+  @@index([purchaseId])
 }

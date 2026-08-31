@@ -22,7 +22,11 @@ describe('Loading request product breakdown', () => {
           .fn()
           .mockResolvedValue({ id: 'c-1', region: 'LAGOS', name: 'ADLAK' }),
       },
-      purchase: { findFirst: jest.fn().mockResolvedValue({ id: 'p-1' }) },
+      purchase: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ id: 'p-1', erpId: '2310-202606110033' }),
+      },
       staff: { findMany: jest.fn().mockResolvedValue([]) },
       loadingRequest: { create: jest.fn().mockResolvedValue(created) },
     };
@@ -67,14 +71,20 @@ describe('Loading request product breakdown', () => {
     } as never);
 
     const data = prisma.loadingRequest.create.mock.calls[0][0].data;
+    // Every line is attributed to the linked order, so the single-order body
+    // and the `orders` map produce the same rows.
     expect(data.items.create).toEqual([
       {
+        purchaseId: 'p-1',
+        orderReference: '2310-202606110033',
         productId: '101020104',
         productName: '750ml water(L-水)',
         quantity: 120,
         weightPerCarton: 9.38,
       },
       {
+        purchaseId: 'p-1',
+        orderReference: '2310-202606110033',
         productId: null,
         productName: '18.9L water(L)',
         quantity: 80,
