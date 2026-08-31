@@ -50,6 +50,43 @@ function linkedPurchaseIdsOf(
   return [...ids];
 }
 
+/** A line as the detail endpoint reads it back. */
+type LoadingRequestLine = {
+  id: string;
+  purchaseId: string | null;
+  orderReference: string | null;
+  productId: string | null;
+  productName: string;
+  quantity: number;
+  weightPerCarton: number | null;
+};
+
+/**
+ * Cartons and kilograms for a set of lines.
+ *
+ * `weightIsComplete` is false when ANY line has no carton weight - the
+ * specification sheet does not cover every product - so the app can render
+ * "1,747 kg +" or a dash instead of presenting a partial sum as the total.
+ */
+function totalsOf(lines: LoadingRequestLine[]) {
+  let cartons = 0;
+  let weight = 0;
+  let complete = true;
+  for (const line of lines) {
+    cartons += line.quantity;
+    if (line.weightPerCarton === null) complete = false;
+    else weight += line.quantity * line.weightPerCarton;
+  }
+  return {
+    productLines: lines.length,
+    totalCartons: cartons,
+    // Kilograms carry two decimals in the sheet; the sum should not carry
+    // floating-point noise past that.
+    totalWeightKg: Math.round(weight * 100) / 100,
+    weightIsComplete: complete,
+  };
+}
+
 @Injectable()
 export class WaybillService {
   constructor(
@@ -129,15 +166,80 @@ export class WaybillService {
       },
     });
     if (!wb) throw new NotFoundException('Waybill not found');
-    // PRD F6: customers never see an officer's real name — surface a generic
-    // label, never the assigned loading officer's identity.
     const { items, ...rest } = wb;
+    const linkedPurchaseIds = linkedPurchaseIdsOf(wb.linkedPurchaseId, items);
+
+    // The orders themselves, so the preview can name each one rather than
+    // showing a bare uuid. Scoped to this request's own orders.
+    const purchases = await this.prisma.purchase.findMany({
+      where: { id: { in: linkedPurchaseIds } },
+      select: {
+        id: true,
+        erpId: true,
+        orderDate: true,
+        status: true,
+        totalItems: true,
+        totalValue: true,
+      },
+    });
+    const byId = new Map(purchases.map((p) => [p.id, p]));
+
+    // A line written before multi-order support has no purchaseId: it belonged
+    // to the request's single linked order, so read it there.
+    const orderIdOf = (line: LoadingRequestLine) =>
+      line.purchaseId ?? wb.linkedPurchaseId;
+
+    // A request raised before the product breakdown existed declares a bare
+    // `quantityCartons` and has no lines. Deriving 0 from them would read as
+    // an empty load, so the declared figure stands in - those requests were
+    // always against the one linked order.
+    const declaredOnly = items.length === 0;
+    const declaredTotals = {
+      productLines: 0,
+      totalCartons: wb.quantityCartons ?? 0,
+      totalWeightKg: 0,
+      // No lines means no carton weights: the weight is unknown, not zero.
+      weightIsComplete: false,
+    };
+
+    const orders = linkedPurchaseIds.map((purchaseId) => {
+      const purchase = byId.get(purchaseId);
+      const lines = items.filter((line) => orderIdOf(line) === purchaseId);
+      const isPrimary = purchaseId === wb.linkedPurchaseId;
+      return {
+        purchaseId,
+        // `orderReference` is denormalised onto the line, so the DOC_NO
+        // survives even if the local order row is gone.
+        erpId:
+          purchase?.erpId ??
+          lines.find((l) => l.orderReference)?.orderReference ??
+          null,
+        orderDate: purchase?.orderDate ?? null,
+        orderStatus: purchase?.status ?? null,
+        orderTotalItems: purchase?.totalItems ?? null,
+        orderTotalValue: purchase?.totalValue ?? null,
+        isPrimary,
+        ...(declaredOnly && isPrimary ? declaredTotals : totalsOf(lines)),
+        products: lines,
+      };
+    });
+
     return {
       ...rest,
-      linkedPurchaseIds: linkedPurchaseIdsOf(wb.linkedPurchaseId, items),
+      linkedPurchaseIds,
+      // The load broken down per order - what the distributor actually
+      // submitted, regrouped. `products` below stays flat for callers that
+      // already read it.
+      orders,
+      totals: {
+        orders: orders.length,
+        ...(declaredOnly ? declaredTotals : totalsOf(items)),
+      },
       // Named `products` on the wire, matching the submit body; `items` is
       // only the Prisma relation name.
       products: items,
+      // PRD F6: customers never see an officer's real name — surface a generic
+      // label, never the assigned loading officer's identity.
       assignedOfficer: wb.assignedOfficerId
         ? { displayName: 'Viju Loading Officer' }
         : null,

@@ -14,6 +14,8 @@ import {
 } from '../../common/pagination/paginate';
 import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
 import { ErpStockBalanceService } from '../erp/erp-stock-balance.service';
+import { ErpFinancialRecordsService } from '../erp/erp-financial-records.service';
+import { FinancialRecordConfig } from '../erp/erp-financial-records';
 import { messagePreview } from '../../common/messaging/message-preview';
 import { ErpOrderLinesService } from '../erp/erp-order-lines.service';
 import { ErpWaybillsService } from '../erp/erp-waybills.service';
@@ -27,6 +29,7 @@ export class CustomerService {
     private readonly stockBalance: ErpStockBalanceService,
     private readonly orderLines: ErpOrderLinesService,
     private readonly erpWaybills: ErpWaybillsService,
+    private readonly financialRecords: ErpFinancialRecordsService,
   ) {}
 
   /**
@@ -340,6 +343,68 @@ export class CustomerService {
     return this.erpWaybills.list(customer.erpId, pagination);
   }
 
+  /**
+   * One ERP goods-movement document with its item lines.
+   *
+   * The customer's own erpId is part of the lookup, so an unknown document and
+   * another distributor's document are indistinguishable from here - both are
+   * a plain 404 rather than a leak.
+   */
+  async getErpWaybillDetail(customerId: string, docNo: string) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { erpId: true },
+    });
+    if (!customer) throw new NotFoundException('Customer profile not found');
+    const detail = await this.erpWaybills.detail(customer.erpId, docNo);
+    if (!detail) throw new NotFoundException('Waybill not found');
+    return detail;
+  }
+
+  /**
+   * One of the ERP's financial ledgers for the signed-in distributor.
+   *
+   * `slug` is resolved from a closed set by the controller, so it can never
+   * reach the query as arbitrary input.
+   */
+  async getErpFinancialRecords(
+    customerId: string,
+    config: FinancialRecordConfig,
+    pagination: { page: number; pageSize: number },
+  ) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { erpId: true },
+    });
+    if (!customer) throw new NotFoundException('Customer profile not found');
+    return this.financialRecords.list(config, customer.erpId, pagination);
+  }
+
+  /**
+   * One document from one of those ledgers.
+   *
+   * Scoped to this distributor, so another customer's document is a 404 rather
+   * than a leak - indistinguishable from a document that does not exist.
+   */
+  async getErpFinancialRecord(
+    customerId: string,
+    config: FinancialRecordConfig,
+    docNo: string,
+  ) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: { erpId: true },
+    });
+    if (!customer) throw new NotFoundException('Customer profile not found');
+    const record = await this.financialRecords.detail(
+      config,
+      customer.erpId,
+      docNo,
+    );
+    if (!record) throw new NotFoundException(`${config.label} not found`);
+    return record;
+  }
+
   async getStockBalanceBreakdown(customerId: string) {
     // Same ERP derivation as the home screen's Stock Balance card, so the two
     // can no longer report different numbers for the same distributor.
@@ -362,7 +427,12 @@ export class CustomerService {
                   100,
               )
             : 0,
-        products: erpStock.products,
+        // Only what is still to collect. A product the distributor has taken
+        // in full is not part of a "stock balance" and would pad the list
+        // with rows reading 0. The TOTALS above are deliberately unchanged -
+        // they still describe the whole order history, so `products` no
+        // longer sums to `totalPurchasedCartons`.
+        products: erpStock.products.filter((p) => p.quantityRemaining > 0),
       };
     }
 
@@ -417,6 +487,9 @@ export class CustomerService {
     }
 
     const breakdown = Array.from(productMap.values()).map((row) => ({
+      // The local projection stores no ERP item code, so this path reports
+      // null rather than inventing one. Shape stays identical to the ERP path.
+      itemCode: null as string | null,
       productName: row.productName,
       quantityPaid: row.paid,
       quantityLoaded: row.loaded,
@@ -445,7 +518,9 @@ export class CustomerService {
       totalLoadedCartons,
       totalRemainingCartons,
       loadingProgress,
-      products: breakdown,
+      // Same rule as the ERP path above: fully collected products drop out of
+      // the list while still counting towards the totals.
+      products: breakdown.filter((row) => row.quantityRemaining > 0),
     };
   }
 

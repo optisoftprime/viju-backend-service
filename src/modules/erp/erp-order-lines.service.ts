@@ -8,9 +8,9 @@ export interface ErpOrderLine {
   productName: string;
   itemCode: string | null;
   quantity: number;
-  /** Null: the feed carries no per-line price. See order-lines.ts. */
+  /** ERP PRICE for this line. Null where the feed states none. */
   unitPrice: number | null;
-  /** Null: the feed carries no per-line amount. See order-lines.ts. */
+  /** ERP AMOUNT for this line. Null where the feed states none. */
   lineTotal: number | null;
 }
 
@@ -62,9 +62,19 @@ export class ErpOrderLinesService {
           product_name: string | null;
           item_code: string | null;
           quantity: string | number | null;
+          unit_price: string | number | null;
+          amount: string | number | null;
           row_id: string | number;
         }[]
       >(ERP_ORDER_LINES_SQL, ids);
+
+      // Money is NULL when the ERP states none - distinct from a real 0, which
+      // the feed does report on zero-quantity lines.
+      const money = (v: string | number | null): number | null => {
+        if (v === null || v === undefined) return null;
+        const parsed = Number(v);
+        return Number.isFinite(parsed) ? parsed : null;
+      };
 
       const byOrder = new Map<string, ErpOrderLine[]>();
       for (const r of rows) {
@@ -74,8 +84,8 @@ export class ErpOrderLinesService {
           productName: r.product_name ?? 'Unspecified',
           itemCode: r.item_code ?? null,
           quantity: Number.isFinite(qty) ? qty : 0,
-          unitPrice: null,
-          lineTotal: null,
+          unitPrice: money(r.unit_price),
+          lineTotal: money(r.amount),
         };
         const bucket = byOrder.get(r.doc_no) ?? [];
         bucket.push(line);

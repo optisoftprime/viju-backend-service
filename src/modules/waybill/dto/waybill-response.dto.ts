@@ -329,7 +329,113 @@ export class CustomerWaybillAssignedOfficerDto {
   displayName: string;
 }
 
+/**
+ * One order on the load, with the lines taken from it.
+ *
+ * A loading request can draw on several sales orders, so the detail view
+ * groups the flat `products` array by order - this is that grouping, with the
+ * order's own particulars attached so the screen can name it.
+ */
+export class WaybillOrderBreakdownDto {
+  @ApiProperty({ example: 'f7a86c0a-1ee9-40d0-85a0-5334f6da100c' })
+  purchaseId: string;
+
+  @ApiProperty({
+    example: '2300-202606110059',
+    nullable: true,
+    description: 'The ERP DOC_NO - what to show the distributor.',
+  })
+  erpId: string | null;
+
+  @ApiProperty({
+    example: '2026-06-11T00:00:00.000Z',
+    format: 'date-time',
+    nullable: true,
+  })
+  orderDate: Date | null;
+
+  @ApiProperty({ example: 'CLOSED', nullable: true })
+  orderStatus: string | null;
+
+  @ApiProperty({
+    example: 2860,
+    nullable: true,
+    description: 'Cartons on the ORDER as a whole - not on this load.',
+  })
+  orderTotalItems: number | null;
+
+  @ApiProperty({ example: 4084000, nullable: true })
+  orderTotalValue: number | null;
+
+  @ApiProperty({
+    example: true,
+    description:
+      'The order the request is filed under, and whose DOC_NO became ' +
+      '`reference`. Exactly one order is the primary.',
+  })
+  isPrimary: boolean;
+
+  @ApiProperty({ example: 2, description: 'Product lines from this order.' })
+  productLines: number;
+
+  @ApiProperty({ example: 200, description: 'Cartons taken from this order.' })
+  totalCartons: number;
+
+  @ApiProperty({
+    example: 1631.0,
+    description: 'Kilograms taken from this order. See `weightIsComplete`.',
+  })
+  totalWeightKg: number;
+
+  @ApiProperty({
+    example: true,
+    description:
+      'False when a line here has no carton weight, so the kilogram figure ' +
+      'is a partial sum. Render it as a minimum, or as a dash.',
+  })
+  weightIsComplete: boolean;
+
+  @ApiProperty({ type: [WaybillProductDto] })
+  products: WaybillProductDto[];
+}
+
+/** The load as a whole, across every order. */
+export class WaybillTotalsDto {
+  @ApiProperty({ example: 2, description: 'Orders this load draws on.' })
+  orders: number;
+
+  @ApiProperty({ example: 3 })
+  productLines: number;
+
+  @ApiProperty({
+    example: 210,
+    description: 'Cartons on the load. Equals `quantityCartons`.',
+  })
+  totalCartons: number;
+
+  @ApiProperty({ example: 1747.0 })
+  totalWeightKg: number;
+
+  @ApiProperty({
+    example: true,
+    description: 'False when any line on the load has no carton weight.',
+  })
+  weightIsComplete: boolean;
+}
+
 export class WaybillDetailDto extends WaybillDto {
+  @ApiProperty({
+    type: [WaybillOrderBreakdownDto],
+    description:
+      'The load broken down PER ORDER, primary first - the shape the request ' +
+      'was submitted in, rebuilt. `products` on the parent stays flat for ' +
+      'callers that already read it; these are the same lines, grouped.',
+  })
+  orders: WaybillOrderBreakdownDto[];
+
+  @ApiProperty({ type: WaybillTotalsDto })
+  totals: WaybillTotalsDto;
+
   @ApiProperty({ type: WaybillDetailLinkedPurchaseDto, nullable: true })
   linkedPurchase: WaybillDetailLinkedPurchaseDto | null;
 

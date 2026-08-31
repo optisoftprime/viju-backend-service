@@ -6,6 +6,7 @@ import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
 import { ErpStockBalanceService } from '../erp/erp-stock-balance.service';
 import { ErpOrderLinesService } from '../erp/erp-order-lines.service';
 import { ErpWaybillsService } from '../erp/erp-waybills.service';
+import { ErpFinancialRecordsService } from '../erp/erp-financial-records.service';
 
 /**
  * The balance the customer app shows must come from the ERP credit feed
@@ -85,6 +86,11 @@ describe('Customer account balance (ERP-derived)', () => {
         { provide: ErpStockBalanceService, useValue: mockStockBalance },
         { provide: ErpOrderLinesService, useValue: mockOrderLines },
         { provide: ErpWaybillsService, useValue: mockErpWaybills },
+        // Not exercised by these tests; present so the container can build.
+        {
+          provide: ErpFinancialRecordsService,
+          useValue: { list: jest.fn(), detail: jest.fn() },
+        },
       ],
     }).compile();
     service = module.get(CustomerService);

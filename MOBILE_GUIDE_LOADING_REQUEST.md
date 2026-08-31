@@ -25,7 +25,8 @@ are copied verbatim.
 | 4 | `POST /customers/me/waybills` | Submit — the orders, their products, the truck and the driver. |
 
 Then `GET /customers/me/waybills` (list) and `GET /customers/me/waybills/{id}`
-(detail) to show it afterwards.
+(detail — the full preview of what was submitted, broken down per order) to
+show it afterwards. See section 9.
 
 > ### ⚠️ Step 2 is `/invoices`, not `/waybills`
 >
@@ -397,15 +398,110 @@ Two of these are worth special handling in the UI:
 
 ```http
 GET /api/v1/customers/me/waybills?page=1&pageSize=20     # the list
-GET /api/v1/customers/me/waybills/{id}                   # one request
+GET /api/v1/customers/me/waybills/{id}                   # one request, in full
 ```
 
 Both return `linkedPurchaseIds`, `products`, `warehouseName` and
 `loadingCapacity` alongside the existing fields. `products` is `[]` on requests
-raised without a breakdown.
+raised without a breakdown. The list is `{ data, meta }`, newest first.
 
-The list is `{ data, meta }`, newest first. Detail additionally returns
-`linkedPurchase { id, erpId }` (the primary order) and `assignedOfficer`.
+### 9.1 The detail endpoint — the submitted-request preview
+
+`GET /customers/me/waybills/{id}` returns everything recorded when the request
+was raised, and **returns the load twice on purpose**:
+
+| Field | Shape | Use |
+|---|---|---|
+| `products` | flat array of every line | unchanged; what older screens read |
+| `orders` | the same lines **grouped by order**, primary first | what a preview screen wants |
+| `totals` | the load summed across every order | the header figures |
+
+```json
+{
+  "id": "8c4bc62a-8d12-4f4e-b9d0-ea66f5476589",
+  "reference": "2300-202606110059",
+  "status": "PENDING_ASSIGNMENT",
+  "warehouseName": "LAGOS WAREHOUSE",
+  "truckPlateNumber": "LAG-234-XY",
+  "driverName": "Jimoh Ibrahim",
+  "driverPhone": "+2348012345678",
+  "requestedLoadingDate": "2026-09-05T00:00:00.000Z",
+  "loadingCapacity": 1200,
+  "quantityCartons": 210,
+  "linkedPurchaseId": "f7a86c0a-1ee9-40d0-85a0-5334f6da100c",
+  "linkedPurchaseIds": ["f7a86c0a-…", "ea95bb9e-…"],
+  "linkedPurchase": { "id": "f7a86c0a-…", "erpId": "2300-202606110059" },
+
+  "orders": [
+    {
+      "purchaseId": "f7a86c0a-1ee9-40d0-85a0-5334f6da100c",
+      "erpId": "2300-202606110059",
+      "orderDate": "2026-06-11T00:00:00.000Z",
+      "orderStatus": "CLOSED",
+      "orderTotalItems": 2860,
+      "orderTotalValue": 4084000,
+      "isPrimary": true,
+      "productLines": 2,
+      "totalCartons": 200,
+      "totalWeightKg": 1632,
+      "weightIsComplete": true,
+      "products": [ /* the 2 lines from this order */ ]
+    },
+    {
+      "purchaseId": "ea95bb9e-e470-4743-ab20-618841ea9abf",
+      "erpId": "2300-202606110027",
+      "orderDate": "2026-06-11T00:00:00.000Z",
+      "orderStatus": "CLOSED",
+      "orderTotalItems": 51,
+      "orderTotalValue": 730000,
+      "isPrimary": false,
+      "productLines": 1,
+      "totalCartons": 10,
+      "totalWeightKg": 116,
+      "weightIsComplete": true,
+      "products": [ /* the 1 line from this order */ ]
+    }
+  ],
+
+  "totals": {
+    "orders": 2,
+    "productLines": 3,
+    "totalCartons": 210,
+    "totalWeightKg": 1748,
+    "weightIsComplete": true
+  },
+
+  "products": [ /* all 3 lines, flat */ ],
+  "assignedOfficer": null
+}
+```
+
+**Render the preview from `orders`** — one card or section per order, titled
+with `erpId`, showing its `products` and its own `totalCartons` /
+`totalWeightKg`. You no longer need to group the flat array yourself.
+
+Three fields are easy to misread:
+
+- **`orderTotalItems` is the whole ORDER, not this load.** Above, the order
+  holds 2,860 cartons and the load takes 200 of them. Never show it as the
+  load.
+- **`weightIsComplete: false` means the kilogram figure is a partial sum** —
+  at least one line has no carton weight, because the specification sheet does
+  not cover every product. Show `1,632 kg +`, or a dash. Do not present it as
+  the total.
+- **`isPrimary`** marks the order the request is filed under, whose DOC_NO
+  became `reference`. Exactly one order carries it.
+
+`totals.totalCartons` always equals `quantityCartons`.
+
+**Older requests** raised before the product breakdown existed have no lines at
+all. They declare a bare `quantityCartons`, so `orders` has one entry — the
+linked order — carrying that figure with `products: []` and
+`weightIsComplete: false`. The preview still shows the right carton count
+rather than an empty load.
+
+A request id that is not this distributor's returns **`404`**
+(`{ "message": "Waybill not found", "statusCode": 404 }`), never `403`.
 
 ### Status lifecycle
 
@@ -502,6 +598,35 @@ export interface LoadingRequest {
   products: LoadingRequestLine[];
   createdAt: string;
 }
+
+/** One order on the load — GET /customers/me/waybills/{id} only. */
+export interface LoadingRequestOrderBreakdown {
+  purchaseId: string;
+  erpId: string | null;          // the DOC_NO to show
+  orderDate: string | null;
+  orderStatus: string | null;
+  orderTotalItems: number | null;   // the whole ORDER, not this load
+  orderTotalValue: number | null;
+  isPrimary: boolean;
+  productLines: number;
+  totalCartons: number;          // taken from THIS order
+  totalWeightKg: number;
+  weightIsComplete: boolean;     // false => the kg figure is a partial sum
+  products: LoadingRequestLine[];
+}
+
+export interface LoadingRequestDetail extends LoadingRequest {
+  orders: LoadingRequestOrderBreakdown[];
+  totals: {
+    orders: number;
+    productLines: number;
+    totalCartons: number;        // equals quantityCartons
+    totalWeightKg: number;
+    weightIsComplete: boolean;
+  };
+  linkedPurchase: { id: string; erpId: string } | null;
+  assignedOfficer: { displayName: string } | null;
+}
 ```
 
 ---
@@ -561,6 +686,8 @@ Deriving `linkedPurchaseId` from `Object.keys(orders)` makes the
 - [ ] `quantityCartons` **not** sent
 - [ ] `productId` sent as a **string**
 - [ ] `warehouseName` is one of the three exact strings
-- [ ] Response lines grouped back by `orderReference` for display
+- [ ] Preview screen renders from `orders` on the detail endpoint, not the flat array
+- [ ] `orderTotalItems` never shown as the load
+- [ ] `weightIsComplete: false` rendered as a minimum or a dash
 - [ ] `reference` shown to the distributor, treated as opaque
 - [ ] Loading officer shown as `"Viju Loading Officer"`, never a name
