@@ -259,11 +259,12 @@ describe('Order history and detail lines', () => {
       expect(res.lines).toHaveLength(2);
     });
 
-    it('leaves the legacy `items` array unmerged', async () => {
-      // Older screens read it and expect one entry per raw ERP line.
+    it('no longer returns the legacy `items` array', async () => {
+      // It repeated the same lines a second time, unmerged, so a product
+      // priced two ways on one order appeared twice. `lines` is the shape.
       const res = (await detail()) as any;
 
-      expect(res.items).toHaveLength(4);
+      expect(res).not.toHaveProperty('items');
     });
   });
 });

@@ -830,16 +830,6 @@ export class CustomerService {
         amount: i.lineTotal,
         accountBalance,
       })),
-      // Retained for the existing screens; `lines` is the B-5.4 shape.
-      items: lineSource.map((i) => ({
-        id: i.id,
-        purchaseId: purchase.id,
-        productName: i.productName,
-        itemCode: i.itemCode,
-        quantity: i.quantity,
-        unitPrice: i.unitPrice,
-        lineTotal: i.lineTotal,
-      })),
     };
   }
 
