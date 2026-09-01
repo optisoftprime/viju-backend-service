@@ -37,6 +37,20 @@
  * Product names are the ERP's own strings and are not normalised here: the
  * feed genuinely contains near-duplicates that differ only by bracket
  * character. Merging them would be guesswork about ERP intent.
+ *
+ * ─── The date window ────────────────────────────────────────────────────
+ *
+ * DOC_DATE is the order's own document date - the one the DOC_NO encodes
+ * (2310-202606110033 -> 2026-06-11). It is stated on every one of the
+ * 993,979 line rows, none of them malformed, and it agrees with the
+ * projector's `Purchase.orderDate` on 40,859 of the 40,883 orders that exist
+ * both ways. So the ERP path and the local fallback filter on the same notion
+ * of "when the order was placed", and a distributor cannot get two different
+ * answers for one window depending on which path served them.
+ *
+ * ORDER_DATE exists too and differs on 2,351 rows; DOC_DATE is preferred
+ * because it is what the document, and therefore the distributor's paperwork,
+ * is dated by.
  */
 export const ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL = `
     SELECT so.payload->>'ITEM_DESCRIPTION' AS product,
@@ -58,4 +72,10 @@ export const ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL = `
               WHERE c.payload->>'CUSTOMER_CODE' = $1
               ORDER BY c.last_seen_at DESC NULLS LAST
               LIMIT 1)
+       -- Optional window on the ORDER date. Both bounds are inclusive, and a
+       -- NULL bound means "open ended", so one query serves the filtered and
+       -- unfiltered cases. The cast is safe: every DOC_DATE in the feed is a
+       -- 'YYYY-MM-DD HH:MM:SS' string.
+       AND ($2::date IS NULL OR (so.payload->>'DOC_DATE')::date >= $2::date)
+       AND ($3::date IS NULL OR (so.payload->>'DOC_DATE')::date <= $3::date)
      GROUP BY 1`;

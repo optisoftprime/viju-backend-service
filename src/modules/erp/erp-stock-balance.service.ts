@@ -13,6 +13,15 @@ export interface ErpStockBalanceProduct {
 }
 
 /**
+ * An inclusive window on the order date. Either bound may be omitted, which
+ * leaves that end open.
+ */
+export interface ErpStockDateRange {
+  startDate?: string | null;
+  endDate?: string | null;
+}
+
+/**
  * A customer's stock position as the ERP states it. Totals and per-product
  * rows come from one query, so the breakdown always adds up to the totals.
  */
@@ -73,8 +82,17 @@ export class ErpStockBalanceService {
    * rather than telling a distributor they have no stock on the strength of a
    * missing feed. A customer the ERP genuinely knows, who has collected
    * everything, comes back as real zeros instead.
+   *
+   * `range` narrows it to orders placed inside a window. A window the
+   * customer has no orders in returns null - "we cannot say" - exactly as an
+   * unknown customer does; the caller decides what to render, and for the
+   * breakdown that is real zeros rather than a silent fallback to the
+   * unfiltered local figure.
    */
-  async getStockBalance(erpId: string): Promise<ErpStockBalance | null> {
+  async getStockBalance(
+    erpId: string,
+    range?: ErpStockDateRange,
+  ): Promise<ErpStockBalance | null> {
     if (!erpId) return null;
     if (!(await this.isAvailable())) return null;
     try {
@@ -85,7 +103,12 @@ export class ErpStockBalanceService {
           delivered_qty: string | number | null;
           item_code: string | null;
         }[]
-      >(ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL, erpId);
+      >(
+        ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL,
+        erpId,
+        range?.startDate ?? null,
+        range?.endDate ?? null,
+      );
 
       // No rows at all means the ERP has no order history we can tie to this
       // customer — treat it as "unknown", not "nothing".

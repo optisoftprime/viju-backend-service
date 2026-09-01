@@ -12,6 +12,7 @@ import {
   ApiOperation,
   ApiBearerAuth,
   ApiOkResponse,
+  ApiBadRequestResponse,
   ApiParam,
   ApiNotFoundResponse,
   ApiProduces,
@@ -34,6 +35,7 @@ import {
   UpdateProfilePhotoDto,
   ChangePasswordDto,
   PurchaseFilterDto,
+  StockBalanceFilterDto,
   StatementRangeDto,
 } from './dto/customer.dto';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
@@ -211,11 +213,34 @@ export class CustomerController {
       '`totalPurchasedCartons`; a distributor holding nothing gets an empty ' +
       'array with non-zero totals.\n\n' +
       'Each product carries the ERP `itemCode` (ITEM_CODE from the ' +
-      'sales-order feed), null where the feed states none.',
+      'sales-order feed), null where the feed states none.\n\n' +
+      'DATE RANGE: `startDate` and `endDate` (`YYYY-MM-DD`) narrow it to ' +
+      'orders PLACED in that window. Both bounds are INCLUSIVE, either may ' +
+      'be sent alone to leave the other end open, and sending neither is ' +
+      'the whole history as before. The date filtered on is the order`s ' +
+      'document date - the one its ERP id encodes, e.g. ' +
+      '`2310-202606110033` is 2026-06-11.\n\n' +
+      'The window applies to ORDERS, not to collections: a window returns ' +
+      'what was ordered in it minus what has since been delivered against ' +
+      'those same orders, however late that delivery happened. So the ' +
+      'windows do not partition the balance - two adjacent windows need ' +
+      'not add up to the unfiltered total, because an order placed before ' +
+      '`startDate` is excluded outright even if it is still uncollected.\n\n' +
+      'A window the distributor placed no orders in returns real zeros ' +
+      'with an empty `products`, never the unfiltered history. The applied ' +
+      'window is echoed back as `dateRange`. A `startDate` after `endDate` ' +
+      'is a 400.',
   })
   @ApiOkResponse({ type: StockBalanceBreakdownDto })
-  async getStockBalance(@CurrentUser() user: any) {
-    return this.customerService.getStockBalanceBreakdown(user.id);
+  @ApiBadRequestResponse({
+    description:
+      '`startDate` is after `endDate`, or a bound is not a valid date',
+  })
+  async getStockBalance(
+    @CurrentUser() user: any,
+    @Query() filter: StockBalanceFilterDto,
+  ) {
+    return this.customerService.getStockBalanceBreakdown(user.id, filter);
   }
 
   @Get('me')
@@ -254,8 +279,11 @@ export class CustomerController {
       'echoed back as applied), plus `search` on order id or product name ' +
       'and `startDate` / `endDate` on the order date. `meta.total` counts ' +
       'the rows the current filter matches.\n\n' +
-      'Each row carries its `items` - read from the ERP sales-order feed ' +
-      'where the projector has not copied them locally.\n\n' +
+      'ONE ROW PER ORDER, no line items. The rows no longer carry `items`: ' +
+      'the history screen lists orders, and the lines are read from ' +
+      'GET /customers/me/invoices/{id} when one is opened. `search` still ' +
+      'matches on product name - that is a filter, not part of the ' +
+      'payload.\n\n' +
       'RENAMED: this was GET /customers/me/purchases. The old ' +
       '/customers/me/invoices is now /customers/me/account.',
   })
@@ -278,9 +306,21 @@ export class CustomerController {
       '`lines` is read from the ERP sales-order feed when the projector has ' +
       'not copied lines locally, which is the case for almost every order - ' +
       'it used to come back empty. Each line carries `product`, `itemCode` ' +
-      'and `quantity`. `unitPrice` and `amount` are NULL: the ERP feed ' +
-      'states no per-line money, only the order total, which is on ' +
-      '`totalValue`.\n\n' +
+      'and `quantity`. On an ERP-sourced order `unitPrice` and `amount` are ' +
+      'NULL: the feed states no per-line money, only the order total, which ' +
+      'is on `totalValue`.\n\n' +
+      'ONE LINE PER PRODUCT. The ERP writes a separate line whenever the ' +
+      'same product is priced differently on one order - 1,700 cartons at ' +
+      'N1,500 plus 68 more at zero, a free-goods allocation - and both carry ' +
+      'the same `itemCode`. Those are merged here, so a product appears ' +
+      'once: `quantity` and `amount` are the sums (the lines still add up to ' +
+      '`totalValue` exactly), and `unitPrice` is kept only where every ' +
+      'part agreed on it. Where they did not, it becomes the EFFECTIVE ' +
+      'price paid (amount / quantity) rounded to 2dp. Render `amount` as ' +
+      'given - at two decimals the rate does not multiply back to the ' +
+      'exact naira, so do not recompute a line from quantity x unitPrice.\n\n' +
+      '`items` is the legacy array for the older screens and is NOT merged - ' +
+      'it still carries one entry per raw ERP line. Read `lines`.\n\n' +
       'RENAMED: this was GET /customers/me/purchases/{id}.',
   })
   @ApiOkResponse({ type: PurchaseDetailDto })

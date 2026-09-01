@@ -57,6 +57,34 @@ export class StatementRangeDto {
   endDate?: string;
 }
 
+/**
+ * Optional window on the ORDER date for the stock-balance breakdown.
+ *
+ * Not paginated: the breakdown is one row per product the distributor still
+ * holds, which is a short list even over years of orders.
+ */
+export class StockBalanceFilterDto {
+  @ApiPropertyOptional({
+    description:
+      'Only count orders placed ON or AFTER this date. `YYYY-MM-DD`. ' +
+      'Omit to leave the window open at the early end.',
+    example: '2026-01-01',
+  })
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Only count orders placed ON or BEFORE this date - inclusive, so an ' +
+      'order dated `endDate` is counted. `YYYY-MM-DD`.',
+    example: '2026-06-30',
+  })
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+}
+
 export class PurchaseFilterDto extends PaginationQueryDto {
   @ApiPropertyOptional({
     description: 'Search term for product name or order ID',
