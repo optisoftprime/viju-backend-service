@@ -587,26 +587,22 @@ export class StockBalanceProductDto {
       'over-delivered line cannot show a negative quantity.',
   })
   quantityRemaining: number;
-}
 
-/** The window the breakdown was computed over. Nulls mean "open end". */
-export class StockBalanceDateRangeDto {
-  @ApiProperty({ example: '2026-01-01', nullable: true })
-  startDate: string | null;
-
-  @ApiProperty({ example: '2026-06-30', nullable: true })
-  endDate: string | null;
+  @ApiProperty({
+    example: '2026-06-11',
+    nullable: true,
+    description:
+      'Date (`YYYY-MM-DD`) of the most recent order carrying this product — ' +
+      "the ERP's DOC_DATE, the one the order id encodes. A product row rolls " +
+      'up every line for that product, so this is the LATEST of their order ' +
+      'dates, not "the" order date. When a date window is applied it is the ' +
+      'latest order inside that window. Null only where no order date could ' +
+      'be read.',
+  })
+  lastOrderDate: string | null;
 }
 
 export class StockBalanceBreakdownDto {
-  @ApiProperty({
-    type: StockBalanceDateRangeDto,
-    description:
-      'The window applied, echoed back. Both null when the whole history ' +
-      'was counted.',
-  })
-  dateRange: StockBalanceDateRangeDto;
-
   @ApiProperty({
     example: 700,
     description:

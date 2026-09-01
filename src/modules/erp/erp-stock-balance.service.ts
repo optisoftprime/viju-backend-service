@@ -10,6 +10,13 @@ export interface ErpStockBalanceProduct {
   quantityPaid: number;
   quantityLoaded: number;
   quantityRemaining: number;
+  /**
+   * `YYYY-MM-DD` of the most recent order carrying this product, within the
+   * window if one was given. A product row rolls up every line for that
+   * product, so this is the latest of their DOC_DATEs rather than "the"
+   * order date.
+   */
+  lastOrderDate: string | null;
 }
 
 /**
@@ -102,6 +109,7 @@ export class ErpStockBalanceService {
           ordered_qty: string | number | null;
           delivered_qty: string | number | null;
           item_code: string | null;
+          last_order_date: string | null;
         }[]
       >(
         ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL,
@@ -130,6 +138,7 @@ export class ErpStockBalanceService {
           // Floored per product so a single over-delivered line cannot show a
           // negative quantity against a product on screen.
           quantityRemaining: Math.max(0, quantityPaid - quantityLoaded),
+          lastOrderDate: r.last_order_date ?? null,
         };
       });
 

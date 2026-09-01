@@ -493,7 +493,6 @@ export class CustomerService {
       : null;
     if (erpStock) {
       return {
-        dateRange,
         totalPurchasedCartons: erpStock.totalPurchasedCartons,
         totalLoadedCartons: erpStock.totalLoadedCartons,
         totalRemainingCartons: erpStock.totalRemainingCartons,
@@ -523,7 +522,6 @@ export class CustomerService {
       (await this.stockBalance.isAvailable())
     ) {
       return {
-        dateRange,
         totalPurchasedCartons: 0,
         totalLoadedCartons: 0,
         totalRemainingCartons: 0,
@@ -555,6 +553,7 @@ export class CustomerService {
       select: {
         id: true,
         erpId: true,
+        orderDate: true,
         items: {
           select: { productName: true, quantity: true },
         },
@@ -567,7 +566,13 @@ export class CustomerService {
 
     const productMap = new Map<
       string,
-      { productName: string; paid: number; loaded: number; remaining: number }
+      {
+        productName: string;
+        paid: number;
+        loaded: number;
+        remaining: number;
+        lastOrderDate: Date | null;
+      }
     >();
 
     for (const p of purchases) {
@@ -577,8 +582,14 @@ export class CustomerService {
           paid: 0,
           loaded: 0,
           remaining: 0,
+          lastOrderDate: null,
         };
         existing.paid += item.quantity;
+        // Latest order carrying this product, matching what the ERP path
+        // reports, so the two routes answer with the same shape and meaning.
+        if (!existing.lastOrderDate || p.orderDate > existing.lastOrderDate) {
+          existing.lastOrderDate = p.orderDate;
+        }
         productMap.set(item.productName, existing);
       }
       const loadedFromCompleted = p.loadingRequests
@@ -606,6 +617,12 @@ export class CustomerService {
       quantityPaid: row.paid,
       quantityLoaded: row.loaded,
       quantityRemaining: Math.max(0, row.paid - row.loaded),
+      // Same 'YYYY-MM-DD' rendering as the ERP path. Read in UTC, which is
+      // how the projector stores the document date, so the day cannot drift
+      // by one under the server's local timezone.
+      lastOrderDate: row.lastOrderDate
+        ? row.lastOrderDate.toISOString().slice(0, 10)
+        : null,
     }));
 
     const totalPurchasedCartons = breakdown.reduce(

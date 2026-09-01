@@ -213,7 +213,10 @@ export class CustomerController {
       '`totalPurchasedCartons`; a distributor holding nothing gets an empty ' +
       'array with non-zero totals.\n\n' +
       'Each product carries the ERP `itemCode` (ITEM_CODE from the ' +
-      'sales-order feed), null where the feed states none.\n\n' +
+      'sales-order feed), null where the feed states none, and ' +
+      '`lastOrderDate` — the date of the most recent order carrying that ' +
+      'product. A product row rolls up every line for that product, so the ' +
+      'date is the LATEST of their order dates, not "the" order date.\n\n' +
       'DATE RANGE: `startDate` and `endDate` (`YYYY-MM-DD`) narrow it to ' +
       'orders PLACED in that window. Both bounds are INCLUSIVE, either may ' +
       'be sent alone to leave the other end open, and sending neither is ' +
@@ -227,9 +230,8 @@ export class CustomerController {
       'not add up to the unfiltered total, because an order placed before ' +
       '`startDate` is excluded outright even if it is still uncollected.\n\n' +
       'A window the distributor placed no orders in returns real zeros ' +
-      'with an empty `products`, never the unfiltered history. The applied ' +
-      'window is echoed back as `dateRange`. A `startDate` after `endDate` ' +
-      'is a 400.',
+      'with an empty `products`, never the unfiltered history. A ' +
+      '`startDate` after `endDate` is a 400.',
   })
   @ApiOkResponse({ type: StockBalanceBreakdownDto })
   @ApiBadRequestResponse({
