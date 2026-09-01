@@ -55,7 +55,9 @@ describe('Loading request across several orders', () => {
     truckPlateNumber: 'LAG-234-XY',
     driverName: 'Jimoh Ibrahim',
     driverPhone: '+2348012345678',
-    loadingCapacity: 1200,
+    // Kilograms, and ample: these tests are about which order a line came
+    // from, not about the capacity guard, which has its own spec.
+    loadingCapacity: 20000,
     linkedPurchaseId: 'p-1',
     requestedLoadingDate: '2026-08-30',
   };

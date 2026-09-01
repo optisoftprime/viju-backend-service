@@ -163,10 +163,19 @@ export class SubmitLoadingRequestDto {
   warehouseName?: WarehouseName;
 
   @ApiPropertyOptional({
-    example: 1200,
+    example: 2000,
     description:
-      'The TRUCK’s carton capacity, not the size of this load. The load is ' +
-      'the sum of `products[].quantity`.',
+      'The TRUCK’s carrying capacity IN KILOGRAMS - what it can haul, not ' +
+      'the size of this load.\n\n' +
+      'The load is weighed against it before the request is accepted: ' +
+      'SUM(quantity x weightPerCarton) across every line, over every order. ' +
+      'A load heavier than this is refused with a 400 and nothing is ' +
+      'written.\n\n' +
+      'A line sending no `weightPerCarton` is weighed from the Viju ' +
+      'specification sheet instead, so omitting it does not skip the ' +
+      'check. A product neither source can weigh is left out of the total ' +
+      'and the request is allowed through - the check never rejects on a ' +
+      'figure it cannot stand behind.',
   })
   @IsOptional()
   @IsInt()

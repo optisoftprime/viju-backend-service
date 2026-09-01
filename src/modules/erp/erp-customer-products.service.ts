@@ -1,9 +1,20 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
-import {
-  resolveProduct,
-  ResolvedProduct,
-} from './product-specification.resolver';
+import { resolveProduct } from './product-specification.resolver';
+import { ErpItemCodeService } from './erp-item-code.service';
+
+/**
+ * A product on one order: what the specification sheet knows about it, plus
+ * how much of it is still to collect ON THAT ORDER.
+ */
+export interface ErpOrderProduct {
+  productId: string | null;
+  productName: string;
+  weightPerCarton: number | null;
+  /** BUSINESS_QTY - DELIVERED_BUSINESS_QTY, summed over the order's lines. */
+  quantityLeft: number;
+  matchedOn: 'SPEC_AND_NAME' | 'NAME' | 'SPEC' | 'NONE';
+}
 
 /**
  * The products on ONE sales order, as the ERP records them, each carried
@@ -26,7 +37,10 @@ export class ErpCustomerProductsService {
   private readonly logger = new Logger(ErpCustomerProductsService.name);
   private available: boolean | null = null;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly itemCodes: ErpItemCodeService,
+  ) {}
 
   async isAvailable(): Promise<boolean> {
     if (this.available !== null) return this.available;
@@ -84,7 +98,7 @@ export class ErpCustomerProductsService {
   async listForOrder(
     orderId: string,
     customerId?: string,
-  ): Promise<ResolvedProduct[]> {
+  ): Promise<ErpOrderProduct[]> {
     if (!orderId) return [];
     if (!(await this.isAvailable())) return [];
     try {
@@ -92,13 +106,28 @@ export class ErpCustomerProductsService {
       if (!docNo) return [];
 
       const rows = await this.prisma.$queryRawUnsafe<
-        { descr: string | null; spec: string | null }[]
+        {
+          descr: string | null;
+          spec: string | null;
+          item_code: string | null;
+          ordered_qty: string | number | null;
+          delivered_qty: string | number | null;
+        }[]
       >(
-        `SELECT DISTINCT so.payload->>'ITEM_DESCRIPTION'   AS descr,
-                so.payload->>'ITEM_SPECIFICATION' AS spec
+        // Aggregated rather than DISTINCT: the feed holds a row per order
+        // LINE, and `quantityLeft` has to be the sum across every line of the
+        // product on this order, not one line's share of it.
+        `SELECT so.payload->>'ITEM_DESCRIPTION'   AS descr,
+                so.payload->>'ITEM_SPECIFICATION' AS spec,
+                min(nullif(so.payload->>'ITEM_CODE', '')) AS item_code,
+                sum(coalesce(nullif(so.payload->>'BUSINESS_QTY', '')::numeric, 0))
+                  AS ordered_qty,
+                sum(coalesce(nullif(so.payload->>'DELIVERED_BUSINESS_QTY', '')::numeric, 0))
+                  AS delivered_qty
            FROM erp_raw.raw_sales_order so
           WHERE so.object_type = 'SALES_ORDER'
             AND so.payload->>'DOC_NO' = $1
+          GROUP BY 1, 2
           ORDER BY 1`,
         docNo,
       );
@@ -107,17 +136,35 @@ export class ErpCustomerProductsService {
       // same code and weight - '(1.5)MALT MILK(O)' under both 500ML果汁(O) and
       // 500ML麦汁(O). Those rows are indistinguishable once resolved, so they
       // would read as a duplicated product on screen.
-      const seen = new Set<string>();
-      const products: ResolvedProduct[] = [];
+      const num = (v: string | number | null): number => {
+        const parsed = Number(v ?? 0);
+        return Number.isFinite(parsed) ? parsed : 0;
+      };
+
+      const byKey = new Map<string, ErpOrderProduct>();
       for (const row of rows) {
         if ((row.descr ?? '').trim() === '') continue;
         const resolved = resolveProduct(row.descr, row.spec);
-        const key = `${resolved.productId ?? ''}|${resolved.productName}|${resolved.weightPerCarton ?? ''}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        products.push(resolved);
+        // The ERP's own code first, then the sheet's: the feed is the system
+        // of record for its codes, and states one on only ~6% of line rows.
+        const productId =
+          row.item_code ??
+          this.itemCodes.codeFor(row.descr) ??
+          resolved.productId;
+        const key = `${productId ?? ''}|${resolved.productName}|${resolved.weightPerCarton ?? ''}`;
+        // Two specifications can resolve to the same product - '(1.5)MALT
+        // MILK(O)' arrives under both 500ML果汁(O) and 500ML麦汁(O). They are
+        // one product on screen, so their quantities are ADDED rather than
+        // one row being dropped.
+        const seen = byKey.get(key);
+        const left = Math.max(0, num(row.ordered_qty) - num(row.delivered_qty));
+        if (seen) {
+          seen.quantityLeft += left;
+          continue;
+        }
+        byKey.set(key, { ...resolved, productId, quantityLeft: left });
       }
-      return products;
+      return [...byKey.values()];
     } catch (e) {
       this.logger.error(
         `listForOrder(${orderId}) failed: ${(e as Error).message}`,
