@@ -64,6 +64,14 @@ export const ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL = `
            -- line is silent. min() is deterministic; a product whose lines
            -- disagree is a feed fault, not something to paper over.
            min(nullif(so.payload->>'ITEM_CODE', '')) AS item_code,
+           -- The specification, but ONLY when the product appears under
+           -- exactly one. Rows are grouped by product NAME, and 4 names span
+           -- several sizes; handing the resolver one of them arbitrarily
+           -- would attach the wrong code and carton weight to the group.
+           CASE
+             WHEN count(DISTINCT nullif(so.payload->>'ITEM_SPECIFICATION', '')) = 1
+             THEN min(nullif(so.payload->>'ITEM_SPECIFICATION', ''))
+           END AS item_specification,
            -- When this product was last ordered. A row here rolls up every
            -- line for the product across the window, so there is no single
            -- order date - the most recent one is what the screen wants.
@@ -125,6 +133,14 @@ export const ERP_STOCK_BALANCE_FOR_CUSTOMERS_SQL = `
            sum(coalesce(nullif(so.payload->>'DELIVERED_BUSINESS_QTY', '')::numeric, 0))
              AS delivered_qty,
            min(nullif(so.payload->>'ITEM_CODE', '')) AS item_code,
+           -- The specification, but ONLY when the product appears under
+           -- exactly one. Rows are grouped by product NAME, and 4 names span
+           -- several sizes; handing the resolver one of them arbitrarily
+           -- would attach the wrong code and carton weight to the group.
+           CASE
+             WHEN count(DISTINCT nullif(so.payload->>'ITEM_SPECIFICATION', '')) = 1
+             THEN min(nullif(so.payload->>'ITEM_SPECIFICATION', ''))
+           END AS item_specification,
            -- Same as the single-customer query: the latest DOC_DATE the
            -- product's lines carry, rendered to text in Postgres so the day
            -- cannot shift under a timezone on its way out.

@@ -14,6 +14,7 @@ import {
   SubmitLoadingRequestDto,
 } from './dto/waybill.dto';
 import { paginate } from '../../common/pagination/paginate';
+import { resolveProduct } from '../erp/product-specification.resolver';
 
 /**
  * How many reference variants to try before giving up.
@@ -31,6 +32,19 @@ const MAX_REFERENCE_ATTEMPTS = 25;
 const MAX_LOADING_REQUEST_LINES = 200;
 
 const TNC_RECENT_WINDOW_MS = 60 * 60 * 1000; // 1h
+
+/**
+ * The weight of a load, and how much of it could actually be weighed.
+ *
+ * `unweighed` counts lines carrying no carton weight from any source. They
+ * contribute nothing to `totalWeightKg`, so a load that is partly unweighable
+ * can only ever be UNDER-estimated - the guard below stays conservative and
+ * lets it through rather than rejecting on a figure it cannot stand behind.
+ */
+interface LoadWeight {
+  totalWeightKg: number;
+  unweighed: number;
+}
 
 /**
  * Every order a request draws on, primary first.
@@ -432,6 +446,43 @@ export class WaybillService {
   }
 
   /**
+   * Total weight of a load: SUM(quantity x weight per carton).
+   *
+   * The weight is taken from the line as sent - the distributor echoes it
+   * back from GET /erp/orders/{orderId}/products - and FALLS BACK to the Viju
+   * specification sheet when the line carries none. Without that fallback,
+   * omitting `weightPerCarton` would silently skip the capacity check for
+   * that product.
+   *
+   * The fallback is used for THIS CHECK ONLY. What gets stored is still
+   * exactly what the distributor declared: a later correction to the sheet
+   * must not rewrite their record.
+   */
+  private weighLoad(
+    lines: {
+      productName: string;
+      quantity: number;
+      weightPerCarton: number | null;
+    }[],
+  ): LoadWeight {
+    let totalWeightKg = 0;
+    let unweighed = 0;
+    for (const line of lines) {
+      const perCarton =
+        line.weightPerCarton ??
+        resolveProduct(line.productName, null).weightPerCarton;
+      if (perCarton === null || perCarton <= 0) {
+        unweighed++;
+        continue;
+      }
+      totalWeightKg += line.quantity * perCarton;
+    }
+    // Kilograms to 2dp: the sheet states carton weights to 2dp, and a raw
+    // float sum would put noise into the error message.
+    return { totalWeightKg: Math.round(totalWeightKg * 100) / 100, unweighed };
+  }
+
+  /**
    * Creates the request with a reference derived from the ERP document.
    *
    * `reference` used to be `WB-<timestamp>`, which carried no relationship to
@@ -517,6 +568,29 @@ export class WaybillService {
     // column on COMPLETED requests - keeps working without knowing about
     // product lines.
     const loadedCartons = lines.reduce((sum, l) => sum + l.quantity, 0);
+
+    // THE TRUCK MUST BE ABLE TO CARRY THE LOAD. Checked before anything is
+    // written, so a rejected request leaves no half-made loading request
+    // behind.
+    //
+    // Only when a capacity was given: it is optional, and a request without
+    // one states no limit to check against.
+    if (dto.loadingCapacity != null && lines.length > 0) {
+      const { totalWeightKg, unweighed } = this.weighLoad(lines);
+      if (totalWeightKg > dto.loadingCapacity) {
+        const over =
+          Math.round((totalWeightKg - dto.loadingCapacity) * 100) / 100;
+        throw new BadRequestException(
+          `The load weighs ${totalWeightKg}kg, which exceeds the loading ` +
+            `capacity of ${dto.loadingCapacity}kg by ${over}kg. Reduce the ` +
+            `quantities or raise the capacity.` +
+            (unweighed > 0
+              ? ` (${unweighed} product line(s) carry no carton weight and ` +
+                `could not be counted, so the real load is heavier still.)`
+              : ''),
+        );
+      }
+    }
 
     const request = await this.createWithOrderReference(purchase.erpId, {
       customerId,

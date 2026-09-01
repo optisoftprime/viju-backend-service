@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
+import { ErpItemCodeService } from './erp-item-code.service';
+import { resolveProduct } from './product-specification.resolver';
 import {
   ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL,
   ERP_STOCK_BALANCE_FOR_CUSTOMERS_SQL,
@@ -29,6 +31,7 @@ export interface StockAggregateRow {
   ordered_qty: string | number | null;
   delivered_qty: string | number | null;
   item_code: string | null;
+  item_specification: string | null;
   last_order_date: string | null;
 }
 
@@ -68,7 +71,10 @@ export class ErpStockBalanceService {
   /** Cached probe for the sales-order feed; null until first checked. */
   private available: boolean | null = null;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly itemCodes: ErpItemCodeService,
+  ) {}
 
   /** True when this database carries the ERP sales-order feed. */
   async isAvailable(): Promise<boolean> {
@@ -185,6 +191,35 @@ export class ErpStockBalanceService {
   }
 
   /**
+   * The ERP item code for one aggregate row, from the best source available.
+   *
+   * THREE SOURCES, in order of authority:
+   *
+   *  1. the rows themselves - the code the ERP stated on this very product's
+   *     lines, when it stated one;
+   *  2. the feed-wide map - the code the ERP states for this product name
+   *     ANYWHERE, because it carries ITEM_CODE on only 5.7% of line rows and
+   *     a customer's own orders often miss all of them;
+   *  3. the Viju product specification sheet, for the 58 products the feed
+   *     never codes at all.
+   *
+   * The ERP wins over the sheet where they disagree - which they do for 5
+   * products - because the ERP is the system of record for its own codes.
+   *
+   * Still null for the 33 products neither source names: packaging film,
+   * water-pump dispensers, biscuit freight. Nothing is invented to fill them.
+   */
+  private resolveItemCode(
+    row: StockAggregateRow,
+    productName: string,
+  ): string | null {
+    if (row.item_code) return row.item_code;
+    const feedWide = this.itemCodes.codeFor(row.product);
+    if (feedWide) return feedWide;
+    return resolveProduct(productName, row.item_specification).productId;
+  }
+
+  /**
    * Turns aggregate rows into the balance. Shared by the single-customer and
    * the portfolio query so the two can never shape, floor or sort differently.
    */
@@ -197,9 +232,10 @@ export class ErpStockBalanceService {
     const products = rows.map((r) => {
       const quantityPaid = num(r.ordered_qty);
       const quantityLoaded = num(r.delivered_qty);
+      const productName = r.product ?? 'Unspecified';
       return {
-        itemCode: r.item_code ?? null,
-        productName: r.product ?? 'Unspecified',
+        itemCode: this.resolveItemCode(r, productName),
+        productName,
         quantityPaid,
         quantityLoaded,
         // Floored per product so a single over-delivered line cannot show a

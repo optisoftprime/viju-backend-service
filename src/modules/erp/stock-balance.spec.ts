@@ -21,7 +21,11 @@ describe('ERP stock balance', () => {
         return Promise.resolve(rows);
       }),
     };
-    return { prisma, service: new ErpStockBalanceService(prisma as never) };
+    const itemCodes = { codeFor: () => null };
+    return {
+      prisma,
+      service: new ErpStockBalanceService(prisma as never, itemCodes as never),
+    };
   };
 
   it('sums ordered minus delivered across every line', async () => {

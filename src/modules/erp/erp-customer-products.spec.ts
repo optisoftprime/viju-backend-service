@@ -24,12 +24,26 @@ describe('ERP order products', () => {
         return Promise.resolve(rows);
       }),
     };
-    return { prisma, service: new ErpCustomerProductsService(prisma as never) };
+    // No feed-wide code map in these tests: the codes under test come from
+    // the order's own rows and from the specification sheet.
+    const itemCodes = { codeFor: () => null };
+    return {
+      prisma,
+      service: new ErpCustomerProductsService(
+        prisma as never,
+        itemCodes as never,
+      ),
+    };
   };
 
   it('returns productId, productName and weightPerCarton per product', async () => {
     const { service } = build([
-      { descr: '750ml water(L-水)', spec: '750ML(L)' },
+      {
+        descr: '750ml water(L-水)',
+        spec: '750ML(L)',
+        ordered_qty: 120,
+        delivered_qty: 100,
+      },
     ]);
 
     await expect(service.listForOrder('purchase-uuid-1')).resolves.toEqual([
@@ -37,6 +51,7 @@ describe('ERP order products', () => {
         productId: '101020104',
         productName: '750ml water(L-水)',
         weightPerCarton: 9.38,
+        quantityLeft: 20,
         matchedOn: 'SPEC_AND_NAME',
       },
     ]);
@@ -100,6 +115,7 @@ describe('ERP order products', () => {
         productId: null,
         productName: '18.9L water(L)',
         weightPerCarton: null,
+        quantityLeft: 0,
         matchedOn: 'NONE',
       },
     ]);

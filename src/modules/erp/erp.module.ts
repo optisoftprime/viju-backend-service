@@ -5,6 +5,7 @@ import { ErpService } from './erp.service';
 import { ErpOrderStatusService } from './erp-order-status.service';
 import { ErpAccountBalanceService } from './erp-account-balance.service';
 import { ErpStockBalanceService } from './erp-stock-balance.service';
+import { ErpItemCodeService } from './erp-item-code.service';
 import { ErpOrderLinesService } from './erp-order-lines.service';
 import { ErpWaybillsService } from './erp-waybills.service';
 import { ErpFinancialRecordsService } from './erp-financial-records.service';
@@ -18,6 +19,7 @@ import { DefaultOfficerService } from './default-officer.service';
     ErpOrderStatusService,
     ErpAccountBalanceService,
     ErpStockBalanceService,
+    ErpItemCodeService,
     ErpOrderLinesService,
     ErpWaybillsService,
     ErpFinancialRecordsService,
@@ -28,6 +30,7 @@ import { DefaultOfficerService } from './default-officer.service';
     ErpOrderStatusService,
     ErpAccountBalanceService,
     ErpStockBalanceService,
+    ErpItemCodeService,
     ErpOrderLinesService,
     ErpWaybillsService,
     ErpFinancialRecordsService,
