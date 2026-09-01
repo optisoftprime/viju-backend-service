@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { paginate, paginateInMemory } from '../../common/pagination/paginate';
@@ -11,6 +15,9 @@ import { AssignedCustomerSortField } from './dto/officer-request.dto';
 import { stockBalanceByCustomer } from '../../common/customers/stock-balance';
 import { messagePreview } from '../../common/messaging/message-preview';
 import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
+import { ErpStockBalanceService } from '../erp/erp-stock-balance.service';
+import { CustomerService } from '../customer/customer.service';
+import { PurchaseFilterDto } from '../customer/dto/customer.dto';
 
 /**
  * The caller of every officer-portal route. ADMIN is included deliberately:
@@ -21,17 +28,6 @@ import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
 export interface OfficerPortalUser {
   id: string;
   role: string;
-}
-
-export type StockStatus = 'AVAILABLE' | 'LOW_STOCK' | 'OUT_OF_STOCK';
-
-// Below this carton count a product reads as Low Stock (0 = Out of Stock).
-const LOW_STOCK_THRESHOLD = 500;
-
-function stockStatus(quantity: number): StockStatus {
-  if (quantity <= 0) return 'OUT_OF_STOCK';
-  if (quantity <= LOW_STOCK_THRESHOLD) return 'LOW_STOCK';
-  return 'AVAILABLE';
 }
 
 /**
@@ -49,6 +45,13 @@ export class OfficerService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly accountBalance: ErpAccountBalanceService,
+    private readonly stockBalance: ErpStockBalanceService,
+    // The distributor-facing service, reused verbatim for the per-customer
+    // tabs. The officer portal must show a distributor EXACTLY what that
+    // distributor sees, so the two are served by one implementation rather
+    // than by two that agree today and drift tomorrow. Scope is enforced
+    // here, before the call; the reused method never sees the officer.
+    private readonly customers: CustomerService,
   ) {}
 
   /**
@@ -614,136 +617,130 @@ export class OfficerService {
     };
   }
 
-  async getCustomerInvoices(user: OfficerPortalUser, customerId: string) {
+  /**
+   * The distributor's Invoices tab - the SAME order history the distributor
+   * sees on GET /customers/me/invoices, paginated and filterable identically.
+   *
+   * `data` / `meta` are produced by the distributor-facing reader itself, so
+   * the officer cannot be shown a different set of orders, a different row
+   * shape or a different page size from the person whose account it is.
+   *
+   * `walletBalance` and `paymentHistory` stay alongside: they are the tab's
+   * own figures, not part of the order list, and no distributor route
+   * supersedes them.
+   */
+  async getCustomerInvoices(
+    user: OfficerPortalUser,
+    customerId: string,
+    filter: PurchaseFilterDto = { page: 1, pageSize: 20 },
+  ) {
     const scoped = await this.ensureAssignedCustomer(user, customerId);
-    const [customer, purchases, payments] = await Promise.all([
+    const [customer, page, payments, lastSync] = await Promise.all([
       this.prisma.customer.findUnique({
         where: { id: customerId },
         select: { outstandingBalance: true, updatedAt: true },
       }),
-      this.prisma.purchase.findMany({
-        where: { customerId },
-        orderBy: { orderDate: 'desc' },
-        include: { items: true },
-      }),
+      this.customers.getPurchases(customerId, filter, filter),
       this.prisma.payment.findMany({
         where: { customerId },
         orderBy: { date: 'desc' },
       }),
+      this.prisma.purchase.aggregate({
+        where: { customerId },
+        _max: { updatedAt: true },
+      }),
     ]);
-    // Invoices are assembled from three ERP-fed sources; the stamp is the
-    // most recent of them (US-10.7). The balance itself lands on Customer,
-    // so its updatedAt counts too.
+    // US-10.7: when the ERP data behind this tab was last synced, NOT the
+    // time of the request. Taken from the whole order history rather than the
+    // current page, so paging cannot change the stamp.
     return {
       lastUpdated: this.latestDate([
         customer?.updatedAt ?? scoped.updatedAt,
-        ...purchases.map((p) => p.updatedAt),
+        lastSync._max.updatedAt,
         ...payments.map((p) => p.createdAt),
       ]),
       walletBalance: customer?.outstandingBalance ?? 0,
-      invoices: purchases,
       paymentHistory: payments,
+      ...page,
     };
   }
 
-  async getCustomerStock(user: OfficerPortalUser, customerId: string) {
+  /**
+   * One order in full, exactly as GET /customers/me/invoices/{id} returns it -
+   * merged product lines, running account balance and all.
+   *
+   * The customer id is verified against the officer's portfolio FIRST, then
+   * the order is read scoped to that customer, so an order id belonging to a
+   * distributor outside the portfolio cannot be reached by pairing it with a
+   * customer inside one.
+   */
+  async getCustomerInvoiceDetail(
+    user: OfficerPortalUser,
+    customerId: string,
+    invoiceId: string,
+  ) {
+    await this.ensureAssignedCustomer(user, customerId);
+    return this.customers.getPurchaseDetail(customerId, invoiceId);
+  }
+
+  /**
+   * The distributor's Stock tab - the SAME stock balance the distributor sees
+   * on GET /customers/me/stock-balance, including the date window.
+   *
+   * REPLACES the old `catalogue` shape, which derived reserved/awaiting
+   * figures from the local `Stock` and `Purchase` tables by a different route
+   * from the distributor's own screen and so could disagree with it. The
+   * figures now come from the one ERP query both portals read.
+   */
+  async getCustomerStock(
+    user: OfficerPortalUser,
+    customerId: string,
+    filter: { startDate?: string; endDate?: string } = {},
+  ) {
     const customer = await this.ensureAssignedCustomer(user, customerId);
-    // PRD F10 AC6: current stock from ERP + stock balance awaiting loading.
-    const purchases = await this.prisma.purchase.findMany({
-      where: { customerId },
-      select: {
-        items: { select: { productName: true, quantity: true } },
-        loadingRequests: {
-          where: { status: 'COMPLETED' },
-          select: { quantityCartons: true },
-        },
-      },
-    });
-    const productMap = new Map<
-      string,
-      { productName: string; reserved: number; loaded: number }
-    >();
-    for (const p of purchases) {
-      const totalQty = p.items.reduce((a, i) => a + i.quantity, 0);
-      const loaded = p.loadingRequests.reduce(
-        (a, r) => a + (r.quantityCartons ?? 0),
-        0,
-      );
-      for (const item of p.items) {
-        const existing = productMap.get(item.productName) ?? {
-          productName: item.productName,
-          reserved: 0,
-          loaded: 0,
-        };
-        existing.reserved += item.quantity;
-        const share =
-          totalQty > 0 ? Math.round((item.quantity / totalQty) * loaded) : 0;
-        existing.loaded += share;
-        productMap.set(item.productName, existing);
-      }
-    }
-    const stockCatalogue = await this.prisma.stock.findMany({
-      orderBy: { productName: 'asc' },
-    });
-    // One row per product, shaped for the Figma Stock tab columns:
-    // Product | Stock Balance | Reserved Stock | Awaiting Loading | Last Stock Update | Status
-    return {
-      // US-10.7 — last ERP stock sync, from the Stock rows themselves.
-      lastUpdated: this.latestDate([
-        customer.updatedAt,
-        ...stockCatalogue.map((s) => s.updatedAt),
-      ]),
-      catalogue: stockCatalogue.map((s) => {
-        const m = productMap.get(s.productName);
-        const reserved = m?.reserved ?? 0;
-        const loaded = m?.loaded ?? 0;
-        return {
-          id: s.id,
-          erpId: s.erpId,
-          productName: s.productName,
-          stockBalance: s.quantity,
-          reservedStock: reserved,
-          loaded,
-          awaitingLoading: Math.max(0, reserved - loaded),
-          lastStockUpdate: s.updatedAt,
-          status: stockStatus(s.quantity),
-        };
-      }),
-    };
+    const balance = await this.customers.getStockBalanceBreakdown(
+      customerId,
+      filter,
+    );
+    return { lastUpdated: customer.updatedAt, ...balance };
   }
 
+  /**
+   * The distributor's Waybills tab - the ERP's OWN goods-movement records,
+   * exactly as GET /customers/me/erp/waybills returns them.
+   *
+   * This used to list the portal's loading requests. Those have not been
+   * lost: GET /officers/loading-requests is the officer's view of them, and
+   * carries the assign and cancel actions besides. This tab now answers the
+   * question the distributor's own Waybills screen answers - what the ERP
+   * recorded as moved - which is what an officer looking at a distributor's
+   * account needs to reconcile against.
+   */
   async getCustomerWaybills(
     user: OfficerPortalUser,
     customerId: string,
     pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
   ) {
     const customer = await this.ensureAssignedCustomer(user, customerId);
-    const where = { customerId };
-    const [page, lastSync] = await Promise.all([
-      paginate(
-        () => this.prisma.loadingRequest.count({ where }),
-        (skip, take) =>
-          this.prisma.loadingRequest.findMany({
-            where,
-            orderBy: { createdAt: 'desc' },
-            include: {
-              assignedOfficer: { select: { id: true, name: true } },
-              linkedPurchase: { select: { erpId: true } },
-            },
-            skip,
-            take,
-          }),
-        pagination,
-      ),
-      this.prisma.loadingRequest.aggregate({
-        where,
-        _max: { updatedAt: true },
-      }),
-    ]);
-    return {
-      lastUpdated: lastSync._max.updatedAt ?? customer.updatedAt,
-      ...page,
-    };
+    const page = await this.customers.getErpWaybills(customerId, pagination);
+    return { lastUpdated: customer.updatedAt, ...page };
+  }
+
+  /**
+   * One ERP document with its item lines, as
+   * GET /customers/me/erp/waybills/{docNo} returns it.
+   *
+   * Scoped twice over: the customer must be in the officer's portfolio, and
+   * the document must belong to that customer. A document from elsewhere is a
+   * plain 404, indistinguishable from one that does not exist.
+   */
+  async getCustomerWaybillDetail(
+    user: OfficerPortalUser,
+    customerId: string,
+    docNo: string,
+  ) {
+    await this.ensureAssignedCustomer(user, customerId);
+    return this.customers.getErpWaybillDetail(customerId, docNo);
   }
 
   /** Most recent of a list of dates, ignoring nulls. */
@@ -821,29 +818,82 @@ export class OfficerService {
     };
   }
 
+  /**
+   * GET /officers/stock - the stock balance across the officer's WHOLE
+   * portfolio, in the same shape as one distributor's.
+   *
+   * Products are grouped ACROSS the distributors, so a product several of them
+   * are holding appears once with the quantities added: this is "what is still
+   * to collect in my book of accounts", not a per-customer split. The split is
+   * GET /officers/customers/{id}/stock.
+   *
+   * SCOPE. An OFFICER sees the distributors assigned to them, primary or
+   * secondary. An ADMIN has cross-region visibility everywhere else in this
+   * controller, so they see every distributor rather than an empty portfolio.
+   *
+   * An empty portfolio, an absent ERP feed, or a window with no orders in it
+   * all return honest zeros with an empty `products` - never a silent fallback
+   * to some other figure.
+   */
   async getStock(
-    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+    user: OfficerPortalUser,
+    filter: { startDate?: string; endDate?: string } = {},
   ) {
-    return paginate(
-      () => this.prisma.stock.count(),
-      async (skip, take) => {
-        const rows = await this.prisma.stock.findMany({
-          orderBy: { productName: 'asc' },
-          skip,
-          take,
-        });
-        // General ERP stock has no customer context, so no reserved/awaiting —
-        // but include the derived status to match the Figma stock columns.
-        return rows.map((s) => ({
-          id: s.id,
-          erpId: s.erpId,
-          productName: s.productName,
-          stockBalance: s.quantity,
-          lastStockUpdate: s.updatedAt,
-          status: stockStatus(s.quantity),
-        }));
-      },
-      pagination,
+    const startDate = filter.startDate ?? null;
+    const endDate = filter.endDate ?? null;
+    if (startDate && endDate && startDate > endDate) {
+      throw new BadRequestException('startDate must be on or before endDate.');
+    }
+    const dateRange = { startDate, endDate };
+    const isAdmin = user.role === 'ADMIN';
+    const customers = await this.prisma.customer.findMany({
+      where: isAdmin
+        ? {}
+        : {
+            OR: [
+              { assignedOfficerId: user.id },
+              { officerAssignments: { some: { staffId: user.id } } },
+            ],
+          },
+      select: { erpId: true, updatedAt: true },
+    });
+
+    const balance = await this.stockBalance.getStockBalanceForCustomers(
+      customers.map((c) => c.erpId),
+      dateRange,
     );
+
+    const empty = {
+      totalPurchasedCartons: 0,
+      totalLoadedCartons: 0,
+      totalRemainingCartons: 0,
+      loadingProgress: 0,
+      products: [] as never[],
+    };
+
+    // Shaped exactly like one distributor's balance - the same keys in the
+    // same order - so a screen can render either from one component.
+    return {
+      lastUpdated: this.latestDate(customers.map((c) => c.updatedAt)),
+      customers: customers.length,
+      ...(balance
+        ? {
+            totalPurchasedCartons: balance.totalPurchasedCartons,
+            totalLoadedCartons: balance.totalLoadedCartons,
+            totalRemainingCartons: balance.totalRemainingCartons,
+            loadingProgress:
+              balance.totalPurchasedCartons > 0
+                ? Math.round(
+                    (balance.totalLoadedCartons /
+                      balance.totalPurchasedCartons) *
+                      100,
+                  )
+                : 0,
+            // Same rule as the distributor's own screen: a product collected
+            // in full is not part of a stock balance.
+            products: balance.products.filter((p) => p.quantityRemaining > 0),
+          }
+        : empty),
+    };
   }
 }

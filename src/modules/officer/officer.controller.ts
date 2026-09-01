@@ -42,9 +42,19 @@ import {
   CustomerInvoicesDto,
   CustomerStockDto,
   PaginatedCustomerWaybillsResponseDto,
-  PaginatedStockResponseDto,
+  PortfolioStockDto,
   PaginatedOfficerChatsResponseDto,
 } from './dto/officer-response.dto';
+// The distributor-facing DTOs, reused so the officer routes document exactly
+// the shapes their reused readers return.
+import {
+  PurchaseDetailDto,
+  ErpWaybillDetailDto,
+} from '../customer/dto/customer-response.dto';
+import {
+  PurchaseFilterDto,
+  StockBalanceFilterDto,
+} from '../customer/dto/customer.dto';
 
 /**
  * A-1 — the signed-in staff member, as the controller reads it off the JWT.
@@ -203,11 +213,23 @@ export class OfficerController {
 
   @Get('customers/:id/invoices')
   @ApiOperation({
-    summary: 'Distributor Invoices tab',
+    summary: 'Distributor Invoices tab - the distributor`s own order history',
     description:
       'OFFICER: only their own distributors. ADMIN: any distributor ' +
-      '(US-12.3). `lastUpdated` is the most recent ERP sync across the ' +
-      'balance, invoices and payments that make up this tab (US-10.7).',
+      '(US-12.3).\n\n' +
+      'IDENTICAL to GET /customers/me/invoices for this distributor - same ' +
+      'rows, same `{ data, meta }` envelope, same `page` / `pageSize` / ' +
+      '`search` / `startDate` / `endDate`. It is served by the same reader, ' +
+      'so the officer cannot be shown a different order history from the ' +
+      'person whose account it is.\n\n' +
+      'The rows carry NO line items: one row per order. Open one with GET ' +
+      '/officers/customers/{id}/invoices/{invoiceId}.\n\n' +
+      'CHANGED: the orders used to arrive under `invoices` as one unpaged ' +
+      'array. They are now `data` + `meta`. `walletBalance` and ' +
+      '`paymentHistory` are unchanged and still alongside.\n\n' +
+      '`lastUpdated` is the most recent ERP sync across the balance, the ' +
+      'whole order history and the payments (US-10.7) - not just the ' +
+      'current page, so paging cannot move it.',
   })
   @ApiOkResponse({ type: CustomerInvoicesDto })
   @ApiParam({ name: 'id', description: 'Customer (distributor) id' })
@@ -217,36 +239,96 @@ export class OfficerController {
   async getCustomerInvoices(
     @CurrentUser() user: any,
     @Param('id') customerId: string,
+    @Query() filter: PurchaseFilterDto,
   ) {
-    return this.officerService.getCustomerInvoices(user, customerId);
+    return this.officerService.getCustomerInvoices(user, customerId, filter);
+  }
+
+  @Get('customers/:id/invoices/:invoiceId')
+  @ApiOperation({
+    summary: 'One order in full, with its product lines',
+    description:
+      'IDENTICAL to GET /customers/me/invoices/{id} for this distributor.\n\n' +
+      'ONE LINE PER PRODUCT: the ERP writes a separate line whenever the ' +
+      'same product is priced differently on one order - a priced line plus ' +
+      'a zero-priced free-goods line, both under the same `itemCode` - and ' +
+      'those are merged here. `quantity` and `amount` are the sums, so the ' +
+      'lines still add up to `totalValue` exactly.\n\n' +
+      'SCOPE IS CHECKED TWICE: the distributor must be in the caller`s ' +
+      'portfolio, and the order must belong to that distributor. An order ' +
+      'id from elsewhere paired with a customer id from the portfolio is a ' +
+      '404, not a leak.',
+  })
+  @ApiOkResponse({ type: PurchaseDetailDto })
+  @ApiParam({ name: 'id', description: 'Customer (distributor) id' })
+  @ApiParam({ name: 'invoiceId', description: 'Order id (Purchase.id)' })
+  @ApiNotFoundResponse({
+    description:
+      'Customer not assigned to the caller, or no such order for that customer',
+  })
+  async getCustomerInvoiceDetail(
+    @CurrentUser() user: any,
+    @Param('id') customerId: string,
+    @Param('invoiceId') invoiceId: string,
+  ) {
+    return this.officerService.getCustomerInvoiceDetail(
+      user,
+      customerId,
+      invoiceId,
+    );
   }
 
   @Get('customers/:id/stock')
   @ApiOperation({
-    summary: 'Distributor Stock tab',
+    summary:
+      'Distributor Stock tab - what they have paid for and not collected',
     description:
       'OFFICER: only their own distributors. ADMIN: any distributor ' +
-      '(US-12.3). `lastUpdated` is the last ERP stock sync (US-10.7).',
+      '(US-12.3).\n\n' +
+      'IDENTICAL to GET /customers/me/stock-balance for this distributor, ' +
+      'including the `startDate` / `endDate` window (both `YYYY-MM-DD`, both ' +
+      'inclusive, either may be sent alone).\n\n' +
+      'CHANGED: this used to return a `catalogue` of every product with ' +
+      'reserved / awaiting-loading figures derived from the local Stock and ' +
+      'Purchase tables - by a different route from the distributor`s own ' +
+      'screen, so the two could disagree. It now returns the ERP-derived ' +
+      'breakdown both portals share: `totalPurchasedCartons`, ' +
+      '`totalLoadedCartons`, `totalRemainingCartons`, `loadingProgress` and ' +
+      '`products`.\n\n' +
+      'Only products with `quantityRemaining > 0` appear in `products`, so ' +
+      'it does NOT sum to `totalPurchasedCartons`.',
   })
   @ApiOkResponse({ type: CustomerStockDto })
   @ApiParam({ name: 'id', description: 'Customer (distributor) id' })
   @ApiNotFoundResponse({
     description: 'Customer not found, or not assigned to the calling officer',
   })
+  @ApiBadRequestResponse({ description: '`startDate` is after `endDate`' })
   async getCustomerStock(
     @CurrentUser() user: any,
     @Param('id') customerId: string,
+    @Query() filter: StockBalanceFilterDto,
   ) {
-    return this.officerService.getCustomerStock(user, customerId);
+    return this.officerService.getCustomerStock(user, customerId, filter);
   }
 
   @Get('customers/:id/waybills')
   @ApiOperation({
-    summary: 'Distributor Waybills tab',
+    summary: 'Distributor Waybills tab - the ERP`s own goods-movement records',
     description:
       'OFFICER: only their own distributors. ADMIN: any distributor ' +
-      "(US-12.3). `lastUpdated` is the last sync of this customer's loading " +
-      'requests (US-10.7).',
+      '(US-12.3).\n\n' +
+      'IDENTICAL to GET /customers/me/erp/waybills for this distributor: ' +
+      'paginated `{ data, meta }`, newest first, read live from the ERP ' +
+      'sales-order feed and rolled up to one row per document (DOC_NO).\n\n' +
+      'CHANGED: this tab used to list the LOADING REQUESTS raised through ' +
+      'the portal. Those are not lost - GET /officers/loading-requests is ' +
+      'the officer`s view of them and carries the assign and cancel actions ' +
+      'besides. This tab now answers what the distributor`s own Waybills ' +
+      'screen answers: what the ERP recorded as moved.\n\n' +
+      'Money fields are NULL - not 0 - wherever the ERP states none, which ' +
+      'is most rows. Per-item detail is on ' +
+      'GET /officers/customers/{id}/waybills/{docNo}.',
   })
   @ApiOkResponse({ type: PaginatedCustomerWaybillsResponseDto })
   @ApiParam({ name: 'id', description: 'Customer (distributor) id' })
@@ -262,6 +344,40 @@ export class OfficerController {
       user,
       customerId,
       pagination,
+    );
+  }
+
+  @Get('customers/:id/waybills/:docNo')
+  @ApiOperation({
+    summary: 'One ERP goods-movement document, with its item lines',
+    description:
+      'IDENTICAL to GET /customers/me/erp/waybills/{docNo} for this ' +
+      'distributor. The document keeps the shape it has in the list and ' +
+      'gains `items` - one entry per ERP line row, in the ERP`s own order.\n\n' +
+      'MONEY IS NULL, NOT 0, where the ERP states none: it carries per-line ' +
+      'money on only ~6% of rows. Render a dash, not a zero.\n\n' +
+      'A document belonging to another distributor answers 404, exactly as ' +
+      'an unknown one does.',
+  })
+  @ApiOkResponse({ type: ErpWaybillDetailDto })
+  @ApiParam({ name: 'id', description: 'Customer (distributor) id' })
+  @ApiParam({
+    name: 'docNo',
+    description: 'The ERP document number (DOC_NO), e.g. 2300-202503070060',
+  })
+  @ApiNotFoundResponse({
+    description:
+      'Customer not assigned to the caller, or no such document for them',
+  })
+  async getCustomerWaybillDetail(
+    @CurrentUser() user: any,
+    @Param('id') customerId: string,
+    @Param('docNo') docNo: string,
+  ) {
+    return this.officerService.getCustomerWaybillDetail(
+      user,
+      customerId,
+      docNo,
     );
   }
 
@@ -297,10 +413,36 @@ export class OfficerController {
   }
 
   @Get('stock')
-  @ApiOperation({ summary: 'Get current stock levels from the ERP' })
-  @ApiOkResponse({ type: PaginatedStockResponseDto })
-  async getStock(@Query() pagination: PaginationQueryDto) {
-    return this.officerService.getStock(pagination);
+  @ApiOperation({
+    summary: 'Stock balance across the whole portfolio',
+    description:
+      'The SAME shape as GET /customers/me/stock-balance and ' +
+      'GET /officers/customers/{id}/stock, summed across every distributor ' +
+      'the caller can see - what is still to collect in the officer`s book ' +
+      'of accounts.\n\n' +
+      'Products are grouped ACROSS distributors, so a product several of ' +
+      'them hold appears ONCE with the quantities added. The per-customer ' +
+      'split is GET /officers/customers/{id}/stock.\n\n' +
+      'SCOPE: an OFFICER sees the distributors assigned to them (primary or ' +
+      'secondary); an ADMIN sees every distributor, matching their ' +
+      'cross-region visibility elsewhere in this controller. `customers` ' +
+      'reports how many were counted.\n\n' +
+      'CHANGED: this used to be a paginated catalogue of ERP stock LEVELS ' +
+      'with no customer context. It is now a stock BALANCE, which is what ' +
+      'the distributor-facing screens mean by the term. It is not ' +
+      'paginated: the breakdown is one row per product still held, a short ' +
+      'list even across a whole portfolio.\n\n' +
+      'Takes the same `startDate` / `endDate` window, both inclusive. An ' +
+      'empty portfolio, an absent feed or an empty window all return honest ' +
+      'zeros with an empty `products`.',
+  })
+  @ApiOkResponse({ type: PortfolioStockDto })
+  @ApiBadRequestResponse({ description: '`startDate` is after `endDate`' })
+  async getStock(
+    @CurrentUser() user: any,
+    @Query() filter: StockBalanceFilterDto,
+  ) {
+    return this.officerService.getStock(user, filter);
   }
 
   // ─── A-1: the account officer's loading requests ───────────────────────
