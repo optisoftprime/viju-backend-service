@@ -589,7 +589,24 @@ export class StockBalanceProductDto {
   quantityRemaining: number;
 }
 
+/** The window the breakdown was computed over. Nulls mean "open end". */
+export class StockBalanceDateRangeDto {
+  @ApiProperty({ example: '2026-01-01', nullable: true })
+  startDate: string | null;
+
+  @ApiProperty({ example: '2026-06-30', nullable: true })
+  endDate: string | null;
+}
+
 export class StockBalanceBreakdownDto {
+  @ApiProperty({
+    type: StockBalanceDateRangeDto,
+    description:
+      'The window applied, echoed back. Both null when the whole history ' +
+      'was counted.',
+  })
+  dateRange: StockBalanceDateRangeDto;
+
   @ApiProperty({
     example: 700,
     description:
@@ -711,9 +728,6 @@ export class PurchaseListItemDto {
 
   @ApiProperty({ example: '2026-06-01T10:00:00.000Z', format: 'date-time' })
   updatedAt: Date;
-
-  @ApiProperty({ type: [CustomerPurchaseItemDto] })
-  items: CustomerPurchaseItemDto[];
 }
 
 export class PaginatedPurchasesResponseDto {

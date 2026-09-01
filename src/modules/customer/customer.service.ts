@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { StatementLedgerService } from './statement-ledger.service';
 import {
@@ -19,6 +23,65 @@ import { FinancialRecordConfig } from '../erp/erp-financial-records';
 import { messagePreview } from '../../common/messaging/message-preview';
 import { ErpOrderLinesService } from '../erp/erp-order-lines.service';
 import { ErpWaybillsService } from '../erp/erp-waybills.service';
+
+/** A line as either source - a local PurchaseItem or the ERP feed - states it. */
+type OrderLine = {
+  id: string;
+  productName: string;
+  itemCode: string | null;
+  quantity: number;
+  unitPrice: number | null;
+  lineTotal: number | null;
+};
+
+/**
+ * Collapses repeated lines for the same product into one.
+ *
+ * The ERP writes a separate order line whenever the same product is priced
+ * differently on one order - 1,700 cartons at N1,500 and 68 more at zero, a
+ * free-goods allocation. Both carry the same ITEM_CODE, so the detail screen
+ * showed the product twice and a distributor counting cartons had to add the
+ * rows up themselves.
+ *
+ * Merged on `itemCode`; a line the feed gives no code for falls back to its
+ * product name, so those still merge rather than being dropped or scattered.
+ *
+ * MONEY IS SUMMED, NOT RECOMPUTED. `amount` is the sum of the parts, so the
+ * lines still add up to `totalValue` exactly. `unitPrice` survives only when
+ * every part agreed on it; where they did not - the free-goods case - it
+ * becomes the EFFECTIVE price paid (amount / quantity) rounded to 2dp, which
+ * reads far closer to the truth than the headline price would. `amount`
+ * stays authoritative: at two decimals the rate cannot multiply back to the
+ * naira, so never recompute the line from it.
+ */
+function mergeLinesByProduct(lines: OrderLine[]): OrderLine[] {
+  const merged = new Map<string, OrderLine & { prices: Set<number | null> }>();
+  for (const line of lines) {
+    const key = line.itemCode
+      ? `code:${line.itemCode}`
+      : `name:${line.productName}`;
+    const seen = merged.get(key);
+    if (!seen) {
+      merged.set(key, { ...line, prices: new Set([line.unitPrice]) });
+      continue;
+    }
+    seen.quantity += line.quantity;
+    // Null is "the ERP states no money here", which must not read as zero.
+    if (line.lineTotal !== null) {
+      seen.lineTotal = (seen.lineTotal ?? 0) + line.lineTotal;
+    }
+    seen.prices.add(line.unitPrice);
+  }
+
+  return [...merged.values()].map(({ prices, ...line }) => {
+    if (prices.size === 1) return line;
+    const effective =
+      line.lineTotal !== null && line.quantity > 0
+        ? Math.round((line.lineTotal / line.quantity) * 100) / 100
+        : null;
+    return { ...line, unitPrice: effective };
+  });
+}
 
 @Injectable()
 export class CustomerService {
@@ -405,7 +468,20 @@ export class CustomerService {
     return record;
   }
 
-  async getStockBalanceBreakdown(customerId: string) {
+  async getStockBalanceBreakdown(
+    customerId: string,
+    filter: { startDate?: string; endDate?: string } = {},
+  ) {
+    const startDate = filter.startDate ?? null;
+    const endDate = filter.endDate ?? null;
+    // A backwards window would silently return an empty balance, which reads
+    // as "you hold nothing" rather than "you asked for nothing".
+    if (startDate && endDate && startDate > endDate) {
+      throw new BadRequestException('startDate must be on or before endDate.');
+    }
+    const dateRange = { startDate, endDate };
+    const filtered = startDate !== null || endDate !== null;
+
     // Same ERP derivation as the home screen's Stock Balance card, so the two
     // can no longer report different numbers for the same distributor.
     const customer = await this.prisma.customer.findUnique({
@@ -413,10 +489,11 @@ export class CustomerService {
       select: { erpId: true },
     });
     const erpStock = customer
-      ? await this.stockBalance.getStockBalance(customer.erpId)
+      ? await this.stockBalance.getStockBalance(customer.erpId, dateRange)
       : null;
     if (erpStock) {
       return {
+        dateRange,
         totalPurchasedCartons: erpStock.totalPurchasedCartons,
         totalLoadedCartons: erpStock.totalLoadedCartons,
         totalRemainingCartons: erpStock.totalRemainingCartons,
@@ -436,10 +513,45 @@ export class CustomerService {
       };
     }
 
-    // Fallback: the locally projected purchases, unchanged. Used only where
-    // the ERP sales-order feed is absent or silent about this customer.
+    // A FILTERED request that the ERP answered with "no orders in that
+    // window" must not fall through to the local projection: that path knows
+    // nothing of the window's emptiness and would answer with the customer's
+    // whole history instead, which is worse than an honest zero.
+    if (
+      filtered &&
+      customer?.erpId &&
+      (await this.stockBalance.isAvailable())
+    ) {
+      return {
+        dateRange,
+        totalPurchasedCartons: 0,
+        totalLoadedCartons: 0,
+        totalRemainingCartons: 0,
+        loadingProgress: 0,
+        products: [],
+      };
+    }
+
+    // Fallback: the locally projected purchases, unchanged apart from the
+    // window. Used only where the ERP sales-order feed is absent or silent
+    // about this customer.
     const purchases = await this.prisma.purchase.findMany({
-      where: { customerId },
+      where: {
+        customerId,
+        // `orderDate` is the projector's copy of the same DOC_DATE the ERP
+        // path filters on, so both routes answer one window identically.
+        ...(startDate || endDate
+          ? {
+              orderDate: {
+                ...(startDate ? { gte: new Date(startDate) } : {}),
+                // Inclusive of the whole end day: orderDate carries a time.
+                ...(endDate
+                  ? { lt: new Date(new Date(endDate).getTime() + 86400000) }
+                  : {}),
+              },
+            }
+          : {}),
+      },
       select: {
         id: true,
         erpId: true,
@@ -607,46 +719,35 @@ export class CustomerService {
       if (filter.endDate) where.orderDate.lte = new Date(filter.endDate);
     }
 
-    const page = await paginate(
+    // The line items are NOT returned here: the history screen renders one
+    // row per order, and GET /customers/me/invoices/{id} is where the lines
+    // are read. Leaving them out also drops the batched ERP-feed lookup this
+    // used to run for every page, since the projector has copied lines for
+    // barely any order. `search` still matches on product name - that is a
+    // WHERE clause, not part of the payload.
+    return paginate(
       () => this.prisma.purchase.count({ where }),
       (skip, take) =>
         this.prisma.purchase.findMany({
           where,
           orderBy: { orderDate: 'desc' },
-          include: { items: true },
+          select: {
+            id: true,
+            erpId: true,
+            customerId: true,
+            orderDate: true,
+            totalItems: true,
+            totalValue: true,
+            status: true,
+            statusUpdatedAt: true,
+            createdAt: true,
+            updatedAt: true,
+          },
           skip,
           take,
         }),
       pagination,
     );
-
-    // The projector has copied lines for 30 of 10,350 orders, so `items` is
-    // empty on almost every row. Fill the gaps from the ERP feed - one batched
-    // query for the page, never one per row.
-    const missing = page.data.filter((p) => p.items.length === 0);
-    if (missing.length === 0) return page;
-    const erpLines = await this.orderLines.getLinesByOrder(
-      missing.map((p) => p.erpId),
-    );
-    return {
-      ...page,
-      data: page.data.map((purchase) =>
-        purchase.items.length > 0
-          ? purchase
-          : {
-              ...purchase,
-              items: (erpLines.get(purchase.erpId) ?? []).map((l) => ({
-                id: l.id,
-                purchaseId: purchase.id,
-                productName: l.productName,
-                itemCode: l.itemCode,
-                quantity: l.quantity,
-                unitPrice: l.unitPrice,
-                lineTotal: l.lineTotal,
-              })),
-            },
-      ),
-    };
   }
 
   async getPurchaseDetail(customerId: string, purchaseId: string) {
@@ -704,7 +805,7 @@ export class CustomerService {
       totalValue: purchase.totalValue,
       linkedInvoiceNumber: this.deriveInvoiceNumber(purchase.erpId),
       accountBalance,
-      lines: lineSource.map((i) => ({
+      lines: mergeLinesByProduct(lineSource).map((i) => ({
         product: i.productName,
         itemCode: i.itemCode,
         quantity: i.quantity,
