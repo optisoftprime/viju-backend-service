@@ -103,16 +103,16 @@ describe('Stock balance date range', () => {
     });
   });
 
-  it('echoes the applied window back', async () => {
+  it('does not echo the window back in the response', async () => {
+    // The window is the caller's own query string; repeating it in the body
+    // told the client nothing it did not already know. It is still passed
+    // through to the ERP query - see the test above.
     const res = await service.getStockBalanceBreakdown('c-1', {
       startDate: '2026-01-01',
       endDate: '2026-06-30',
     });
 
-    expect(res.dateRange).toEqual({
-      startDate: '2026-01-01',
-      endDate: '2026-06-30',
-    });
+    expect(res).not.toHaveProperty('dateRange');
   });
 
   it('accepts one bound alone', async () => {
@@ -131,7 +131,6 @@ describe('Stock balance date range', () => {
       startDate: null,
       endDate: null,
     });
-    expect(res.dateRange).toEqual({ startDate: null, endDate: null });
     expect(res.totalRemainingCartons).toBe(600);
   });
 
@@ -167,7 +166,6 @@ describe('Stock balance date range', () => {
       });
 
       expect(res).toEqual({
-        dateRange: { startDate: '2030-01-01', endDate: '2030-12-31' },
         totalPurchasedCartons: 0,
         totalLoadedCartons: 0,
         totalRemainingCartons: 0,
