@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
-import { ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL } from './stock-balance';
+import {
+  ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL,
+  ERP_STOCK_BALANCE_FOR_CUSTOMERS_SQL,
+  ERP_CUSTOMER_IDS_FOR_CODES_SQL,
+} from './stock-balance';
 
 /** One product line of the stock-balance breakdown. */
 export interface ErpStockBalanceProduct {
@@ -17,6 +21,15 @@ export interface ErpStockBalanceProduct {
    * order date.
    */
   lastOrderDate: string | null;
+}
+
+/** One aggregate row as either stock-balance query returns it. */
+export interface StockAggregateRow {
+  product: string | null;
+  ordered_qty: string | number | null;
+  delivered_qty: string | number | null;
+  item_code: string | null;
+  last_order_date: string | null;
 }
 
 /**
@@ -103,15 +116,7 @@ export class ErpStockBalanceService {
     if (!erpId) return null;
     if (!(await this.isAvailable())) return null;
     try {
-      const rows = await this.prisma.$queryRawUnsafe<
-        {
-          product: string | null;
-          ordered_qty: string | number | null;
-          delivered_qty: string | number | null;
-          item_code: string | null;
-          last_order_date: string | null;
-        }[]
-      >(
+      const rows = await this.prisma.$queryRawUnsafe<StockAggregateRow[]>(
         ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL,
         erpId,
         range?.startDate ?? null,
@@ -122,58 +127,114 @@ export class ErpStockBalanceService {
       // customer — treat it as "unknown", not "nothing".
       if (rows.length === 0) return null;
 
-      const num = (v: string | number | null): number => {
-        const parsed = Number(v ?? 0);
-        return Number.isFinite(parsed) ? parsed : 0;
-      };
-
-      const products = rows.map((r) => {
-        const quantityPaid = num(r.ordered_qty);
-        const quantityLoaded = num(r.delivered_qty);
-        return {
-          itemCode: r.item_code ?? null,
-          productName: r.product ?? 'Unspecified',
-          quantityPaid,
-          quantityLoaded,
-          // Floored per product so a single over-delivered line cannot show a
-          // negative quantity against a product on screen.
-          quantityRemaining: Math.max(0, quantityPaid - quantityLoaded),
-          lastOrderDate: r.last_order_date ?? null,
-        };
-      });
-
-      const totalPurchasedCartons = products.reduce(
-        (a, p) => a + p.quantityPaid,
-        0,
-      );
-      const totalLoadedCartons = products.reduce(
-        (a, p) => a + p.quantityLoaded,
-        0,
-      );
-
-      products.sort(
-        (a, b) =>
-          b.quantityRemaining - a.quantityRemaining ||
-          a.productName.localeCompare(b.productName),
-      );
-
-      return {
-        totalPurchasedCartons,
-        totalLoadedCartons,
-        // The total is derived from the totals, not from the floored per-product
-        // rows, so it stays exactly purchased - loaded. Floored at zero: the
-        // feed carries a handful of lines delivered above what was ordered.
-        totalRemainingCartons: Math.max(
-          0,
-          totalPurchasedCartons - totalLoadedCartons,
-        ),
-        products,
-      };
+      return this.shape(rows);
     } catch (e) {
       this.logger.error(
         `getStockBalance(${erpId}) failed: ${(e as Error).message}`,
       );
       return null;
     }
+  }
+
+  /**
+   * The same stock position across MANY distributors - an account officer's
+   * portfolio, or every distributor for an administrator.
+   *
+   * Products are grouped ACROSS the customers, so a product two distributors
+   * both hold appears once with their quantities added. That is what a
+   * portfolio-level "what is still to collect" figure means; the per-customer
+   * split is what GET /officers/customers/{id}/stock is for.
+   *
+   * Returns null on an empty portfolio or an absent feed, exactly as the
+   * single-customer form does, so callers keep one "we cannot say" branch.
+   */
+  async getStockBalanceForCustomers(
+    erpIds: string[],
+    range?: ErpStockDateRange,
+  ): Promise<ErpStockBalance | null> {
+    const codes = erpIds.filter((id) => !!id);
+    if (codes.length === 0) return null;
+    if (!(await this.isAvailable())) return null;
+    try {
+      // Codes -> the ERP's internal ids as its own step, so the aggregate can
+      // filter on the INDEXED CUSTOMER_ID column with an explicit list.
+      // Measured live: ~1.2s this way against ~6.2s for the subquery form.
+      const ids = await this.prisma.$queryRawUnsafe<{ id: string | null }[]>(
+        ERP_CUSTOMER_IDS_FOR_CODES_SQL,
+        codes.join(','),
+      );
+      const customerIds = ids
+        .map((r) => r.id)
+        .filter((id): id is string => !!id);
+      if (customerIds.length === 0) return null;
+
+      const rows = await this.prisma.$queryRawUnsafe<StockAggregateRow[]>(
+        ERP_STOCK_BALANCE_FOR_CUSTOMERS_SQL,
+        customerIds.join(','),
+        range?.startDate ?? null,
+        range?.endDate ?? null,
+      );
+      if (rows.length === 0) return null;
+      return this.shape(rows);
+    } catch (e) {
+      this.logger.error(
+        `getStockBalanceForCustomers(${codes.length} customers) failed: ${(e as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Turns aggregate rows into the balance. Shared by the single-customer and
+   * the portfolio query so the two can never shape, floor or sort differently.
+   */
+  private shape(rows: StockAggregateRow[]): ErpStockBalance {
+    const num = (v: string | number | null): number => {
+      const parsed = Number(v ?? 0);
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+
+    const products = rows.map((r) => {
+      const quantityPaid = num(r.ordered_qty);
+      const quantityLoaded = num(r.delivered_qty);
+      return {
+        itemCode: r.item_code ?? null,
+        productName: r.product ?? 'Unspecified',
+        quantityPaid,
+        quantityLoaded,
+        // Floored per product so a single over-delivered line cannot show a
+        // negative quantity against a product on screen.
+        quantityRemaining: Math.max(0, quantityPaid - quantityLoaded),
+        lastOrderDate: r.last_order_date ?? null,
+      };
+    });
+
+    const totalPurchasedCartons = products.reduce(
+      (a, p) => a + p.quantityPaid,
+      0,
+    );
+    const totalLoadedCartons = products.reduce(
+      (a, p) => a + p.quantityLoaded,
+      0,
+    );
+
+    products.sort(
+      (a, b) =>
+        b.quantityRemaining - a.quantityRemaining ||
+        a.productName.localeCompare(b.productName),
+    );
+
+    return {
+      totalPurchasedCartons,
+      totalLoadedCartons,
+      // Derived from the totals, not from the floored per-product rows, so it
+      // stays exactly purchased - loaded. Floored at zero: the feed carries a
+      // handful of lines delivered above what was ordered.
+      totalRemainingCartons: Math.max(
+        0,
+        totalPurchasedCartons - totalLoadedCartons,
+      ),
+      products,
+    };
   }
 }

@@ -321,8 +321,9 @@ export class CustomerController {
       'price paid (amount / quantity) rounded to 2dp. Render `amount` as ' +
       'given - at two decimals the rate does not multiply back to the ' +
       'exact naira, so do not recompute a line from quantity x unitPrice.\n\n' +
-      '`items` is the legacy array for the older screens and is NOT merged - ' +
-      'it still carries one entry per raw ERP line. Read `lines`.\n\n' +
+      'REMOVED: the legacy `items` array. It carried the same lines a second ' +
+      'time, unmerged - one entry per raw ERP line, so a product priced two ' +
+      'ways appeared twice. Read `lines`.\n\n' +
       'RENAMED: this was GET /customers/me/purchases/{id}.',
   })
   @ApiOkResponse({ type: PurchaseDetailDto })

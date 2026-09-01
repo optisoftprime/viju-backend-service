@@ -1,4 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
+import {
+  ErpWaybillDto,
+  ErpWaybillDetailDto,
+} from '../../customer/dto/customer-response.dto';
 import { PaginationMetaDto } from '../../../common/pagination/pagination.dto';
 import { Region, REGION_VALUES } from '../../../common/region/region.constants';
 
@@ -436,6 +440,45 @@ export class PaymentDto {
   createdAt: Date;
 }
 
+/**
+ * One order on the Invoices tab. The same row GET /customers/me/invoices
+ * returns, because it is produced by the same reader.
+ */
+export class CustomerInvoiceRowDto {
+  @ApiProperty({ example: 'a1ce5c0f-36b3-4930-b4ef-8839e8f1db68' })
+  id: string;
+
+  @ApiProperty({
+    example: '2310-202606110033',
+    description: 'The ERP document number - what to show the distributor.',
+  })
+  erpId: string;
+
+  @ApiProperty({ example: 'customer-uuid-1' })
+  customerId: string;
+
+  @ApiProperty({ example: '2026-06-11T00:00:00.000Z', format: 'date-time' })
+  orderDate: Date;
+
+  @ApiProperty({ example: 4264, description: 'Cartons on the order.' })
+  totalItems: number;
+
+  @ApiProperty({ example: 9942000 })
+  totalValue: number;
+
+  @ApiProperty({ example: 'CLOSED' })
+  status: string;
+
+  @ApiProperty({ format: 'date-time', nullable: true })
+  statusUpdatedAt: Date | null;
+
+  @ApiProperty({ format: 'date-time' })
+  createdAt: Date;
+
+  @ApiProperty({ format: 'date-time' })
+  updatedAt: Date;
+}
+
 export class CustomerInvoicesDto {
   @ApiProperty({
     example: '2026-08-19T09:15:00.000Z',
@@ -453,11 +496,21 @@ export class CustomerInvoicesDto {
   })
   walletBalance: number;
 
-  @ApiProperty({ type: [PurchaseDto] })
-  invoices: PurchaseDto[];
-
   @ApiProperty({ type: [PaymentDto] })
   paymentHistory: PaymentDto[];
+
+  @ApiProperty({
+    type: [CustomerInvoiceRowDto],
+    description:
+      'One row per ORDER, byte-identical to GET /customers/me/invoices. No ' +
+      'line items - open an order with ' +
+      'GET /officers/customers/{id}/invoices/{invoiceId}.\n\n' +
+      'REPLACES `invoices`, which was one unpaged array.',
+  })
+  data: CustomerInvoiceRowDto[];
+
+  @ApiProperty({ type: PaginationMetaDto })
+  meta: PaginationMetaDto;
 }
 
 // ---------------------------------------------------------------------------
@@ -466,51 +519,35 @@ export class CustomerInvoicesDto {
 const STOCK_STATUS_VALUES = ['AVAILABLE', 'LOW_STOCK', 'OUT_OF_STOCK'] as const;
 type StockStatus = (typeof STOCK_STATUS_VALUES)[number];
 
-// One row per product — matches the Figma Stock-tab columns.
+/** One product still to collect. Identical to the distributor's own row. */
 export class CustomerStockItemDto {
-  @ApiProperty({ example: 'stock-uuid-1' })
-  id: string;
+  @ApiProperty({
+    example: '101020104',
+    nullable: true,
+    description: 'ERP ITEM_CODE. Null where the feed carries none.',
+  })
+  itemCode: string | null;
 
-  @ApiProperty({ example: 'STK-001' })
-  erpId: string;
-
-  @ApiProperty({ example: 'Viju Apple Drink 400ml', description: 'Product' })
+  @ApiProperty({ example: 'Mr V Premium Table Water(Lagos)' })
   productName: string;
 
-  @ApiProperty({
-    example: 2500,
-    description: 'Stock Balance (ERP stock level)',
-  })
-  stockBalance: number;
+  @ApiProperty({ example: 800, description: 'Cartons ordered.' })
+  quantityPaid: number;
+
+  @ApiProperty({ example: 300, description: 'Cartons delivered.' })
+  quantityLoaded: number;
+
+  @ApiProperty({ example: 500, description: 'Cartons still to collect.' })
+  quantityRemaining: number;
 
   @ApiProperty({
-    example: 300,
+    example: '2026-06-11',
+    nullable: true,
     description:
-      'Reserved Stock — total reserved across this customer’s orders',
+      'The most recent order date carrying this product, within the window ' +
+      'if one was given.',
   })
-  reservedStock: number;
-
-  @ApiProperty({
-    example: 180,
-    description: 'Cartons already loaded (from COMPLETED loading requests)',
-  })
-  loaded: number;
-
-  @ApiProperty({
-    example: 120,
-    description: 'Awaiting Loading — max(0, reserved - loaded)',
-  })
-  awaitingLoading: number;
-
-  @ApiProperty({
-    example: '2026-04-15T10:45:00.000Z',
-    format: 'date-time',
-    description: 'Last Stock Update',
-  })
-  lastStockUpdate: Date;
-
-  @ApiProperty({ enum: STOCK_STATUS_VALUES, example: 'AVAILABLE' })
-  status: StockStatus;
+  lastOrderDate: string | null;
 }
 
 export class CustomerStockDto {
@@ -519,40 +556,44 @@ export class CustomerStockDto {
     format: 'date-time',
     description:
       'PRD §7 / US-10.7 — when this ERP-backed dataset was last synced. NOT ' +
-      'the time of the request: it reflects the most recent sync of the rows ' +
-      'below, so the UI can render an honest "Last updated" stamp.',
+      'the time of the request.',
   })
   lastUpdated: Date;
 
+  @ApiProperty({ example: 6206020, description: 'Cartons ordered in total.' })
+  totalPurchasedCartons: number;
+
+  @ApiProperty({ example: 6171733, description: 'Cartons collected.' })
+  totalLoadedCartons: number;
+
+  @ApiProperty({ example: 34287, description: 'Cartons still to collect.' })
+  totalRemainingCartons: number;
+
+  @ApiProperty({
+    example: 99,
+    description: 'loaded / purchased, as a percent.',
+  })
+  loadingProgress: number;
+
   @ApiProperty({
     type: [CustomerStockItemDto],
-    description: 'Per-product stock rows for the customer Stock tab',
+    description:
+      'ONLY products with `quantityRemaining > 0`, so this does NOT sum to ' +
+      '`totalPurchasedCartons`. A distributor holding nothing gets an empty ' +
+      'array with non-zero totals.',
   })
-  catalogue: CustomerStockItemDto[];
+  products: CustomerStockItemDto[];
 }
 
-// GET /officers/stock — general ERP stock (no customer context).
-export class StockLevelDto {
-  @ApiProperty({ example: 'stock-uuid-1' })
-  id: string;
-
-  @ApiProperty({ example: 'STK-001' })
-  erpId: string;
-
-  @ApiProperty({ example: 'Viju Apple Drink 400ml' })
-  productName: string;
-
+/** GET /officers/stock - the same breakdown across a whole portfolio. */
+export class PortfolioStockDto extends CustomerStockDto {
   @ApiProperty({
-    example: 2500,
-    description: 'Stock Balance (ERP stock level)',
+    example: 9,
+    description:
+      'How many distributors were counted - the caller`s portfolio, or every ' +
+      'distributor for an ADMIN.',
   })
-  stockBalance: number;
-
-  @ApiProperty({ example: '2026-04-15T10:45:00.000Z', format: 'date-time' })
-  lastStockUpdate: Date;
-
-  @ApiProperty({ enum: STOCK_STATUS_VALUES, example: 'AVAILABLE' })
-  status: StockStatus;
+  customers: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -714,19 +755,14 @@ export class PaginatedCustomerWaybillsResponseDto {
   })
   lastUpdated: Date;
 
-  @ApiProperty({ type: [LoadingRequestDto] })
-  data: LoadingRequestDto[];
-
-  @ApiProperty({ type: PaginationMetaDto })
-  meta: PaginationMetaDto;
-}
-
-// ---------------------------------------------------------------------------
-// GET /officers/stock  -> OfficerService.getStock
-// ---------------------------------------------------------------------------
-export class PaginatedStockResponseDto {
-  @ApiProperty({ type: [StockLevelDto] })
-  data: StockLevelDto[];
+  @ApiProperty({
+    type: [ErpWaybillDto],
+    description:
+      'The ERP`s own goods-movement documents, byte-identical to ' +
+      'GET /customers/me/erp/waybills. REPLACES the loading requests this ' +
+      'tab used to return - those are on GET /officers/loading-requests.',
+  })
+  data: ErpWaybillDto[];
 
   @ApiProperty({ type: PaginationMetaDto })
   meta: PaginationMetaDto;

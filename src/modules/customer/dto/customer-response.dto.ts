@@ -916,13 +916,6 @@ export class PurchaseDetailDto {
       'null) when the ERP supplied no lines.',
   })
   lines: TransactionLineDto[];
-
-  @ApiProperty({
-    type: [CustomerPurchaseItemDto],
-    deprecated: true,
-    description: 'Superseded by `lines`; kept for the existing screens.',
-  })
-  items: CustomerPurchaseItemDto[];
 }
 
 // ─── Payments (GET /customers/me/payments) ─────────────────
