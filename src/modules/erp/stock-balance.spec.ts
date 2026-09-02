@@ -1,5 +1,8 @@
 import { ErpStockBalanceService } from './erp-stock-balance.service';
-import { ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL } from './stock-balance';
+import {
+  ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL,
+  ERP_STOCK_BALANCE_FOR_CUSTOMERS_SQL,
+} from './stock-balance';
 
 /**
  * Stock balance from the ERP sales-order feed:
@@ -139,6 +142,21 @@ describe('ERP stock balance', () => {
 
 describe('the stock-balance SQL', () => {
   const sql = ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL;
+
+  it('counts OPEN orders only', () => {
+    // CLOSE is the order's state repeated on every line: '0' open, '2'
+    // closed. A settled order is not stock the distributor is waiting to
+    // collect, and counting it inflates the purchased total and the loading
+    // progress with it.
+    expect(sql).toContain("so.payload->>'CLOSE' = '0'");
+  });
+
+  it('applies the filter to the PORTFOLIO query too', () => {
+    // /officers/stock must not disagree with the distributor's own screen.
+    expect(ERP_STOCK_BALANCE_FOR_CUSTOMERS_SQL).toContain(
+      "so.payload->>'CLOSE' = '0'",
+    );
+  });
 
   it('bridges erpId to the ERP internal customer uuid via raw_customer', () => {
     // raw_sales_order.CUSTOMER_ID is the ERP's internal uuid, NOT CUSTOMER_CODE:
