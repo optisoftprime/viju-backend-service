@@ -50,7 +50,12 @@ import {
   compareBy,
   sortDirection,
 } from '../../common/pagination/sort.dto';
-import { stockBalanceByCustomer } from '../../common/customers/stock-balance';
+import { stockByCustomer } from '../../common/customers/stock-balance';
+import { ErpStockBalanceService } from '../erp/erp-stock-balance.service';
+import {
+  balanceByErpId,
+  totalBalance,
+} from '../../common/customers/account-balance';
 
 /** Filter + sort options shared by the customer list and its CSV export. */
 interface CustomerListFilter {
@@ -117,6 +122,10 @@ export class AdminService {
     private readonly erpRaw: ErpRawService,
     private readonly defaultOfficer: DefaultOfficerService,
     private readonly accountBalance: ErpAccountBalanceService,
+    // The STOCK column reports the same ERP figure the distributor sees on
+    // their own screen; without it the column falls back to the local
+    // projection, which the projector barely populates.
+    private readonly stockBalance: ErpStockBalanceService,
   ) {}
 
   /**
@@ -137,12 +146,7 @@ export class AdminService {
   private async balancesFor(
     rows: { erpId: string; outstandingBalance: number }[],
   ): Promise<Map<string, number>> {
-    const derived = await this.accountBalance.getRunningBalances(
-      rows.map((r) => r.erpId),
-    );
-    return new Map(
-      rows.map((r) => [r.erpId, derived.get(r.erpId) ?? r.outstandingBalance]),
-    );
+    return balanceByErpId(this.accountBalance, rows);
   }
 
   async getDashboardStats() {
@@ -167,7 +171,12 @@ export class AdminService {
       this.prisma.supportTicket.count({ where: { status: 'OPEN' } }),
       this.prisma.staff.count({ where: { role: 'OFFICER', isActive: true } }),
       this.prisma.customer.findMany({
-        select: { id: true, region: true, outstandingBalance: true },
+        select: {
+          id: true,
+          erpId: true,
+          region: true,
+          outstandingBalance: true,
+        },
       }),
       this.prisma.customer.groupBy({
         by: ['region'],
@@ -196,8 +205,12 @@ export class AdminService {
     const erpAvailable = erpCounts.erpTotal > 0;
     const totalCustomers = erpAvailable ? erpCounts.vijuTotal : syncedCustomers;
 
+    // The tiles add up the SAME balance every customer-facing screen shows.
+    // Adding the stored column here gave a total no individual screen agreed
+    // with, and one whose sign was wrong for every customer in credit.
+    const balances = await balanceByErpId(this.accountBalance, customers);
     const totalOutstandingBalance = customers.reduce(
-      (sum, c) => sum + (c.outstandingBalance || 0),
+      (sum, c) => sum + (balances.get(c.erpId) ?? 0),
       0,
     );
 
@@ -212,7 +225,7 @@ export class AdminService {
     for (const c of customers) {
       walletByRegion.set(
         c.region,
-        (walletByRegion.get(c.region) ?? 0) + (c.outstandingBalance || 0),
+        (walletByRegion.get(c.region) ?? 0) + (balances.get(c.erpId) ?? 0),
       );
       customerRegionLookup.set(c.id, c.region);
     }
@@ -455,6 +468,8 @@ export class AdminService {
           accountStatus: null,
           outstandingBalance: null,
           stockBalanceCartons: null,
+          totalStock: null,
+          stockLoaded: null,
           assignedOfficerId: null,
           hasOfficer: false,
           officerAssignments: [],
@@ -583,7 +598,7 @@ export class AdminService {
     // `stockBalanceCartons` is shared with the officer and regional lists, so
     // the STOCK column means the same number on every screen (AO-P2).
     const [stockBalances, lastSeen, accountBalances] = await Promise.all([
-      stockBalanceByCustomer(this.prisma, customerIds),
+      stockByCustomer(this.prisma, rows, this.stockBalance),
       this.erpRaw.getLastSeenByErpIds(rows.map((r) => r.erpId)),
       this.balancesFor(rows),
     ]);
@@ -594,7 +609,11 @@ export class AdminService {
       outstandingBalance:
         accountBalances.get(row.erpId) ?? row.outstandingBalance,
       hasOfficer: row.assignedOfficerId != null,
-      stockBalanceCartons: stockBalances.get(row.id) ?? 0,
+      ...(stockBalances.get(row.id) ?? {
+        totalStock: 0,
+        stockLoaded: 0,
+        stockBalanceCartons: 0,
+      }),
       lastSyncedAt: lastSeen.get(row.erpId) ?? null,
       isProjected: true,
     }));
@@ -672,6 +691,8 @@ export class AdminService {
       accountStatus: customer.accountStatus,
       outstandingBalance,
       stockBalanceCartons: enriched.stockBalanceCartons,
+      totalStock: enriched.totalStock,
+      stockLoaded: enriched.stockLoaded,
       creditLimit: erp?.creditLimit ?? null,
       officerAssignments: customer.officerAssignments.map((a) => ({
         id: a.id,
@@ -720,6 +741,10 @@ export class AdminService {
       'openTickets',
       'assignedOfficers',
     ].join(',');
+    // The export must carry the same balance the portal shows, or a
+    // reconciliation done in a spreadsheet will disagree with the screen it
+    // was taken from.
+    const exportBalances = await balanceByErpId(this.accountBalance, rows);
     const lines = rows.map((c) =>
       [
         this.csv(c.erpId),
@@ -727,7 +752,7 @@ export class AdminService {
         this.csv(c.phone),
         c.region,
         c.accountStatus,
-        c.outstandingBalance,
+        exportBalances.get(c.erpId) ?? c.outstandingBalance,
         c._count.supportTickets,
         this.csv(
           c.officerAssignments.map((a) => a.staff.name).join(' / ') || '',

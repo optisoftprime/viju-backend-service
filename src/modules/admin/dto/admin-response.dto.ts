@@ -424,7 +424,32 @@ export class AdminCustomerDetailDto {
   @ApiProperty({ example: 1240000 })
   outstandingBalance: number;
 
-  @ApiProperty({ example: 320, description: 'Cartons awaiting loading' })
+  @ApiProperty({
+    example: 39765,
+    description:
+      'Cartons ordered on the distributor`s OPEN, APPROVED orders - the same ' +
+      'figure GET /customers/me/stock-balance calls ' +
+      '`totalPurchasedCartons`.',
+  })
+  totalStock: number;
+
+  @ApiProperty({
+    example: 33913,
+    description:
+      'Cartons already delivered against them - `totalLoadedCartons` on ' +
+      'GET /customers/me/stock-balance.',
+  })
+  stockLoaded: number;
+
+  @ApiProperty({
+    example: 5852,
+    description:
+      'Cartons still to collect: `totalStock` - `stockLoaded`, floored at ' +
+      'zero. Identical to `totalRemainingCartons` on ' +
+      'GET /customers/me/stock-balance for the same distributor, because ' +
+      'it is the same ERP query: SUM(BUSINESS_QTY1 - ' +
+      'DELIVERED_BUSINESS_QTY) WHERE CLOSE = `0` AND ApproveStatus = `Y`.',
+  })
   stockBalanceCartons: number;
 
   @ApiProperty({

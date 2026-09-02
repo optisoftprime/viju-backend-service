@@ -6,6 +6,7 @@ import {
   ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL,
   ERP_STOCK_BALANCE_FOR_CUSTOMERS_SQL,
   ERP_CUSTOMER_IDS_FOR_CODES_SQL,
+  ERP_STOCK_REMAINING_BY_CUSTOMER_SQL,
 } from './stock-balance';
 
 /** One product line of the stock-balance breakdown. */
@@ -23,6 +24,22 @@ export interface ErpStockBalanceProduct {
    * order date.
    */
   lastOrderDate: string | null;
+}
+
+/**
+ * A customer's stock position as the customer LISTS report it.
+ *
+ * The same three figures the per-customer breakdown calls
+ * totalPurchasedCartons / totalLoadedCartons / totalRemainingCartons, named
+ * as the list columns name them.
+ */
+export interface CustomerStock {
+  /** Cartons ordered on open, approved orders. */
+  totalStock: number;
+  /** Cartons already delivered against them. */
+  stockLoaded: number;
+  /** What is still to collect: totalStock - stockLoaded, floored at zero. */
+  stockBalanceCartons: number;
 }
 
 /** One aggregate row as either stock-balance query returns it. */
@@ -165,10 +182,9 @@ export class ErpStockBalanceService {
       // Codes -> the ERP's internal ids as its own step, so the aggregate can
       // filter on the INDEXED CUSTOMER_ID column with an explicit list.
       // Measured live: ~1.2s this way against ~6.2s for the subquery form.
-      const ids = await this.prisma.$queryRawUnsafe<{ id: string | null }[]>(
-        ERP_CUSTOMER_IDS_FOR_CODES_SQL,
-        codes.join(','),
-      );
+      const ids = await this.prisma.$queryRawUnsafe<
+        { id: string | null; code: string | null }[]
+      >(ERP_CUSTOMER_IDS_FOR_CODES_SQL, codes.join(','));
       const customerIds = ids
         .map((r) => r.id)
         .filter((id): id is string => !!id);
@@ -217,6 +233,79 @@ export class ErpStockBalanceService {
     const feedWide = this.itemCodes.codeFor(row.product);
     if (feedWide) return feedWide;
     return resolveProduct(productName, row.item_specification).productId;
+  }
+
+  /**
+   * One customer's stock position, for the customer LISTS.
+   *
+   * The same three figures the per-customer breakdown reports as
+   * `totalPurchasedCartons` / `totalLoadedCartons` / `totalRemainingCartons`,
+   * named as the list columns name them.
+   */
+  /**
+   * Stock per customer, keyed by CUSTOMER_CODE (`erpId`).
+   *
+   * For the STOCK column on the admin and officer customer lists: one query
+   * for a whole page, and the same formula and filters the distributor's own
+   * screen uses, so a page of 200 costs the same as a page of 20 and cannot
+   * show a different number.
+   *
+   * A customer the ERP has no open, approved orders for is ABSENT from the
+   * map rather than present as 0 - the caller has to decide whether that
+   * means "nothing outstanding" or "we could not say", and for the lists it
+   * means falling back to the local projection.
+   */
+  async stockByErpId(erpIds: string[]): Promise<Map<string, CustomerStock>> {
+    const empty = new Map<string, CustomerStock>();
+    const codes = [...new Set(erpIds.filter((id) => !!id))];
+    if (codes.length === 0) return empty;
+    if (!(await this.isAvailable())) return empty;
+    try {
+      const ids = await this.prisma.$queryRawUnsafe<
+        { id: string | null; code: string | null }[]
+      >(ERP_CUSTOMER_IDS_FOR_CODES_SQL, codes.join(','));
+      // The aggregate groups by the ERP's internal id; the caller knows only
+      // the code, so keep the way back.
+      const codeById = new Map<string, string>();
+      for (const row of ids) {
+        if (row.id && row.code) codeById.set(row.id, row.code);
+      }
+      if (codeById.size === 0) return empty;
+
+      const rows = await this.prisma.$queryRawUnsafe<
+        {
+          customer_id: string | null;
+          ordered_qty: string | number | null;
+          delivered_qty: string | number | null;
+        }[]
+      >(ERP_STOCK_REMAINING_BY_CUSTOMER_SQL, [...codeById.keys()].join(','));
+
+      const num = (v: string | number | null): number => {
+        const parsed = Number(v ?? 0);
+        return Number.isFinite(parsed) ? parsed : 0;
+      };
+      const stock = new Map<string, CustomerStock>();
+      for (const row of rows) {
+        const code = row.customer_id ? codeById.get(row.customer_id) : null;
+        if (!code) continue;
+        const totalStock = num(row.ordered_qty);
+        const stockLoaded = num(row.delivered_qty);
+        stock.set(code, {
+          totalStock,
+          stockLoaded,
+          // Floored per customer, as the totals are: the feed carries a few
+          // lines delivered above what was ordered.
+          stockBalanceCartons: Math.max(0, totalStock - stockLoaded),
+        });
+      }
+      return stock;
+    } catch (e) {
+      this.logger.error(
+        `stockByErpId(${codes.length} customers) failed: ${(e as Error).message}. ` +
+          'The caller falls back to the locally projected figure.',
+      );
+      return empty;
+    }
   }
 
   /**

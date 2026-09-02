@@ -36,6 +36,7 @@ describe('Officer tabs mirror the distributor', () => {
       customer: {
         findFirst: jest.fn().mockResolvedValue(found),
         findUnique: jest.fn().mockResolvedValue({
+          erpId: CUSTOMER.erpId,
           outstandingBalance: -500,
           updatedAt: CUSTOMER.updatedAt,
         }),
@@ -65,7 +66,9 @@ describe('Officer tabs mirror the distributor', () => {
     };
     const service = new OfficerService(
       prisma as never,
-      {} as never,
+      // The ERP credit feed. Silent here, so the stored column stands in and
+      // these specs can assert the tab's own wiring rather than the balance.
+      { getRunningBalances: jest.fn().mockResolvedValue(new Map()) } as never,
       stockBalance as never,
       customers as never,
     );

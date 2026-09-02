@@ -164,9 +164,38 @@ export const ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL = `
  * than an array because the driver binds a plain string unambiguously.
  */
 export const ERP_CUSTOMER_IDS_FOR_CODES_SQL = `
-    SELECT DISTINCT c.payload->>'CUSTOMER_ID' AS id
+    SELECT DISTINCT c.payload->>'CUSTOMER_ID'   AS id,
+                    c.payload->>'CUSTOMER_CODE' AS code
       FROM erp_raw.raw_customer c
      WHERE c.payload->>'CUSTOMER_CODE' = ANY(string_to_array($1, ','))`;
+
+/**
+ * Cartons still to collect, PER CUSTOMER.
+ *
+ * The same formula and the same filters as the balance queries above - open,
+ * approved, BUSINESS_QTY1 minus DELIVERED_BUSINESS_QTY - grouped by customer
+ * instead of by product, for the STOCK column on the admin and officer
+ * customer lists.
+ *
+ * It exists so those lists cannot show a different number from the one the
+ * distributor sees on their own screen. They used to be computed from the
+ * local PurchaseItem and LoadingRequest tables, which the projector populates
+ * for barely any order, so the column read near-zero for almost everyone.
+ *
+ * $1 is a comma-separated list of ERP internal CUSTOMER_IDs.
+ */
+export const ERP_STOCK_REMAINING_BY_CUSTOMER_SQL = `
+    SELECT so.payload->>'CUSTOMER_ID' AS customer_id,
+           sum(coalesce(nullif(so.payload->>'BUSINESS_QTY1', '')::numeric, 0))
+             AS ordered_qty,
+           sum(coalesce(nullif(so.payload->>'DELIVERED_BUSINESS_QTY', '')::numeric, 0))
+             AS delivered_qty
+      FROM erp_raw.raw_sales_order so
+     WHERE so.object_type = 'SALES_ORDER'
+       AND so.payload->>'CLOSE' = '0'
+       AND so.payload->>'ApproveStatus' = 'Y'
+       AND so.payload->>'CUSTOMER_ID' = ANY(string_to_array($1, ','))
+     GROUP BY 1`;
 
 /**
  * The same stock-balance aggregate as ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL, over

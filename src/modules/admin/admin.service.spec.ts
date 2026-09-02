@@ -6,6 +6,7 @@ import { EmailService } from '../../infrastructure/email/email.types';
 import { ErpRawService } from '../../infrastructure/erp-raw/erp-raw.service';
 import { DefaultOfficerService } from '../erp/default-officer.service';
 import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
+import { ErpStockBalanceService } from '../erp/erp-stock-balance.service';
 import {
   NotFoundException,
   BadRequestException,
@@ -105,6 +106,14 @@ describe('AdminService', () => {
         { provide: ErpRawService, useValue: mockErpRaw },
         { provide: DefaultOfficerService, useValue: mockDefaultOfficer },
         { provide: ErpAccountBalanceService, useValue: mockAccountBalance },
+        {
+          provide: ErpStockBalanceService,
+          // The STOCK column's ERP source. These specs assert other columns,
+          // so it answers "nothing known" and the local fallback stands.
+          useValue: {
+            stockByErpId: jest.fn().mockResolvedValue(new Map()),
+          },
+        },
       ],
     }).compile();
 
