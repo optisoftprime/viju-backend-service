@@ -26,6 +26,20 @@ export class ErpCustomerProductDto {
   productName: string;
 
   @ApiProperty({
+    example: '750ML(L)',
+    nullable: true,
+    description:
+      'ITEM_SPECIFICATION from the sales-order feed, with the ERP`s Chinese ' +
+      'category characters stripped - `100ML` from `100ML中性`. Null where the ' +
+      'feed states none.' +
+      '\n\n' +
+      'It is what separates two products the feed gives the SAME name: ' +
+      'VIJU MULIIFRUIT FURIT JUICE ships as both 100ML and 200ML. Show it ' +
+      'beside the name, and send it back on the loading request.',
+  })
+  spec: string | null;
+
+  @ApiProperty({
     example: 9.38,
     nullable: true,
     description:
@@ -47,16 +61,4 @@ export class ErpCustomerProductDto {
       'GET /customers/me/stock-balance.',
   })
   quantityLeft: number;
-
-  @ApiProperty({
-    enum: ['SPEC_AND_NAME', 'NAME', 'SPEC', 'NONE'],
-    example: 'SPEC_AND_NAME',
-    description:
-      'How the row was matched, so a caller can judge how much to trust it. ' +
-      'SPEC_AND_NAME is exact; SPEC means the size identified the weight but ' +
-      'the name did not appear; NONE means the SHEET has no entry, so ' +
-      '`weightPerCarton` is null — `productId` may still be set from the ERP ' +
-      'feed, which is a separate source.',
-  })
-  matchedOn: 'SPEC_AND_NAME' | 'NAME' | 'SPEC' | 'NONE';
 }

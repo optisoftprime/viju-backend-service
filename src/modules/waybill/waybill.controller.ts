@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Param,
   Body,
   Query,
@@ -14,13 +15,21 @@ import {
   ApiOkResponse,
   ApiCreatedResponse,
   ApiNotFoundResponse,
+  ApiConflictResponse,
+  ApiBadRequestResponse,
+  ApiParam,
 } from '@nestjs/swagger';
 import { WaybillService } from './waybill.service';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
-import { AcceptTermsDto, SubmitLoadingRequestDto } from './dto/waybill.dto';
+import {
+  AcceptTermsDto,
+  SubmitLoadingRequestDto,
+  UpdateLoadingRequestDto,
+  WaybillListQueryDto,
+} from './dto/waybill.dto';
 import { PaginationQueryDto } from '../../common/pagination/pagination.dto';
 import {
   PaginatedWaybillsResponseDto,
@@ -42,11 +51,8 @@ export class WaybillController {
     summary: 'List the distributor’s loading requests / waybills',
   })
   @ApiOkResponse({ type: PaginatedWaybillsResponseDto })
-  async list(
-    @CurrentUser() user: any,
-    @Query() pagination: PaginationQueryDto,
-  ) {
-    return this.waybillService.listForCustomer(user.id, pagination);
+  async list(@CurrentUser() user: any, @Query() query: WaybillListQueryDto) {
+    return this.waybillService.listForCustomer(user.id, query);
   }
 
   @Post('accept-terms')
@@ -102,6 +108,46 @@ export class WaybillController {
   @ApiCreatedResponse({ type: WaybillDto })
   async submit(@CurrentUser() user: any, @Body() dto: SubmitLoadingRequestDto) {
     return this.waybillService.submitLoadingRequest(user.id, dto);
+  }
+
+  @Patch(':id')
+  @ApiOperation({
+    summary: 'Edit a loading request that has not been acted on yet',
+    description:
+      'Send only what changed; anything omitted is left as it is.\n\n' +
+      'ONLY WHILE `PENDING_ASSIGNMENT`. Once a regional admin has assigned ' +
+      'the request, or an officer has started loading, people are working ' +
+      'to what it says - moving the quantities underneath them would put ' +
+      'the truck and the paperwork out of step. Those answer **409**, not ' +
+      '403: the request is real and yours, it is the STATE that refuses. ' +
+      'Cancel it and raise a new one.\n\n' +
+      'PRODUCT LINES ARE REPLACED WHOLESALE when `products` or `orders` is ' +
+      'present - a partial line list has no meaning a form can express. ' +
+      'Omit both to leave them alone; send `[]` to clear them.\n\n' +
+      '`loadingCapacity` is re-checked against the MERGED result, so ' +
+      'editing quantities and leaving the old capacity behind is refused. ' +
+      'Resend both together.\n\n' +
+      '`reference` never changes: it is what the depot and the ERP know ' +
+      'the request by.',
+  })
+  @ApiParam({ name: 'id', description: 'The loading request id' })
+  @ApiOkResponse({ type: WaybillDetailDto })
+  @ApiNotFoundResponse({
+    description: 'No such loading request for this distributor',
+  })
+  @ApiConflictResponse({
+    description:
+      'The request has been assigned, loaded, completed or cancelled',
+  })
+  @ApiBadRequestResponse({
+    description: '`loadingCapacity` no longer equals the weight of the load',
+  })
+  async update(
+    @CurrentUser() user: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateLoadingRequestDto,
+  ) {
+    return this.waybillService.updateLoadingRequest(user.id, id, dto);
   }
 
   @Get(':id')

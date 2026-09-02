@@ -50,9 +50,9 @@ describe('ERP order products', () => {
       {
         productId: '101020104',
         productName: '750ml water(L-水)',
+        spec: '750ML(L)',
         weightPerCarton: 9.38,
         quantityLeft: 20,
-        matchedOn: 'SPEC_AND_NAME',
       },
     ]);
   });
@@ -114,9 +114,11 @@ describe('ERP order products', () => {
       {
         productId: null,
         productName: '18.9L water(L)',
+        // `spec` comes from the FEED, so it is still stated for a product the
+        // specification sheet has never heard of.
+        spec: '18.9(L)',
         weightPerCarton: null,
         quantityLeft: 0,
-        matchedOn: 'NONE',
       },
     ]);
   });

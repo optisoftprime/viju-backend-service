@@ -79,6 +79,8 @@ describe('Loading request product breakdown', () => {
         orderReference: '2310-202606110033',
         productId: '101020104',
         productName: '750ml water(L-水)',
+        spec: null,
+        quantityLeft: null,
         quantity: 120,
         weightPerCarton: 9.38,
       },
@@ -87,6 +89,8 @@ describe('Loading request product breakdown', () => {
         orderReference: '2310-202606110033',
         productId: null,
         productName: '18.9L water(L)',
+        spec: null,
+        quantityLeft: null,
         quantity: 80,
         weightPerCarton: null,
       },
@@ -153,19 +157,19 @@ describe('Loading request product breakdown', () => {
       expect(data.quantityCartons).toBe(200);
     });
 
-    it('keeps the old behaviour when no products are sent', async () => {
+    it('refuses a request that loads nothing', async () => {
+      // A loading request with no products is not a request. It used to be
+      // accepted, carrying only a bare quantityCartons.
       const { service, prisma } = build();
 
-      await service.submitLoadingRequest('c-1', {
-        ...baseDto,
-        quantityCartons: 320,
-        destination: 'Yaba Warehouse',
-      });
-
-      const data = prisma.loadingRequest.create.mock.calls[0][0].data;
-      expect(data.quantityCartons).toBe(320);
-      expect(data.destination).toBe('Yaba Warehouse');
-      expect(data.items).toBeUndefined();
+      await expect(
+        service.submitLoadingRequest('c-1', {
+          ...baseDto,
+          quantityCartons: 320,
+          destination: 'Yaba Warehouse',
+        }),
+      ).rejects.toThrow(/at least one product to load/);
+      expect(prisma.loadingRequest.create).not.toHaveBeenCalled();
     });
   });
 

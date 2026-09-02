@@ -1,12 +1,17 @@
 import { WaybillService } from './waybill.service';
 
 /**
- * The truck must be able to carry the load.
+ * `loadingCapacity` must EQUAL the weight of the load.
  *
- *   total weight = SUM(quantity x weightPerCarton), across every order
+ *   total weight = SUM(quantityToLoad x weightPerCarton)
  *
- * checked against `loadingCapacity` BEFORE anything is written, so a rejected
- * request leaves no half-made loading request behind.
+ * The worked example from the spec: 20 cartons at 2.7kg is 54kg, 24 at 5kg is
+ * 120kg, so loadingCapacity must be 174.
+ *
+ * The field is not a truck's rated capacity the load has to fit inside - the
+ * form computes the load's weight and sends it, and this confirms the two
+ * agree. Checked before anything is written, so a rejection leaves no
+ * half-made loading request behind.
  */
 describe('Loading request capacity guard', () => {
   const build = () => {
@@ -15,9 +20,12 @@ describe('Loading request capacity guard', () => {
         findFirst: jest.fn().mockResolvedValue({ acceptedAt: new Date() }),
       },
       customer: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue({ id: 'c-1', region: 'LAGOS', name: 'ADLAK' }),
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'c-1',
+          erpId: '10110003',
+          region: 'LAGOS',
+          name: 'ADLAK',
+        }),
       },
       purchase: {
         findFirst: jest
@@ -45,7 +53,6 @@ describe('Loading request capacity guard', () => {
     truckPlateNumber: 'LAG-234-XY',
     driverName: 'Jimoh Ibrahim',
     driverPhone: '+2348012345678',
-    linkedPurchaseId: 'p-1',
     requestedLoadingDate: '2026-09-05',
   };
 
@@ -60,11 +67,30 @@ describe('Loading request capacity guard', () => {
     };
   };
 
-  it('accepts a load the truck can carry', async () => {
-    // 100 x 9.38 = 938kg into 1,000kg.
+  /** The spec's worked example. */
+  const EXAMPLE = [
+    {
+      productId: '101020104',
+      productName: 'Mr V Premium Table Water(Lagos)',
+      spec: '100ML',
+      weightPerCarton: 2.7,
+      quantityLeft: 100,
+      quantityToLoad: 20,
+    },
+    {
+      productId: '101010610',
+      productName: 'Viju Yoghurt Plain Sweet',
+      spec: '750ML',
+      weightPerCarton: 5,
+      quantityLeft: 120,
+      quantityToLoad: 24,
+    },
+  ];
+
+  it('accepts the worked example: 54 + 120 = 174', async () => {
     const { run, prisma } = submit({
-      loadingCapacity: 1000,
-      products: [{ productName: 'A', quantity: 100, weightPerCarton: 9.38 }],
+      loadingCapacity: 174,
+      products: EXAMPLE,
     });
 
     await run;
@@ -72,101 +98,97 @@ describe('Loading request capacity guard', () => {
     expect(prisma.loadingRequest.create).toHaveBeenCalled();
   });
 
-  it('accepts a load exactly at capacity', async () => {
-    // The limit is "must not exceed", so equal is allowed.
-    const { run, prisma } = submit({
-      loadingCapacity: 938,
-      products: [{ productName: 'A', quantity: 100, weightPerCarton: 9.38 }],
-    });
-
-    await run;
-
-    expect(prisma.loadingRequest.create).toHaveBeenCalled();
-  });
-
-  it('refuses a load heavier than the capacity', async () => {
-    const { run } = submit({
-      loadingCapacity: 900,
-      products: [{ productName: 'A', quantity: 100, weightPerCarton: 9.38 }],
-    });
+  it('refuses a capacity BELOW the load', async () => {
+    const { run } = submit({ loadingCapacity: 100, products: EXAMPLE });
 
     await expect(run).rejects.toThrow(
-      /The load weighs 938kg, which exceeds the loading capacity of 900kg by 38kg/,
+      /products weigh 174kg but loadingCapacity says 100kg - a difference of 74kg/,
     );
   });
 
+  it('refuses a capacity ABOVE the load, too', async () => {
+    // Not "must fit inside": the two must agree. A capacity larger than the
+    // load means the form counted something this request does not list.
+    const { run } = submit({ loadingCapacity: 200, products: EXAMPLE });
+
+    await expect(run).rejects.toThrow(/difference of 26kg/);
+  });
+
   it('writes nothing when it refuses', async () => {
-    // The check runs before the create, so a rejection leaves no half-made
-    // request behind.
-    const { run, prisma } = submit({
-      loadingCapacity: 10,
-      products: [{ productName: 'A', quantity: 100, weightPerCarton: 9.38 }],
-    });
+    const { run, prisma } = submit({ loadingCapacity: 1, products: EXAMPLE });
 
     await expect(run).rejects.toThrow();
     expect(prisma.loadingRequest.create).not.toHaveBeenCalled();
   });
 
-  it('weighs the load ACROSS every order, not one at a time', async () => {
-    // 100 x 9.38 + 100 x 6.33 = 1,571kg. Each order alone fits in 1,000kg;
-    // the truck still cannot take both.
-    const { run } = submit({
-      loadingCapacity: 1000,
-      orders: {
-        'p-1': [{ productName: 'A', quantity: 100, weightPerCarton: 9.38 }],
-        '2310-202606110033': [
-          { productName: 'B', quantity: 100, weightPerCarton: 6.33 },
-        ],
-      },
+  it('is not defeated by floating point', async () => {
+    // 20 x 2.7 is 54.00000000000001 in binary floating point, and 3 x 6.33 is
+    // 18.990000000000002. Comparing raw floats would reject a correct form.
+    const { run, prisma } = submit({
+      loadingCapacity: 18.99,
+      products: [
+        { productName: 'A', weightPerCarton: 6.33, quantityToLoad: 3 },
+      ],
     });
 
-    await expect(run).rejects.toThrow(/The load weighs 1571kg/);
+    await run;
+
+    expect(prisma.loadingRequest.create).toHaveBeenCalled();
+  });
+
+  it('weighs the load ACROSS every order', async () => {
+    // 100 x 9.38 + 100 x 6.33 = 1,571kg.
+    const { run, prisma } = submit({
+      loadingCapacity: 1571,
+      orders: {
+        'p-1': [
+          { productName: 'A', weightPerCarton: 9.38, quantityToLoad: 100 },
+        ],
+        '2310-202606110033': [
+          { productName: 'B', weightPerCarton: 6.33, quantityToLoad: 100 },
+        ],
+      },
+      linkedPurchaseId: 'p-1',
+    });
+
+    await run;
+
+    expect(prisma.loadingRequest.create).toHaveBeenCalled();
   });
 
   it('falls back to the specification sheet when a line sends no weight', async () => {
     // Otherwise omitting `weightPerCarton` would skip the check for that
-    // product. 750ml water is 9.38kg/carton in the sheet.
-    const { run } = submit({
-      loadingCapacity: 900,
-      products: [{ productName: '750ml water(L-水)', quantity: 100 }],
+    // product. 750ml water is 9.38kg/carton in the sheet, so 100 is 938kg.
+    const { run, prisma } = submit({
+      loadingCapacity: 938,
+      products: [{ productName: '750ml water(L-水)', quantityToLoad: 100 }],
     });
 
-    await expect(run).rejects.toThrow(/The load weighs 938kg/);
+    await run;
+
+    expect(prisma.loadingRequest.create).toHaveBeenCalled();
   });
 
   it('lets an unweighable load through rather than guessing', async () => {
-    // The sheet does not cover every product. The check never rejects on a
-    // figure it cannot stand behind.
+    // The sheet does not cover every product - packaging film, freight lines.
+    // The check never rejects on a total it cannot stand behind.
     const { run, prisma } = submit({
       loadingCapacity: 1,
-      products: [{ productName: 'Nothing the sheet knows', quantity: 5000 }],
-    });
-
-    await run;
-
-    expect(prisma.loadingRequest.create).toHaveBeenCalled();
-  });
-
-  it('says how much of the load could not be weighed', async () => {
-    // 100 x 9.38 = 938kg counted, one line uncounted: the real load is
-    // heavier than the message states, and it says so.
-    const { run } = submit({
-      loadingCapacity: 900,
       products: [
-        { productName: 'A', quantity: 100, weightPerCarton: 9.38 },
-        { productName: 'Nothing the sheet knows', quantity: 5000 },
+        { productName: 'Nothing the sheet knows', quantityToLoad: 5000 },
       ],
     });
 
-    await expect(run).rejects.toThrow(
-      /1 product line\(s\) carry no carton weight/,
-    );
+    await run;
+
+    expect(prisma.loadingRequest.create).toHaveBeenCalled();
   });
 
   it('does not check when no capacity was given', async () => {
-    // `loadingCapacity` is optional; a request without one states no limit.
     const { run, prisma } = submit({
-      products: [{ productName: 'A', quantity: 100000, weightPerCarton: 9.38 }],
+      products: [
+        { productName: 'A', weightPerCarton: 9.38, quantityToLoad: 100 },
+      ],
     });
 
     await run;
@@ -174,24 +196,43 @@ describe('Loading request capacity guard', () => {
     expect(prisma.loadingRequest.create).toHaveBeenCalled();
   });
 
-  it('does not check a request with no product lines at all', async () => {
+  it('refuses a request with no product lines at all', async () => {
+    // Nothing to weigh, and nothing to load: refused before the capacity
+    // rule is even reached.
     const { run, prisma } = submit({
       loadingCapacity: 1,
       quantityCartons: 320,
     });
 
+    await expect(run).rejects.toThrow(/at least one product to load/);
+    expect(prisma.loadingRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('still reads the former field name `quantity`', async () => {
+    const { run, prisma } = submit({
+      loadingCapacity: 938,
+      products: [{ productName: 'A', weightPerCarton: 9.38, quantity: 100 }],
+    });
+
     await run;
 
     expect(prisma.loadingRequest.create).toHaveBeenCalled();
   });
 
-  it('rounds the weight to 2dp rather than reporting float noise', async () => {
-    // 3 x 6.33 = 18.990000000000002 in binary floating point.
+  it('prefers quantityToLoad when both names are sent', async () => {
     const { run } = submit({
-      loadingCapacity: 18,
-      products: [{ productName: 'A', quantity: 3, weightPerCarton: 6.33 }],
+      loadingCapacity: 938,
+      products: [
+        {
+          productName: 'A',
+          weightPerCarton: 9.38,
+          quantity: 999,
+          quantityToLoad: 100,
+        },
+      ],
     });
 
-    await expect(run).rejects.toThrow(/weighs 18.99kg/);
+    // 100 x 9.38 = 938 passes; 999 would not.
+    await expect(run).resolves.toBeDefined();
   });
 });

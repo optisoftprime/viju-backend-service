@@ -47,6 +47,9 @@ describe('Notification audience (N-2, N-3, N-4)', () => {
       requestedLoadingDate: '2026-08-25T00:00:00.000Z',
       quantityCartons: 100,
       destination: 'Ikeja',
+      // A request must load something. These tests are about who gets
+      // notified, so the line is the smallest one that satisfies that.
+      products: [{ productName: 'A', quantityToLoad: 1 }],
     };
 
     it('asks only for ACTIVE regional admins of the request region', async () => {
