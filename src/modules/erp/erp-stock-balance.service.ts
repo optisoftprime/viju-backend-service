@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { ErpItemCodeService } from './erp-item-code.service';
 import { resolveProduct } from './product-specification.resolver';
+import { stripCjk } from './strip-cjk';
 import {
   ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL,
   ERP_STOCK_BALANCE_FOR_CUSTOMERS_SQL,
@@ -14,6 +15,13 @@ export interface ErpStockBalanceProduct {
   /** ERP ITEM_CODE. Null when the feed carries none for this product. */
   itemCode: string | null;
   productName: string;
+  /**
+   * ITEM_SPECIFICATION with the ERP's Chinese category characters stripped.
+   * Null where the feed states none, and ALSO null where the product's lines
+   * disagree about it - rows group by product NAME, and 4 names span several
+   * sizes, so one of them picked arbitrarily would be a guess.
+   */
+  spec: string | null;
   quantityPaid: number;
   quantityLoaded: number;
   quantityRemaining: number;
@@ -325,6 +333,7 @@ export class ErpStockBalanceService {
       return {
         itemCode: this.resolveItemCode(r, productName),
         productName,
+        spec: stripCjk(r.item_specification),
         quantityPaid,
         quantityLoaded,
         // Floored per product so a single over-delivered line cannot show a

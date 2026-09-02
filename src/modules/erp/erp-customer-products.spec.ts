@@ -1,52 +1,61 @@
 import { ErpCustomerProductsService } from './erp-customer-products.service';
 
 /**
- * GET /erp/orders/{orderId}/products — the products on one sales order,
- * carried through the Viju product specification sheet.
+ * GET /erp/orders/{customerId}/products - what one distributor still has to
+ * collect, product by product.
  *
- * `orderId` is the id `linkedPurchaseId` carries on GET /customers/me/waybills,
- * so a distributor holding a loading request can ask what is on the order it is
- * against.
+ * This is the picker behind a loading request. A request is filed against the
+ * ACCOUNT rather than one order, so the products it may draw on are the
+ * distributor's whole outstanding stock.
+ *
+ * `quantityLeft` comes from the stock-balance query rather than a second one
+ * of its own, so the picker and GET /customers/me/stock-balance cannot
+ * disagree about how much of a product is outstanding.
  */
-describe('ERP order products', () => {
+describe('ERP customer products', () => {
+  const ADLAK = { id: 'c-1', erpId: '10110003' };
+
   const build = (
-    rows: unknown,
-    purchase: unknown = { erpId: '2310-202606110033' },
-    available = true,
+    balance: unknown = {
+      totalPurchasedCartons: 0,
+      totalLoadedCartons: 0,
+      totalRemainingCartons: 0,
+      products: [
+        {
+          itemCode: '101020104',
+          productName: '750ml water(L-水)',
+          spec: '750ML(L)',
+          quantityPaid: 120,
+          quantityLoaded: 100,
+          quantityRemaining: 20,
+          lastOrderDate: '2026-06-11',
+        },
+      ],
+    },
+    customer: unknown = ADLAK,
   ) => {
     const prisma = {
-      purchase: { findFirst: jest.fn().mockResolvedValue(purchase) },
-      $queryRawUnsafe: jest.fn().mockImplementation((sql: string) => {
-        if (sql.includes('to_regclass')) {
-          return Promise.resolve([{ present: available }]);
-        }
-        if (rows instanceof Error) return Promise.reject(rows);
-        return Promise.resolve(rows);
-      }),
+      customer: { findFirst: jest.fn().mockResolvedValue(customer) },
     };
-    // No feed-wide code map in these tests: the codes under test come from
-    // the order's own rows and from the specification sheet.
+    const stockBalance = {
+      getStockBalance: jest.fn().mockResolvedValue(balance),
+    };
     const itemCodes = { codeFor: () => null };
     return {
       prisma,
+      stockBalance,
       service: new ErpCustomerProductsService(
         prisma as never,
         itemCodes as never,
+        stockBalance as never,
       ),
     };
   };
 
-  it('returns productId, productName and weightPerCarton per product', async () => {
-    const { service } = build([
-      {
-        descr: '750ml water(L-水)',
-        spec: '750ML(L)',
-        ordered_qty: 120,
-        delivered_qty: 100,
-      },
-    ]);
+  it('returns the five fields the picker renders', async () => {
+    const { service } = build();
 
-    await expect(service.listForOrder('purchase-uuid-1')).resolves.toEqual([
+    await expect(service.listForCustomer('c-1')).resolves.toEqual([
       {
         productId: '101020104',
         productName: '750ml water(L-水)',
@@ -57,140 +66,143 @@ describe('ERP order products', () => {
     ]);
   });
 
-  it('queries the feed by DOC_NO, resolved from the purchase', async () => {
-    const { service, prisma } = build([]);
+  it('reads quantityLeft from the stock balance, not a query of its own', async () => {
+    // One formula, so the picker and the stock screen cannot drift.
+    const { service, stockBalance } = build();
 
-    await service.listForOrder('purchase-uuid-1');
+    await service.listForCustomer('c-1');
 
-    const [sql, param] = prisma.$queryRawUnsafe.mock.calls[1];
-    expect(sql).toContain("so.payload->>'DOC_NO' = $1");
-    expect(param).toBe('2310-202606110033');
+    expect(stockBalance.getStockBalance).toHaveBeenCalledWith('10110003');
   });
 
-  it('accepts either a Purchase.id uuid or the DOC_NO', async () => {
-    const { service, prisma } = build([]);
+  it('accepts either the Customer.id uuid or the ERP code', async () => {
+    const { service, prisma } = build();
 
-    await service.listForOrder('2310-202606110033');
+    await service.listForCustomer('10110003');
 
-    // Purchase.erpId IS the DOC_NO, so one lookup covers both forms.
-    expect(prisma.purchase.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          OR: [{ id: '2310-202606110033' }, { erpId: '2310-202606110033' }],
-        }),
-      }),
-    );
+    expect(prisma.customer.findFirst.mock.calls[0][0].where).toEqual({
+      OR: [{ id: '10110003' }, { erpId: '10110003' }],
+    });
   });
 
-  it('collapses a product the feed lists under two specifications', async () => {
-    // '(1.5)MALT MILK(O)' arrives under both 500ML果汁(O) and 500ML麦汁(O),
-    // which resolve to the same code and weight — indistinguishable on screen.
-    const { service } = build([
-      { descr: '(1.5)MALT MILK(O)', spec: '500ML果汁(O)' },
-      { descr: '(1.5)MALT MILK(O)', spec: '500ML麦汁(O)' },
-    ]);
+  it('lists only what is still to collect', async () => {
+    // A product taken in full is not something a truck can be loaded with.
+    const { service } = build({
+      products: [
+        {
+          itemCode: '101020104',
+          productName: '750ml water(L-水)',
+          spec: '750ML(L)',
+          quantityRemaining: 20,
+        },
+        {
+          itemCode: '101060111',
+          productName: 'V-COOL COFFEE(Abuja)',
+          spec: '500ML',
+          quantityRemaining: 0,
+        },
+      ],
+    });
 
-    const list = await service.listForOrder('purchase-uuid-1');
-    expect(list).toHaveLength(1);
-    expect(list[0].productId).toBe('101010513');
+    const res = await service.listForCustomer('c-1');
+
+    expect(res).toHaveLength(1);
+    expect(res[0].productId).toBe('101020104');
   });
 
-  it('keeps two genuinely different products apart', async () => {
-    const { service } = build([
-      { descr: 'Viju Wheat Milk', spec: '320ML中性奶(O)' },
-      { descr: 'Viju Wheat Milk', spec: '500ML中性奶(O)' },
-    ]);
+  it('falls back to the specification sheet for a code the feed omits', async () => {
+    const { service } = build({
+      products: [
+        {
+          itemCode: null,
+          productName: '750ml water(L-水)',
+          spec: '750ML(L)',
+          quantityRemaining: 5,
+        },
+      ],
+    });
 
-    const list = await service.listForOrder('purchase-uuid-1');
-    // Same name, different size — different carton weight, so both belong.
-    expect(list).toHaveLength(2);
-    expect(list.map((p) => p.weightPerCarton).sort()).toEqual([4.22, 6.6]);
+    const res = await service.listForCustomer('c-1');
+
+    expect(res[0].productId).toBe('101020104');
   });
 
   it('returns nulls, not a guessed weight, for a product off the sheet', async () => {
-    const { service } = build([{ descr: '18.9L water(L)', spec: '18.9(L)' }]);
+    const { service } = build({
+      products: [
+        {
+          itemCode: null,
+          productName: 'PE包装膜Nylon',
+          spec: null,
+          quantityRemaining: 5,
+        },
+      ],
+    });
 
-    await expect(service.listForOrder('purchase-uuid-1')).resolves.toEqual([
+    await expect(service.listForCustomer('c-1')).resolves.toEqual([
       {
         productId: null,
-        productName: '18.9L water(L)',
-        // `spec` comes from the FEED, so it is still stated for a product the
-        // specification sheet has never heard of.
-        spec: '18.9(L)',
+        productName: 'PE包装膜Nylon',
+        spec: null,
         weightPerCarton: null,
-        quantityLeft: 0,
+        quantityLeft: 5,
       },
     ]);
   });
 
-  describe('a distributor is pinned to their own orders', () => {
-    it('scopes the purchase lookup by customer', async () => {
-      const { service, prisma } = build([]);
+  describe('a distributor is pinned to their own stock', () => {
+    it('returns their stock when the id is their own', async () => {
+      const { service } = build();
 
-      await service.listForOrder('purchase-uuid-1', 'customer-1');
-
-      expect(prisma.purchase.findFirst).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({ customerId: 'customer-1' }),
-        }),
+      await expect(service.listForCustomer('c-1', 'c-1')).resolves.toHaveLength(
+        1,
       );
     });
 
-    it("returns [] for another distributor's order", async () => {
-      // Scoped lookup finds nothing, so there is nothing to read.
-      const { service, prisma } = build([], null);
+    it('accepts their own erpId as naming themselves', async () => {
+      const { service } = build();
 
       await expect(
-        service.listForOrder('someone-elses-order', 'customer-1'),
-      ).resolves.toEqual([]);
-      // Never reaches the feed.
-      expect(prisma.$queryRawUnsafe).toHaveBeenCalledTimes(1); // probe only
+        service.listForCustomer('10110003', 'c-1'),
+      ).resolves.toHaveLength(1);
     });
 
-    it('lets STAFF read an order the projector never copied locally', async () => {
-      // No local Purchase row, but the DOC_NO is still a real ERP order.
-      // Staff pass no customer scope, so the id is used directly.
-      const { service, prisma } = build(
-        [{ descr: '750ml water(L-水)', spec: '750ML(L)' }],
-        null,
-      );
+    it("returns [] for another distributor's id", async () => {
+      // The id in the path never widens what a token can see.
+      const { service, stockBalance } = build();
 
-      const list = await service.listForOrder('2310-202606110033');
+      await expect(service.listForCustomer('c-1', 'c-9')).resolves.toEqual([]);
+      expect(stockBalance.getStockBalance).not.toHaveBeenCalled();
+    });
 
-      expect(list).toHaveLength(1);
-      expect(prisma.$queryRawUnsafe.mock.calls[1][1]).toBe('2310-202606110033');
+    it('lets STAFF read any distributor', async () => {
+      // No requesterId is passed for staff.
+      const { service } = build();
+
+      await expect(service.listForCustomer('c-1')).resolves.toHaveLength(1);
     });
   });
 
   describe('degrades to an empty list rather than erroring', () => {
-    it('when the ERP feed is absent', async () => {
-      const { service } = build([], { erpId: 'D1' }, false);
-      await expect(service.listForOrder('purchase-uuid-1')).resolves.toEqual(
-        [],
-      );
+    it('for an unknown distributor', async () => {
+      const { service, stockBalance } = build(undefined, null);
+
+      await expect(service.listForCustomer('c-9')).resolves.toEqual([]);
+      expect(stockBalance.getStockBalance).not.toHaveBeenCalled();
     });
 
-    it('when the query fails', async () => {
-      const { service } = build(new Error('boom'));
-      await expect(service.listForOrder('purchase-uuid-1')).resolves.toEqual(
-        [],
-      );
+    it('when the ERP feed says nothing about them', async () => {
+      // Null means "we cannot say", and a picker renders empty.
+      const { service } = build(null);
+
+      await expect(service.listForCustomer('c-1')).resolves.toEqual([]);
     });
 
     it('without querying at all for an empty id', async () => {
-      const { service, prisma } = build([]);
-      await expect(service.listForOrder('')).resolves.toEqual([]);
-      expect(prisma.$queryRawUnsafe).not.toHaveBeenCalled();
-    });
+      const { service, prisma } = build();
 
-    it('drops a line the ERP left with no description', async () => {
-      const { service } = build([
-        { descr: '   ', spec: '750ML(L)' },
-        { descr: '750ml water(L-水)', spec: '750ML(L)' },
-      ]);
-      await expect(
-        service.listForOrder('purchase-uuid-1'),
-      ).resolves.toHaveLength(1);
+      await expect(service.listForCustomer('')).resolves.toEqual([]);
+      expect(prisma.customer.findFirst).not.toHaveBeenCalled();
     });
   });
 });
