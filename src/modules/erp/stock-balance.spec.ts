@@ -7,7 +7,8 @@ import {
 /**
  * Stock balance from the ERP sales-order feed:
  *
- *   Stock Balance = SUM(BUSINESS_QTY - DELIVERED_BUSINESS_QTY)
+ *   Stock Balance = SUM(BUSINESS_QTY1 - DELIVERED_BUSINESS_QTY)
+ *                   WHERE CLOSE = '0' AND ApproveStatus = 'Y'
  *
  * One source shared by GET /customers/me/home and
  * GET /customers/me/stock-balance, which previously computed it two different
@@ -143,6 +144,25 @@ describe('ERP stock balance', () => {
 describe('the stock-balance SQL', () => {
   const sql = ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL;
 
+  it('never sums QTY_TOTAL, which is a DOCUMENT figure', () => {
+    // QTY_TOTAL is the order total repeated verbatim on every line. Summing
+    // it across lines inflates the balance roughly fourfold - 55,431,486
+    // against the true 14,141,327 for open orders.
+    expect(sql).not.toContain('QTY_TOTAL');
+  });
+
+  it('counts APPROVED orders only', () => {
+    // 'V' and 'N' orders have never been delivered against, so counting them
+    // adds pure "remaining" for goods the ERP has not agreed to ship.
+    expect(sql).toContain("so.payload->>'ApproveStatus' = 'Y'");
+  });
+
+  it('applies the approval filter to the PORTFOLIO query too', () => {
+    expect(ERP_STOCK_BALANCE_FOR_CUSTOMERS_SQL).toContain(
+      "so.payload->>'ApproveStatus' = 'Y'",
+    );
+  });
+
   it('counts OPEN orders only', () => {
     // CLOSE is the order's state repeated on every line: '0' open, '2'
     // closed. A settled order is not stock the distributor is waiting to
@@ -167,13 +187,13 @@ describe('the stock-balance SQL', () => {
   });
 
   it('computes ordered and delivered, the two sides of the formula', () => {
-    expect(sql).toContain("'BUSINESS_QTY'");
+    expect(sql).toContain("'BUSINESS_QTY1'");
     expect(sql).toContain("'DELIVERED_BUSINESS_QTY'");
   });
 
   it('treats a missing quantity as zero', () => {
     expect(sql).toContain(
-      "coalesce(nullif(so.payload->>'BUSINESS_QTY', '')::numeric, 0)",
+      "coalesce(nullif(so.payload->>'BUSINESS_QTY1', '')::numeric, 0)",
     );
   });
 

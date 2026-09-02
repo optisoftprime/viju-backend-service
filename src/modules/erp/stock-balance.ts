@@ -4,11 +4,25 @@
  * Stock balance is what a distributor has PAID FOR but not yet COLLECTED. The
  * ERP states both figures on every sales-order line:
  *
- *   BUSINESS_QTY            quantity ordered on the line
+ *   BUSINESS_QTY1           quantity ordered on the line
  *   DELIVERED_BUSINESS_QTY  quantity actually delivered against the line
  *
- *   Stock Balance = SUM(BUSINESS_QTY - DELIVERED_BUSINESS_QTY)
- *                   WHERE CLOSE = '0'
+ *   Stock Balance = SUM(BUSINESS_QTY1 - DELIVERED_BUSINESS_QTY)
+ *                   WHERE CLOSE = '0' AND ApproveStatus = 'Y'
+ *
+ * ─── Which quantity column ──────────────────────────────────────────────
+ *
+ * BUSINESS_QTY1 is the line quantity, as the ERP owner states. BUSINESS_QTY
+ * carries the same value on 993,980 of the feed's 993,983 rows; the 3 that
+ * differ are all CLOSE = '2' and so excluded anyway. The two are therefore
+ * interchangeable in practice, and BUSINESS_QTY1 is used because it is the
+ * one the source system names.
+ *
+ * QTY_TOTAL IS NOT THE LINE QUANTITY. It is the DOCUMENT total, repeated
+ * verbatim on every line of the order. Summing it across lines inflates the
+ * figure roughly fourfold - 55,431,486 against the true 14,141,327 for open
+ * orders - which is the classic way to get a stock balance that looks far too
+ * large. It is only meaningful as max() per DOC_NO.
  *
  * ─── Open orders only ───────────────────────────────────────────────────
  *
@@ -17,8 +31,10 @@
  * feed's 292,886 documents carries two different values - so filtering by
  * line is the same as filtering by order.
  *
- * Only open orders are counted. A closed order has been settled and is no
- * longer stock the distributor is waiting to collect. Because closed orders
+ * Only orders that are OPEN and APPROVED are counted. A closed order has been
+ * settled and is no longer stock the distributor is waiting to collect; an
+ * unapproved one is not yet stock they are owed - the ERP has never delivered
+ * against a single unapproved line. Because closed orders
  * are delivered almost in full, excluding them barely moves the REMAINING
  * figure but cuts the purchased and loaded totals by two orders of magnitude,
  * and with them `loadingProgress` - which is the point: progress against
@@ -69,7 +85,7 @@
  */
 export const ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL = `
     SELECT so.payload->>'ITEM_DESCRIPTION' AS product,
-           sum(coalesce(nullif(so.payload->>'BUSINESS_QTY', '')::numeric, 0))
+           sum(coalesce(nullif(so.payload->>'BUSINESS_QTY1', '')::numeric, 0))
              AS ordered_qty,
            sum(coalesce(nullif(so.payload->>'DELIVERED_BUSINESS_QTY', '')::numeric, 0))
              AS delivered_qty,
@@ -113,6 +129,15 @@ export const ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL = `
        -- 19,012 rows carry no CLOSE at all. The = '0' test excludes those
        -- as well, which is the rule as stated; they are 11,641 cartons.
        AND so.payload->>'CLOSE' = '0'
+       -- APPROVED ORDERS ONLY. ApproveStatus is 'Y' approved, 'V' or 'N'
+       -- otherwise, and like CLOSE it is a document-level flag repeated on
+       -- every line - not one of the 5,855 open documents carries two values.
+       --
+       -- Unapproved orders have never been delivered against: all 6,435
+       -- open-but-unapproved line rows carry DELIVERED_BUSINESS_QTY = 0. They
+       -- therefore added 4,063,621 cartons of pure "remaining" for goods the
+       -- ERP has not agreed to ship, roughly halving the stock balance.
+       AND so.payload->>'ApproveStatus' = 'Y'
        AND so.payload->>'CUSTOMER_ID' = (
              SELECT c.payload->>'CUSTOMER_ID'
                FROM erp_raw.raw_customer c
@@ -156,7 +181,7 @@ export const ERP_CUSTOMER_IDS_FOR_CODES_SQL = `
  */
 export const ERP_STOCK_BALANCE_FOR_CUSTOMERS_SQL = `
     SELECT so.payload->>'ITEM_DESCRIPTION' AS product,
-           sum(coalesce(nullif(so.payload->>'BUSINESS_QTY', '')::numeric, 0))
+           sum(coalesce(nullif(so.payload->>'BUSINESS_QTY1', '')::numeric, 0))
              AS ordered_qty,
            sum(coalesce(nullif(so.payload->>'DELIVERED_BUSINESS_QTY', '')::numeric, 0))
              AS delivered_qty,
@@ -189,6 +214,15 @@ export const ERP_STOCK_BALANCE_FOR_CUSTOMERS_SQL = `
        -- 19,012 rows carry no CLOSE at all. The = '0' test excludes those
        -- as well, which is the rule as stated; they are 11,641 cartons.
        AND so.payload->>'CLOSE' = '0'
+       -- APPROVED ORDERS ONLY. ApproveStatus is 'Y' approved, 'V' or 'N'
+       -- otherwise, and like CLOSE it is a document-level flag repeated on
+       -- every line - not one of the 5,855 open documents carries two values.
+       --
+       -- Unapproved orders have never been delivered against: all 6,435
+       -- open-but-unapproved line rows carry DELIVERED_BUSINESS_QTY = 0. They
+       -- therefore added 4,063,621 cartons of pure "remaining" for goods the
+       -- ERP has not agreed to ship, roughly halving the stock balance.
+       AND so.payload->>'ApproveStatus' = 'Y'
        AND so.payload->>'CUSTOMER_ID' = ANY(string_to_array($1, ','))
        AND ($2::date IS NULL OR (so.payload->>'DOC_DATE')::date >= $2::date)
        AND ($3::date IS NULL OR (so.payload->>'DOC_DATE')::date <= $3::date)
