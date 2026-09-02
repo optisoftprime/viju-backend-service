@@ -8,6 +8,21 @@
  *   DELIVERED_BUSINESS_QTY  quantity actually delivered against the line
  *
  *   Stock Balance = SUM(BUSINESS_QTY - DELIVERED_BUSINESS_QTY)
+ *                   WHERE CLOSE = '0'
+ *
+ * ─── Open orders only ───────────────────────────────────────────────────
+ *
+ * CLOSE is the order's state, repeated on every line of the document: '0'
+ * open, '2' closed. It is consistent within a document - not one of the
+ * feed's 292,886 documents carries two different values - so filtering by
+ * line is the same as filtering by order.
+ *
+ * Only open orders are counted. A closed order has been settled and is no
+ * longer stock the distributor is waiting to collect. Because closed orders
+ * are delivered almost in full, excluding them barely moves the REMAINING
+ * figure but cuts the purchased and loaded totals by two orders of magnitude,
+ * and with them `loadingProgress` - which is the point: progress against
+ * what is actually outstanding, not against everything ever ordered.
  *
  * WHY THIS EXISTS: the home screen and the stock-balance breakdown each used
  * to derive this from the local `Purchase` / `LoadingRequest` tables, by two
@@ -85,6 +100,19 @@ export const ERP_STOCK_BALANCE_FOR_CUSTOMER_SQL = `
              AS last_order_date
       FROM erp_raw.raw_sales_order so
      WHERE so.object_type = 'SALES_ORDER'
+       -- OPEN ORDERS ONLY. The ERP marks a sales order's state on every one
+       -- of its lines: '0' is open, '2' is closed. A closed order has been
+       -- settled and is no longer part of what the distributor is waiting to
+       -- collect, so counting it inflates both what they "paid for" and their
+       -- loading progress.
+       --
+       -- The effect is large and mostly on the DENOMINATOR: closed orders are
+       -- 955,057 of the feed's 993,983 line rows but only 26,784 cartons of
+       -- outstanding stock, because they are delivered almost in full.
+       --
+       -- 19,012 rows carry no CLOSE at all. The = '0' test excludes those
+       -- as well, which is the rule as stated; they are 11,641 cartons.
+       AND so.payload->>'CLOSE' = '0'
        AND so.payload->>'CUSTOMER_ID' = (
              SELECT c.payload->>'CUSTOMER_ID'
                FROM erp_raw.raw_customer c
@@ -148,6 +176,19 @@ export const ERP_STOCK_BALANCE_FOR_CUSTOMERS_SQL = `
              AS last_order_date
       FROM erp_raw.raw_sales_order so
      WHERE so.object_type = 'SALES_ORDER'
+       -- OPEN ORDERS ONLY. The ERP marks a sales order's state on every one
+       -- of its lines: '0' is open, '2' is closed. A closed order has been
+       -- settled and is no longer part of what the distributor is waiting to
+       -- collect, so counting it inflates both what they "paid for" and their
+       -- loading progress.
+       --
+       -- The effect is large and mostly on the DENOMINATOR: closed orders are
+       -- 955,057 of the feed's 993,983 line rows but only 26,784 cartons of
+       -- outstanding stock, because they are delivered almost in full.
+       --
+       -- 19,012 rows carry no CLOSE at all. The = '0' test excludes those
+       -- as well, which is the rule as stated; they are 11,641 cartons.
+       AND so.payload->>'CLOSE' = '0'
        AND so.payload->>'CUSTOMER_ID' = ANY(string_to_array($1, ','))
        AND ($2::date IS NULL OR (so.payload->>'DOC_DATE')::date >= $2::date)
        AND ($3::date IS NULL OR (so.payload->>'DOC_DATE')::date <= $3::date)
