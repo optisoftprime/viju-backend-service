@@ -181,6 +181,48 @@ describe('Loading request required fields', () => {
       );
     });
 
+    it('accepts a zero on a line as long as the TOTAL is positive', async () => {
+      // A picker that lists every product on an order sends zeros for the
+      // ones the distributor left blank.
+      const { run, prisma } = submit({
+        loadingCapacity: 54,
+        products: [
+          { productName: 'A', weightPerCarton: 2.7, quantityToLoad: 20 },
+          { productName: 'B', weightPerCarton: 5, quantityToLoad: 0 },
+        ],
+      });
+
+      await run;
+
+      expect(prisma.loadingRequest.create).toHaveBeenCalled();
+    });
+
+    it('refuses a request whose lines ALL read zero', async () => {
+      // Lines are present, so the "at least one product" rule passes - but
+      // the truck would go out empty.
+      const { run, prisma } = submit({
+        loadingCapacity: 174,
+        products: [
+          { productName: 'A', weightPerCarton: 2.7, quantityToLoad: 0 },
+          { productName: 'B', weightPerCarton: 5, quantityToLoad: 0 },
+        ],
+      });
+
+      await expect(run).rejects.toThrow(
+        /total quantityToLoad across products must be more than 0/,
+      );
+      expect(prisma.loadingRequest.create).not.toHaveBeenCalled();
+    });
+
+    it('refuses a negative quantity outright', async () => {
+      const errors = await failures({
+        ...BODY,
+        products: [{ productName: 'A', quantityToLoad: -5 }],
+      });
+
+      expect(errors).toContain('products');
+    });
+
     it('refuses another distributor’s customerId', async () => {
       const { run, prisma } = submit({
         customerId: 'e8fef5ed-bdc5-4ee2-9902-1839e3c9ddd4',

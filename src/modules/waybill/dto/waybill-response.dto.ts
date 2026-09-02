@@ -224,29 +224,6 @@ export class WaybillDto {
   @ApiProperty({ enum: REGION_VALUES, example: 'LAGOS' })
   region: Region;
 
-  @ApiProperty({
-    example: 'f7a86c0a-1ee9-40d0-85a0-5334f6da100c',
-    nullable: true,
-    description:
-      'The PRIMARY order - the one the request is filed under and whose ' +
-      'DOC_NO became `reference`. See `linkedPurchaseIds` for the full set.',
-  })
-  linkedPurchaseId: string | null;
-
-  @ApiProperty({
-    type: [String],
-    example: [
-      'f7a86c0a-1ee9-40d0-85a0-5334f6da100c',
-      'ea95bb9e-e470-4743-ab20-618841ea9abf',
-    ],
-    description:
-      'EVERY order this request draws on, primary first. One truck loads ' +
-      'from several sales orders, so read this rather than `linkedPurchaseId` ' +
-      'when showing which orders are on the load. Single-entry on requests ' +
-      'raised against one order.',
-  })
-  linkedPurchaseIds: string[];
-
   @ApiProperty({ example: 'LAG-234-XY' })
   truckPlateNumber: string;
 
@@ -350,14 +327,6 @@ export class WaybillDto {
 
 // ─── Detail (GET /customers/me/waybills/:id) ───────────────────
 // Full model record + linkedPurchase {id, erpId} + masked assignedOfficer.
-
-export class WaybillDetailLinkedPurchaseDto {
-  @ApiProperty({ example: 'purchase-uuid-1' })
-  id: string;
-
-  @ApiProperty({ example: 'VJ-2026-675' })
-  erpId: string;
-}
 
 export class CustomerWaybillAssignedOfficerDto {
   @ApiProperty({
@@ -463,6 +432,14 @@ export class WaybillTotalsDto {
 
 export class WaybillDetailDto extends WaybillDto {
   @ApiProperty({
+    type: [WaybillAccountOfficerDto],
+    description:
+      'The ACCOUNT officers assigned to this distributor, primary first, ' +
+      'exactly as the list reports them. Empty when nobody is assigned.',
+  })
+  accountOfficers: WaybillAccountOfficerDto[];
+
+  @ApiProperty({
     type: [WaybillOrderBreakdownDto],
     description:
       'The load broken down PER ORDER, primary first - the shape the request ' +
@@ -473,9 +450,6 @@ export class WaybillDetailDto extends WaybillDto {
 
   @ApiProperty({ type: WaybillTotalsDto })
   totals: WaybillTotalsDto;
-
-  @ApiProperty({ type: WaybillDetailLinkedPurchaseDto, nullable: true })
-  linkedPurchase: WaybillDetailLinkedPurchaseDto | null;
 
   @ApiProperty({
     type: CustomerWaybillAssignedOfficerDto,

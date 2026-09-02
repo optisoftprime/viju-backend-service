@@ -146,6 +146,35 @@ describe('Editing a loading request', () => {
     }
   });
 
+  it('refuses an edit that zeroes every line', async () => {
+    // Emptying a live request is what cancelling is for.
+    const { service, prisma } = build();
+
+    await expect(
+      service.updateLoadingRequest('c-1', 'lr-1', {
+        loadingCapacity: 1,
+        products: [{ productName: 'A', weightPerCarton: 5, quantityToLoad: 0 }],
+      }),
+    ).rejects.toThrow(
+      /total quantityToLoad across products must be more than 0/,
+    );
+    expect(prisma.loadingRequest.update).not.toHaveBeenCalled();
+  });
+
+  it('allows a zero line while the total stays positive', async () => {
+    const { service, prisma } = build();
+
+    await service.updateLoadingRequest('c-1', 'lr-1', {
+      loadingCapacity: 100,
+      products: [
+        { productName: 'A', weightPerCarton: 5, quantityToLoad: 20 },
+        { productName: 'B', weightPerCarton: 3, quantityToLoad: 0 },
+      ],
+    });
+
+    expect(prisma.loadingRequest.update).toHaveBeenCalled();
+  });
+
   it('404s on another distributor’s request', async () => {
     const { service, prisma } = build();
     prisma.loadingRequest.findFirst.mockResolvedValue(null);

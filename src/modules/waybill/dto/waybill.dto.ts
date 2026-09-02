@@ -99,11 +99,15 @@ export class LoadingRequestProductDto {
       'former name `quantity` is still accepted: a line must carry ONE of the ' +
       'two, and a line carrying neither is refused with a message naming ' +
       'both. Declaring it required here would reject an older client before ' +
-      'that fallback could apply.',
+      'that fallback could apply.\n\n' +
+      'A SINGLE line may be 0 - a picker that lists every product on an order ' +
+      'and lets the distributor fill in only some of them sends zeros for the ' +
+      'rest. What must not be zero is the TOTAL across the request, which is ' +
+      'checked in the service. Negatives are refused here.',
   })
   @IsOptional()
   @IsInt()
-  @Min(1)
+  @Min(0)
   quantityToLoad?: number;
 
   @ApiPropertyOptional({
@@ -116,7 +120,7 @@ export class LoadingRequestProductDto {
   })
   @IsOptional()
   @IsInt()
-  @Min(1)
+  @Min(0)
   quantity?: number;
 
   @ApiPropertyOptional({
@@ -246,8 +250,9 @@ export class SubmitLoadingRequestDto {
     type: [LoadingRequestProductDto],
     minItems: 1,
     description:
-      'The products being loaded. AT LEAST ONE IS REQUIRED - a loading ' +
-      'request that loads nothing is not a request.\n\n' +
+      'The products being loaded. AT LEAST ONE IS REQUIRED, and their ' +
+      'quantities must ADD UP TO MORE THAN ZERO - a loading request that ' +
+      'loads nothing is not a request. An individual line MAY be 0.\n\n' +
       'Marked optional to the validator, and enforced in the service, only so ' +
       'that the multi-order `orders` form can satisfy the same rule: a body ' +
       'must carry at least one product line in ONE of the two shapes. A body ' +

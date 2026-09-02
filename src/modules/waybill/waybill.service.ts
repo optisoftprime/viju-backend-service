@@ -65,7 +65,19 @@ function mergeProductLines(
     weightPerCarton: number | null;
   }[],
 ) {
-  const merged = new Map<string, (typeof lines)[number]>();
+  // Projected field by field rather than spread: a stored line also carries
+  // which ORDER it came from, and a product row is one product, not one line.
+  const merged = new Map<
+    string,
+    {
+      id: string;
+      productId: string | null;
+      productName: string;
+      spec: string | null;
+      quantity: number;
+      weightPerCarton: number | null;
+    }
+  >();
   for (const line of lines) {
     const key = line.productId
       ? `code:${line.productId}`
@@ -73,13 +85,20 @@ function mergeProductLines(
     const seen = merged.get(key);
     if (seen) {
       seen.quantity += line.quantity;
-      // The weight is a property of the product, so any line that states one
-      // states the same one. Take the first that does.
-      seen.weightPerCarton ??= line.weightPerCarton;
-      seen.spec ??= line.spec;
+      // The weight and the spec are properties of the PRODUCT, so any line
+      // stating one states the same one. Take the first that does.
+      seen.weightPerCarton ??= line.weightPerCarton ?? null;
+      seen.spec ??= line.spec ?? null;
       continue;
     }
-    merged.set(key, { ...line });
+    merged.set(key, {
+      id: line.id,
+      productId: line.productId ?? null,
+      productName: line.productName,
+      spec: line.spec ?? null,
+      quantity: line.quantity,
+      weightPerCarton: line.weightPerCarton ?? null,
+    });
   }
   return [...merged.values()];
 }
@@ -256,13 +275,24 @@ export class WaybillService {
           weightPerCarton: i.weightPerCarton,
         }));
 
+    const loadedCartons = lines.reduce((sum, l) => sum + l.quantity, 0);
+    // The same rule the create path applies: an individual line may be 0, but
+    // editing every line to zero would leave a live request that loads
+    // nothing. Emptying it is what cancelling is for.
+    //
+    // Ahead of the capacity check, which would otherwise answer "0kg does not
+    // match your capacity" - true, but not the thing that is wrong.
+    if (replacingLines && loadedCartons <= 0) {
+      throw new BadRequestException(
+        'The total quantityToLoad across products must be more than 0.',
+      );
+    }
+
     // Checked against the merged result: a capacity the caller did not resend
     // still has to match the lines they did.
     const capacity =
       dto.loadingCapacity ?? existing.loadingCapacity ?? undefined;
     this.assertCapacityMatchesLoad(capacity, lines);
-
-    const loadedCartons = lines.reduce((sum, l) => sum + l.quantity, 0);
     const updated = await this.prisma.loadingRequest.update({
       where: { id },
       data: {
@@ -461,10 +491,13 @@ export class WaybillService {
         items: {
           select: {
             id: true,
+            // Kept for the per-order grouping below; NOT returned on a
+            // product row, which is one product, not one line.
             purchaseId: true,
             orderReference: true,
             productId: true,
             productName: true,
+            spec: true,
             quantity: true,
             weightPerCarton: true,
           },
@@ -472,7 +505,15 @@ export class WaybillService {
       },
     });
     if (!wb) throw new NotFoundException('Waybill not found');
-    const { items, ...rest } = wb;
+    const {
+      items,
+      linkedPurchase: _linkedPurchase,
+      linkedPurchaseId: _linkedPurchaseId,
+      ...rest
+    } = wb;
+
+    // The distributor's account officers, exactly as the list reports them.
+    const accountOfficers = await this.accountOfficersOf(customerId);
     const linkedPurchaseIds = linkedPurchaseIdsOf(wb.linkedPurchaseId, items);
 
     // The orders themselves, so the preview can name each one rather than
@@ -526,13 +567,15 @@ export class WaybillService {
         orderTotalValue: purchase?.totalValue ?? null,
         isPrimary,
         ...(declaredOnly && isPrimary ? declaredTotals : totalsOf(lines)),
-        products: lines,
+        // Merged within the order, the same way the flat list is: a product
+        // entered twice on one order is one row.
+        products: mergeProductLines(lines),
       };
     });
 
     return {
       ...rest,
-      linkedPurchaseIds,
+      accountOfficers,
       // The load broken down per order - what the distributor actually
       // submitted, regrouped. `products` below stays flat for callers that
       // already read it.
@@ -542,8 +585,8 @@ export class WaybillService {
         ...(declaredOnly ? declaredTotals : totalsOf(items)),
       },
       // Named `products` on the wire, matching the submit body; `items` is
-      // only the Prisma relation name.
-      products: items,
+      // only the Prisma relation name. ONE ROW PER PRODUCT, as on the list.
+      products: mergeProductLines(items),
       // PRD F6: customers never see an officer's real name — surface a generic
       // label, never the assigned loading officer's identity.
       assignedOfficer: wb.assignedOfficerId
@@ -702,9 +745,9 @@ export class WaybillService {
             `orders["${key}"] contains a line without a productName or quantity.`,
           );
         }
-        if (stated < 1) {
+        if (stated < 0) {
           throw new BadRequestException(
-            `orders["${key}"] contains a line with a quantity below 1.`,
+            `orders["${key}"] contains a line with a negative quantity.`,
           );
         }
         lines.push(
@@ -919,6 +962,15 @@ export class WaybillService {
     if (lines.length === 0) {
       throw new BadRequestException(
         'products must contain at least one product to load.',
+      );
+    }
+    // An individual line may be 0 - a picker that lists every product on an
+    // order sends zeros for the ones left blank - but a request whose lines
+    // ALL read zero loads nothing, and would otherwise be accepted as a real
+    // request against a truck that goes out empty.
+    if (loadedCartons <= 0) {
+      throw new BadRequestException(
+        'The total quantityToLoad across products must be more than 0.',
       );
     }
 
