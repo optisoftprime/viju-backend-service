@@ -3,6 +3,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
@@ -12,8 +13,15 @@ import {
   AcceptTermsDto,
   LoadingRequestProductDto,
   SubmitLoadingRequestDto,
+  UpdateLoadingRequestDto,
+  WaybillListQueryDto,
 } from './dto/waybill.dto';
 import { paginate } from '../../common/pagination/paginate';
+
+/** The page a list query asks for. */
+function pagination(query: { page?: number; pageSize?: number }) {
+  return { page: query.page ?? 1, pageSize: query.pageSize ?? 20 };
+}
 import { resolveProduct } from '../erp/product-specification.resolver';
 
 /**
@@ -32,6 +40,91 @@ const MAX_REFERENCE_ATTEMPTS = 25;
 const MAX_LOADING_REQUEST_LINES = 200;
 
 const TNC_RECENT_WINDOW_MS = 60 * 60 * 1000; // 1h
+
+/**
+ * The product rows a screen renders: one per PRODUCT, not one per stored line.
+ *
+ * A request can hold the same product on several lines - taken from two
+ * different orders, or entered twice - and a distributor reading their own
+ * loading request wants to see "120 cartons of table water", not two rows
+ * that they have to add up.
+ *
+ * Merged on `productId`. A line the ERP gives no code for falls back to its
+ * name and spec, so those still merge rather than being scattered.
+ *
+ * The FIRST line's id is kept: the rows are a view of the lines, and a merged
+ * row has no id of its own to offer.
+ */
+function mergeProductLines(
+  lines: {
+    id: string;
+    productId: string | null;
+    productName: string;
+    spec: string | null;
+    quantity: number;
+    weightPerCarton: number | null;
+  }[],
+) {
+  // Projected field by field rather than spread: a stored line also carries
+  // which ORDER it came from, and a product row is one product, not one line.
+  const merged = new Map<
+    string,
+    {
+      id: string;
+      productId: string | null;
+      productName: string;
+      spec: string | null;
+      quantity: number;
+      weightPerCarton: number | null;
+    }
+  >();
+  for (const line of lines) {
+    const key = line.productId
+      ? `code:${line.productId}`
+      : `name:${line.productName}|${line.spec ?? ''}`;
+    const seen = merged.get(key);
+    if (seen) {
+      seen.quantity += line.quantity;
+      // The weight and the spec are properties of the PRODUCT, so any line
+      // stating one states the same one. Take the first that does.
+      seen.weightPerCarton ??= line.weightPerCarton ?? null;
+      seen.spec ??= line.spec ?? null;
+      continue;
+    }
+    merged.set(key, {
+      id: line.id,
+      productId: line.productId ?? null,
+      productName: line.productName,
+      spec: line.spec ?? null,
+      quantity: line.quantity,
+      weightPerCarton: line.weightPerCarton ?? null,
+    });
+  }
+  return [...merged.values()];
+}
+
+/** One product line, as it is stored. */
+interface LoadingLine {
+  purchaseId: string | null;
+  orderReference: string | null;
+  productId: string | null;
+  productName: string;
+  spec: string | null;
+  quantityLeft: number | null;
+  quantity: number;
+  weightPerCarton: number | null;
+}
+
+/**
+ * Cartons to load on one line.
+ *
+ * `quantityToLoad` is what the form sends. `quantity` was its former name and
+ * is still read, so a client written against the old shape keeps working;
+ * `quantityToLoad` wins when both are present.
+ */
+function quantityOf(p: { quantityToLoad?: number; quantity?: number }): number {
+  return p.quantityToLoad ?? p.quantity ?? 0;
+}
 
 /**
  * The weight of a load, and how much of it could actually be weighed.
@@ -108,20 +201,157 @@ export class WaybillService {
     private readonly notifications: NotificationService,
   ) {}
 
+  /**
+   * Edits a loading request the distributor has raised but nobody has acted
+   * on yet.
+   *
+   * ONLY WHILE PENDING_ASSIGNMENT. Once a regional admin has assigned it, or
+   * an officer has begun loading, people are working to what it says; letting
+   * the distributor move the quantities underneath them would put the truck
+   * and the paperwork out of step. Those cases answer 409, not 403, because
+   * the request is real and the caller owns it - it is the state that refuses.
+   *
+   * The product lines are REPLACED wholesale when `products` or `orders` is
+   * sent, and left alone when neither is. A partial line list has no sensible
+   * meaning.
+   *
+   * The capacity rule is re-checked against the MERGED result, so editing the
+   * quantities and leaving the old `loadingCapacity` behind is caught - which
+   * is exactly the mistake the rule exists for.
+   *
+   * `reference` never changes. It is what the depot and the ERP know the
+   * request by, and re-filing it against a different order does not make it a
+   * different request.
+   */
+  async updateLoadingRequest(
+    customerId: string,
+    id: string,
+    dto: UpdateLoadingRequestDto,
+  ) {
+    const existing = await this.prisma.loadingRequest.findFirst({
+      where: { id, customerId },
+      include: { items: true },
+    });
+    if (!existing) throw new NotFoundException('Waybill not found');
+    if (existing.status !== 'PENDING_ASSIGNMENT') {
+      throw new ConflictException(
+        `This loading request is ${existing.status.toLowerCase().replace(/_/g, ' ')} ` +
+          'and can no longer be edited. Cancel it and raise a new one.',
+      );
+    }
+
+    const linkedOrders =
+      dto.linkedPurchaseId === undefined
+        ? []
+        : await this.resolveLinkedOrders(customerId, dto.linkedPurchaseId);
+
+    // Only when the caller sent lines. Otherwise the stored ones stand, and
+    // they are what the capacity is checked against.
+    const replacingLines =
+      dto.products !== undefined || dto.orders !== undefined;
+    const lines = replacingLines
+      ? await this.resolveOrderLines(
+          customerId,
+          dto as unknown as SubmitLoadingRequestDto,
+          linkedOrders.length > 0
+            ? linkedOrders
+            : existing.linkedPurchaseId
+              ? [
+                  {
+                    id: existing.linkedPurchaseId,
+                    erpId: existing.reference,
+                  },
+                ]
+              : [],
+        )
+      : existing.items.map((i) => ({
+          purchaseId: i.purchaseId,
+          orderReference: i.orderReference,
+          productId: i.productId,
+          productName: i.productName,
+          spec: i.spec,
+          quantityLeft: i.quantityLeft,
+          quantity: i.quantity,
+          weightPerCarton: i.weightPerCarton,
+        }));
+
+    const loadedCartons = lines.reduce((sum, l) => sum + l.quantity, 0);
+    // The same rule the create path applies: an individual line may be 0, but
+    // editing every line to zero would leave a live request that loads
+    // nothing. Emptying it is what cancelling is for.
+    //
+    // Ahead of the capacity check, which would otherwise answer "0kg does not
+    // match your capacity" - true, but not the thing that is wrong.
+    if (replacingLines && loadedCartons <= 0) {
+      throw new BadRequestException(
+        'The total quantityToLoad across products must be more than 0.',
+      );
+    }
+
+    // Checked against the merged result: a capacity the caller did not resend
+    // still has to match the lines they did.
+    const capacity =
+      dto.loadingCapacity ?? existing.loadingCapacity ?? undefined;
+    this.assertCapacityMatchesLoad(capacity, lines);
+    const updated = await this.prisma.loadingRequest.update({
+      where: { id },
+      data: {
+        truckPlateNumber: dto.truckPlateNumber,
+        driverName: dto.driverName,
+        driverPhone: dto.driverPhone,
+        requestedLoadingDate: dto.requestedLoadingDate
+          ? new Date(dto.requestedLoadingDate)
+          : undefined,
+        destination: dto.destination,
+        warehouseName: dto.warehouseName,
+        loadingCapacity: dto.loadingCapacity,
+        ...(linkedOrders.length > 0
+          ? { linkedPurchaseId: linkedOrders[0].id }
+          : {}),
+        ...(replacingLines
+          ? {
+              quantityCartons: lines.length > 0 ? loadedCartons : undefined,
+              // Replaced wholesale, in one transaction with the update, so a
+              // failure cannot leave the request with half its lines.
+              items: { deleteMany: {}, create: lines },
+            }
+          : {}),
+      },
+      include: { items: true },
+    });
+
+    const { items, ...rest } = updated;
+    return {
+      ...rest,
+      linkedPurchaseIds: linkedPurchaseIdsOf(updated.linkedPurchaseId, items),
+      products: items,
+    };
+  }
+
   async listForCustomer(
     customerId: string,
-    pagination: { page: number; pageSize: number } = { page: 1, pageSize: 20 },
+    query: WaybillListQueryDto = {
+      page: 1,
+      pageSize: 20,
+    },
   ) {
     const where = { customerId };
+
+    // The distributor's account officers, fetched ONCE for the page: every row
+    // belongs to the same distributor, so asking per row would be the same
+    // answer twenty times over.
+    const officers = await this.accountOfficersOf(customerId);
+
     const page = await paginate(
       () => this.prisma.loadingRequest.count({ where }),
       (skip, take) =>
         this.prisma.loadingRequest.findMany({
           where,
-          orderBy: { createdAt: 'desc' },
+          orderBy: this.listOrderBy(query),
           select: {
             id: true,
             reference: true,
+            customerId: true,
             truckPlateNumber: true,
             driverName: true,
             driverPhone: true,
@@ -132,15 +362,21 @@ export class WaybillService {
             createdAt: true,
             warehouseName: true,
             loadingCapacity: true,
-            linkedPurchaseId: true,
-            linkedPurchase: { select: { erpId: true } },
+            // What the LOADING officer wrote about the load.
+            description: true,
+            // Why a regional admin or account officer cancelled it.
+            cancelReason: true,
+            // No linkedPurchaseId / linkedPurchase: the request is filed
+            // against the ACCOUNT, and the list renders products, not orders.
+            // `reference` still carries the ERP document number where one
+            // exists, and the detail route still breaks the load down by
+            // order.
             items: {
               select: {
                 id: true,
-                purchaseId: true,
-                orderReference: true,
                 productId: true,
                 productName: true,
+                spec: true,
                 quantity: true,
                 weightPerCarton: true,
               },
@@ -149,16 +385,102 @@ export class WaybillService {
           skip,
           take,
         }),
-      pagination,
+      pagination(query),
     );
     return {
       ...page,
       data: page.data.map(({ items, ...row }) => ({
         ...row,
-        linkedPurchaseIds: linkedPurchaseIdsOf(row.linkedPurchaseId, items),
-        products: items,
+        accountOfficers: officers,
+        products: mergeProductLines(items),
       })),
     };
+  }
+
+  /**
+   * How the list is ordered.
+   *
+   * `status` sorts in LIFECYCLE order, not alphabetically: the column is a
+   * Postgres enum declared PENDING_ASSIGNMENT -> ASSIGNED ->
+   * LOADING_IN_PROGRESS -> COMPLETED -> CANCELLED, and Postgres sorts an enum
+   * by its declaration order. Ascending therefore puts what still needs doing
+   * at the top, which is the only ordering of a status that means anything.
+   *
+   * Ties break on `createdAt` descending so a page cannot shuffle between two
+   * requests for rows that sort equally.
+   */
+  private listOrderBy(query: WaybillListQueryDto) {
+    const direction: Prisma.SortOrder =
+      query.sortOrder === 'asc' ? 'asc' : 'desc';
+    switch (query.sortBy) {
+      case 'status':
+        return [{ status: direction }, { createdAt: 'desc' as const }];
+      case 'requestedLoadingDate':
+        return [
+          { requestedLoadingDate: direction },
+          { createdAt: 'desc' as const },
+        ];
+      default:
+        return [{ createdAt: direction }];
+    }
+  }
+
+  /**
+   * The account officers looking after this distributor.
+   *
+   * A distributor can have more than one: `assignedOfficerId` names the
+   * primary, and `CustomerOfficer` carries the rest. The primary comes first
+   * and is flagged, because "who do I talk to" has one answer even when
+   * several people can help.
+   *
+   * ACCOUNT officers are named to the distributor - it is who they chat with.
+   * The LOADING officer on a request is not (PRD F6), and is not in here.
+   */
+  private async accountOfficersOf(customerId: string) {
+    const customer = await this.prisma.customer.findUnique({
+      where: { id: customerId },
+      select: {
+        assignedOfficerId: true,
+        assignedOfficer: {
+          select: { id: true, name: true, email: true, phone: true },
+        },
+        officerAssignments: {
+          select: {
+            staff: {
+              select: { id: true, name: true, email: true, phone: true },
+            },
+          },
+        },
+      },
+    });
+    if (!customer) return [];
+
+    const officers: {
+      id: string;
+      name: string;
+      email: string | null;
+      phone: string | null;
+      isPrimary: boolean;
+    }[] = [];
+    const seen = new Set<string>();
+    const add = (
+      staff: {
+        id: string;
+        name: string;
+        email: string | null;
+        phone: string | null;
+      } | null,
+      isPrimary: boolean,
+    ) => {
+      if (!staff || seen.has(staff.id)) return;
+      seen.add(staff.id);
+      officers.push({ ...staff, isPrimary });
+    };
+    add(customer.assignedOfficer, true);
+    for (const assignment of customer.officerAssignments) {
+      add(assignment.staff, false);
+    }
+    return officers;
   }
 
   async getForCustomer(customerId: string, id: string) {
@@ -169,10 +491,13 @@ export class WaybillService {
         items: {
           select: {
             id: true,
+            // Kept for the per-order grouping below; NOT returned on a
+            // product row, which is one product, not one line.
             purchaseId: true,
             orderReference: true,
             productId: true,
             productName: true,
+            spec: true,
             quantity: true,
             weightPerCarton: true,
           },
@@ -180,7 +505,15 @@ export class WaybillService {
       },
     });
     if (!wb) throw new NotFoundException('Waybill not found');
-    const { items, ...rest } = wb;
+    const {
+      items,
+      linkedPurchase: _linkedPurchase,
+      linkedPurchaseId: _linkedPurchaseId,
+      ...rest
+    } = wb;
+
+    // The distributor's account officers, exactly as the list reports them.
+    const accountOfficers = await this.accountOfficersOf(customerId);
     const linkedPurchaseIds = linkedPurchaseIdsOf(wb.linkedPurchaseId, items);
 
     // The orders themselves, so the preview can name each one rather than
@@ -234,13 +567,15 @@ export class WaybillService {
         orderTotalValue: purchase?.totalValue ?? null,
         isPrimary,
         ...(declaredOnly && isPrimary ? declaredTotals : totalsOf(lines)),
-        products: lines,
+        // Merged within the order, the same way the flat list is: a product
+        // entered twice on one order is one row.
+        products: mergeProductLines(lines),
       };
     });
 
     return {
       ...rest,
-      linkedPurchaseIds,
+      accountOfficers,
       // The load broken down per order - what the distributor actually
       // submitted, regrouped. `products` below stays flat for callers that
       // already read it.
@@ -250,8 +585,8 @@ export class WaybillService {
         ...(declaredOnly ? declaredTotals : totalsOf(items)),
       },
       // Named `products` on the wire, matching the submit body; `items` is
-      // only the Prisma relation name.
-      products: items,
+      // only the Prisma relation name. ONE ROW PER PRODUCT, as on the list.
+      products: mergeProductLines(items),
       // PRD F6: customers never see an officer's real name — surface a generic
       // label, never the assigned loading officer's identity.
       assignedOfficer: wb.assignedOfficerId
@@ -296,15 +631,16 @@ export class WaybillService {
    */
   private async resolveLinkedOrders(
     customerId: string,
-    linkedPurchaseId: string | string[],
+    linkedPurchaseId: string | string[] | undefined,
   ): Promise<{ id: string; erpId: string }[]> {
+    // The form no longer names an order: the distributor picks products, and
+    // the request is filed against the ACCOUNT. An order id is still accepted
+    // - older clients send one, and it makes the reference match the ERP
+    // document - but its absence is not an error.
+    if (linkedPurchaseId === undefined || linkedPurchaseId === null) return [];
     const isList = Array.isArray(linkedPurchaseId);
     const raw = isList ? linkedPurchaseId : [linkedPurchaseId];
-    if (raw.length === 0) {
-      throw new BadRequestException(
-        'linkedPurchaseId must name at least one order.',
-      );
-    }
+    if (raw.length === 0) return [];
     if (raw.some((id) => typeof id !== 'string' || id.trim() === '')) {
       throw new BadRequestException(
         'linkedPurchaseId must be an order id, or an array of order ids.',
@@ -349,16 +685,15 @@ export class WaybillService {
     customerId: string,
     dto: SubmitLoadingRequestDto,
     linked: { id: string; erpId: string }[],
-  ): Promise<
-    {
-      purchaseId: string | null;
-      orderReference: string | null;
-      productId: string | null;
-      productName: string;
-      quantity: number;
-      weightPerCarton: number | null;
-    }[]
-  > {
+  ): Promise<LoadingLine[]> {
+    for (const product of dto.products ?? []) {
+      if (product.quantityToLoad == null && product.quantity == null) {
+        throw new BadRequestException(
+          `"${product.productName}" states no quantityToLoad.`,
+        );
+      }
+    }
+
     const toLine = (
       p: LoadingRequestProductDto,
       order: { id: string; erpId: string } | null,
@@ -367,11 +702,15 @@ export class WaybillService {
       orderReference: order?.erpId ?? null,
       productId: p.productId ?? null,
       productName: p.productName,
-      quantity: p.quantity,
+      spec: p.spec ?? null,
+      quantityLeft: p.quantityLeft ?? null,
+      // `quantityToLoad` is the field the form sends; `quantity` was its
+      // former name and is still accepted so older clients keep working.
+      quantity: quantityOf(p),
       weightPerCarton: p.weightPerCarton ?? null,
     });
 
-    const primary = linked[0];
+    const primary = linked[0] ?? null;
     if (!dto.orders) {
       return (dto.products ?? []).map((p) => toLine(p, primary));
     }
@@ -400,14 +739,15 @@ export class WaybillService {
       }
       covered.add(order.id);
       for (const product of products) {
-        if (!product?.productName || typeof product.quantity !== 'number') {
+        const stated = product?.quantityToLoad ?? product?.quantity;
+        if (!product?.productName || typeof stated !== 'number') {
           throw new BadRequestException(
             `orders["${key}"] contains a line without a productName or quantity.`,
           );
         }
-        if (product.quantity < 1) {
+        if (stated < 0) {
           throw new BadRequestException(
-            `orders["${key}"] contains a line with a quantity below 1.`,
+            `orders["${key}"] contains a line with a negative quantity.`,
           );
         }
         lines.push(
@@ -483,6 +823,42 @@ export class WaybillService {
   }
 
   /**
+   * `loadingCapacity` must EQUAL the weight of the load.
+   *
+   *   total weight = SUM(quantityToLoad x weightPerCarton)
+   *
+   * The field is not a truck's rated capacity that the load has to fit inside:
+   * the form computes the load's weight and sends it, and this confirms the
+   * two agree. A form that miscounts, or a client that edits the products
+   * without recomputing, is caught here rather than filing a request whose
+   * stated weight is not the weight of what it lists.
+   *
+   * Compared at 2dp, because both sides are sums of two-decimal kilograms and
+   * binary floating point does not make 20 x 2.7 exactly 54.
+   *
+   * A load with lines nothing can weigh is LET THROUGH: the check would
+   * otherwise reject on a total it cannot stand behind. Nothing is written
+   * until this passes, so a rejection leaves no half-made request behind.
+   */
+  private assertCapacityMatchesLoad(
+    loadingCapacity: number | undefined,
+    lines: LoadingLine[],
+  ): void {
+    if (loadingCapacity == null || lines.length === 0) return;
+    const { totalWeightKg, unweighed } = this.weighLoad(lines);
+    if (unweighed > 0) return;
+    if (Math.abs(totalWeightKg - loadingCapacity) < 0.01) return;
+    const difference =
+      Math.round((totalWeightKg - loadingCapacity) * 100) / 100;
+    throw new BadRequestException(
+      `The products weigh ${totalWeightKg}kg but loadingCapacity says ` +
+        `${loadingCapacity}kg - a difference of ${Math.abs(difference)}kg. ` +
+        `loadingCapacity must equal the sum of quantityToLoad x ` +
+        `weightPerCarton across every product.`,
+    );
+  }
+
+  /**
    * Creates the request with a reference derived from the ERP document.
    *
    * `reference` used to be `WB-<timestamp>`, which carried no relationship to
@@ -547,19 +923,30 @@ export class WaybillService {
       );
     }
 
+    // A distributor may state their own id, and only their own. Ignoring a
+    // wrong one would file the request against the wrong account without
+    // anyone noticing; refusing says so out loud.
+    if (dto.customerId && dto.customerId !== customerId) {
+      throw new ForbiddenException(
+        'customerId does not match the signed-in distributor. Omit it, or ' +
+          'send your own id.',
+      );
+    }
+
     const customer = await this.prisma.customer.findUnique({
       where: { id: customerId },
-      select: { id: true, region: true, name: true },
+      select: { id: true, erpId: true, region: true, name: true },
     });
     if (!customer) throw new NotFoundException('Customer not found');
 
-    // The first is the PRIMARY order: the request is filed under it and its
-    // DOC_NO becomes the reference.
+    // The first is the PRIMARY order, when one is named: the request is filed
+    // under it and its DOC_NO becomes the reference. The form no longer sends
+    // one, so this is usually empty.
     const linkedOrders = await this.resolveLinkedOrders(
       customerId,
       dto.linkedPurchaseId,
     );
-    const purchase = linkedOrders[0];
+    const purchase = linkedOrders[0] ?? null;
 
     const lines = await this.resolveOrderLines(customerId, dto, linkedOrders);
     // `loadingCapacity` is the TRUCK's capacity, not the load. The load is the
@@ -569,33 +956,39 @@ export class WaybillService {
     // product lines.
     const loadedCartons = lines.reduce((sum, l) => sum + l.quantity, 0);
 
-    // THE TRUCK MUST BE ABLE TO CARRY THE LOAD. Checked before anything is
-    // written, so a rejected request leaves no half-made loading request
-    // behind.
-    //
-    // Only when a capacity was given: it is optional, and a request without
-    // one states no limit to check against.
-    if (dto.loadingCapacity != null && lines.length > 0) {
-      const { totalWeightKg, unweighed } = this.weighLoad(lines);
-      if (totalWeightKg > dto.loadingCapacity) {
-        const over =
-          Math.round((totalWeightKg - dto.loadingCapacity) * 100) / 100;
-        throw new BadRequestException(
-          `The load weighs ${totalWeightKg}kg, which exceeds the loading ` +
-            `capacity of ${dto.loadingCapacity}kg by ${over}kg. Reduce the ` +
-            `quantities or raise the capacity.` +
-            (unweighed > 0
-              ? ` (${unweighed} product line(s) carry no carton weight and ` +
-                `could not be counted, so the real load is heavier still.)`
-              : ''),
-        );
-      }
+    // A loading request that loads nothing is not a request. Checked here
+    // rather than on the DTO because either `products` or `orders` may carry
+    // the lines, and the validator can only see one field at a time.
+    if (lines.length === 0) {
+      throw new BadRequestException(
+        'products must contain at least one product to load.',
+      );
+    }
+    // An individual line may be 0 - a picker that lists every product on an
+    // order sends zeros for the ones left blank - but a request whose lines
+    // ALL read zero loads nothing, and would otherwise be accepted as a real
+    // request against a truck that goes out empty.
+    if (loadedCartons <= 0) {
+      throw new BadRequestException(
+        'The total quantityToLoad across products must be more than 0.',
+      );
     }
 
-    const request = await this.createWithOrderReference(purchase.erpId, {
+    this.assertCapacityMatchesLoad(dto.loadingCapacity, lines);
+
+    // WHAT THE REFERENCE IS DRAWN FROM. When the request names an order, its
+    // DOC_NO - so the reference can be matched against the ERP by eye. The
+    // form no longer names one, so the fallback is the distributor's own ERP
+    // code and the date, which is still recognisable and still unique once
+    // the -02 suffix settles same-day collisions.
+    const referenceBase = purchase
+      ? purchase.erpId
+      : `LR-${customer.erpId}-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
+
+    const request = await this.createWithOrderReference(referenceBase, {
       customerId,
       region: customer.region,
-      linkedPurchaseId: purchase.id,
+      linkedPurchaseId: purchase?.id ?? null,
       truckPlateNumber: dto.truckPlateNumber,
       driverName: dto.driverName,
       driverPhone: dto.driverPhone,

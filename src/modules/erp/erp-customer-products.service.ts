@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { resolveProduct } from './product-specification.resolver';
+import { stripCjk } from './strip-cjk';
 import { ErpItemCodeService } from './erp-item-code.service';
 
 /**
@@ -10,10 +11,16 @@ import { ErpItemCodeService } from './erp-item-code.service';
 export interface ErpOrderProduct {
   productId: string | null;
   productName: string;
+  /**
+   * ITEM_SPECIFICATION, with the ERP's Chinese category characters stripped -
+   * '750ML(L)' from '750ML(L)', '100ML' from '100ML中性'. It is what separates
+   * two products the feed gives the same name, so it belongs on screen next to
+   * the name.
+   */
+  spec: string | null;
   weightPerCarton: number | null;
-  /** BUSINESS_QTY - DELIVERED_BUSINESS_QTY, summed over the order's lines. */
+  /** BUSINESS_QTY1 - DELIVERED_BUSINESS_QTY, summed over the order's lines. */
   quantityLeft: number;
-  matchedOn: 'SPEC_AND_NAME' | 'NAME' | 'SPEC' | 'NONE';
 }
 
 /**
@@ -120,7 +127,7 @@ export class ErpCustomerProductsService {
         `SELECT so.payload->>'ITEM_DESCRIPTION'   AS descr,
                 so.payload->>'ITEM_SPECIFICATION' AS spec,
                 min(nullif(so.payload->>'ITEM_CODE', '')) AS item_code,
-                sum(coalesce(nullif(so.payload->>'BUSINESS_QTY', '')::numeric, 0))
+                sum(coalesce(nullif(so.payload->>'BUSINESS_QTY1', '')::numeric, 0))
                   AS ordered_qty,
                 sum(coalesce(nullif(so.payload->>'DELIVERED_BUSINESS_QTY', '')::numeric, 0))
                   AS delivered_qty
@@ -151,7 +158,10 @@ export class ErpCustomerProductsService {
           row.item_code ??
           this.itemCodes.codeFor(row.descr) ??
           resolved.productId;
-        const key = `${productId ?? ''}|${resolved.productName}|${resolved.weightPerCarton ?? ''}`;
+        const spec = stripCjk(row.spec);
+        // Keyed on the spec too: two sizes under one ERP name are two
+        // products, and merging them would hide one of them.
+        const key = `${productId ?? ''}|${resolved.productName}|${spec ?? ''}|${resolved.weightPerCarton ?? ''}`;
         // Two specifications can resolve to the same product - '(1.5)MALT
         // MILK(O)' arrives under both 500ML果汁(O) and 500ML麦汁(O). They are
         // one product on screen, so their quantities are ADDED rather than
@@ -162,7 +172,13 @@ export class ErpCustomerProductsService {
           seen.quantityLeft += left;
           continue;
         }
-        byKey.set(key, { ...resolved, productId, quantityLeft: left });
+        byKey.set(key, {
+          productId,
+          productName: resolved.productName,
+          spec,
+          weightPerCarton: resolved.weightPerCarton,
+          quantityLeft: left,
+        });
       }
       return [...byKey.values()];
     } catch (e) {

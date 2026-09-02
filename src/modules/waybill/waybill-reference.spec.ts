@@ -54,6 +54,9 @@ describe('Loading request reference', () => {
     driverName: 'Jimoh Ibrahim',
     driverPhone: '+2348012345678',
     linkedPurchaseId: 'p-1',
+    // A request must load something. These tests are about the reference, so
+    // the line is the smallest one that satisfies that.
+    products: [{ productName: 'A', quantityToLoad: 1 }],
     requestedLoadingDate: '2026-08-30',
   };
 

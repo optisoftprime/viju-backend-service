@@ -55,9 +55,8 @@ describe('Loading request across several orders', () => {
     truckPlateNumber: 'LAG-234-XY',
     driverName: 'Jimoh Ibrahim',
     driverPhone: '+2348012345678',
-    // Kilograms, and ample: these tests are about which order a line came
-    // from, not about the capacity guard, which has its own spec.
-    loadingCapacity: 20000,
+    // No loadingCapacity: it must EQUAL the load's weight, and these tests
+    // are about which order a line came from. The rule has its own spec.
     linkedPurchaseId: 'p-1',
     requestedLoadingDate: '2026-08-30',
   };
@@ -96,6 +95,8 @@ describe('Loading request across several orders', () => {
         orderReference: '2310-202606110033',
         productId: '101020104',
         productName: 'Product A',
+        spec: null,
+        quantityLeft: null,
         quantity: 120,
         weightPerCarton: 25,
       },
@@ -104,6 +105,8 @@ describe('Loading request across several orders', () => {
         orderReference: '2310-202606110044',
         productId: '101020105',
         productName: 'Product B',
+        spec: null,
+        quantityLeft: null,
         quantity: 10,
         weightPerCarton: 20,
       },
@@ -169,6 +172,8 @@ describe('Loading request across several orders', () => {
         orderReference: '2310-202606110033',
         productId: null,
         productName: 'Product A',
+        spec: null,
+        quantityLeft: null,
         quantity: 120,
         weightPerCarton: 25,
       },
@@ -312,15 +317,20 @@ describe('Loading request across several orders', () => {
       expect(data.linkedPurchaseId).toBe('p-1');
     });
 
-    it('rejects an empty list', async () => {
-      const { service } = build();
+    it('accepts an empty list - the form need not name an order', async () => {
+      // The request is filed against the ACCOUNT now. An order id is still
+      // accepted, but its absence is not an error.
+      const { service, prisma } = build();
 
-      await expect(
-        service.submitLoadingRequest('c-1', {
-          ...baseDto,
-          linkedPurchaseId: [],
-        } as never),
-      ).rejects.toThrow(/at least one order/);
+      await service.submitLoadingRequest('c-1', {
+        ...baseDto,
+        linkedPurchaseId: [],
+        products: [{ productName: 'Product A', quantityToLoad: 5 }],
+      } as never);
+
+      const data = prisma.loadingRequest.create.mock.calls[0][0].data;
+      expect(data.linkedPurchaseId).toBeNull();
+      expect(data.reference).toMatch(/^LR-/);
     });
 
     it('keeps the original message for a bad single id', async () => {
@@ -336,10 +346,15 @@ describe('Loading request across several orders', () => {
     });
   });
 
-  it('leaves an empty map behaving like no products at all', async () => {
-    const data = await submit({ orders: {}, quantityCartons: 320 });
+  it('refuses an empty map - it loads nothing', async () => {
+    const { service } = build();
 
-    expect(data.items).toBeUndefined();
-    expect(data.quantityCartons).toBe(320);
+    await expect(
+      service.submitLoadingRequest('c-1', {
+        ...baseDto,
+        orders: {},
+        quantityCartons: 320,
+      } as never),
+    ).rejects.toThrow(/at least one product to load/);
   });
 });

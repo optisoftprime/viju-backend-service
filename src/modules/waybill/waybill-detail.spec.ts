@@ -42,6 +42,19 @@ describe('Loading request detail', () => {
     const prisma = {
       loadingRequest: { findFirst: jest.fn().mockResolvedValue(request) },
       purchase: { findMany: jest.fn().mockResolvedValue(PURCHASES) },
+      // The account officers the detail now reports, as the list does.
+      customer: {
+        findUnique: jest.fn().mockResolvedValue({
+          assignedOfficerId: 'o-1',
+          assignedOfficer: {
+            id: 'o-1',
+            name: 'Funmi Adelaja',
+            email: 'funmi@viju.local',
+            phone: '+2349010000013',
+          },
+          officerAssignments: [],
+        }),
+      },
     };
     return {
       prisma,
@@ -238,6 +251,62 @@ describe('Loading request detail', () => {
 
       expect(res.orders[0].weightIsComplete).toBe(false);
     });
+  });
+
+  it('reports the account officers, as the list does', async () => {
+    const { service } = build(REQUEST);
+
+    const res = (await service.getForCustomer('c-1', 'lr-1')) as any;
+
+    expect(res.accountOfficers).toEqual([
+      {
+        id: 'o-1',
+        name: 'Funmi Adelaja',
+        email: 'funmi@viju.local',
+        phone: '+2349010000013',
+        isPrimary: true,
+      },
+    ]);
+  });
+
+  it('carries the same product row shape as the list', async () => {
+    // One row per PRODUCT, with `spec`, and no per-line order fields.
+    const { service } = build(REQUEST);
+
+    const res = (await service.getForCustomer('c-1', 'lr-1')) as any;
+
+    expect(Object.keys(res.products[0]).sort()).toEqual([
+      'id',
+      'productId',
+      'productName',
+      'quantity',
+      'spec',
+      'weightPerCarton',
+    ]);
+  });
+
+  it('drops the linked-order fields, as the list does', async () => {
+    // `orders` conveys the same thing, and better.
+    const { service } = build(REQUEST);
+
+    const res = (await service.getForCustomer('c-1', 'lr-1')) as any;
+
+    expect(res).not.toHaveProperty('linkedPurchaseId');
+    expect(res).not.toHaveProperty('linkedPurchase');
+    expect(res).not.toHaveProperty('linkedPurchaseIds');
+  });
+
+  it('merges a product entered twice on one order', async () => {
+    const { service } = build({
+      ...REQUEST,
+      items: [line(), line({ id: 'i-2', quantity: 30 })],
+    });
+
+    const res = (await service.getForCustomer('c-1', 'lr-1')) as any;
+
+    expect(res.products).toHaveLength(1);
+    expect(res.products[0].quantity).toBe(150);
+    expect(res.orders[0].products).toHaveLength(1);
   });
 
   it('never names the loading officer', async () => {

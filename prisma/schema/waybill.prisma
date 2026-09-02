@@ -129,6 +129,16 @@ model LoadingRequestItem {
   /// ITEM_DESCRIPTION as the ERP states it.
   productName String
 
+  /// ITEM_SPECIFICATION as the products endpoint returned it, CJK stripped.
+  /// It is what separates two products the ERP gives the same name, so a line
+  /// without it cannot always be tied back to a product.
+  spec String?
+
+  /// How much of the product was still to collect WHEN THE REQUEST WAS MADE.
+  /// A snapshot, deliberately: it records what the distributor was shown, and
+  /// must not move under them as later deliveries land.
+  quantityLeft Int?
+
   /// Cartons of this product on the load.
   quantity Int
 

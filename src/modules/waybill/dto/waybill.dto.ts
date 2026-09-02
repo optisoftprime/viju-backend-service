@@ -8,13 +8,16 @@ import {
   IsIn,
   Min,
   IsDefined,
+  IsUUID,
   IsArray,
   ValidateNested,
   ArrayMaxSize,
+  ArrayMinSize,
   IsObject,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { PaginationQueryDto } from '../../../common/pagination/pagination.dto';
 
 /** The Viju warehouses a truck can load from. */
 export const WAREHOUSE_NAMES = [
@@ -64,13 +67,61 @@ export class LoadingRequestProductDto {
   @IsNotEmpty()
   productName: string;
 
-  @ApiProperty({
-    example: 120,
-    description: 'Cartons of this product to load.',
+  @ApiPropertyOptional({
+    example: '750ML(L)',
+    nullable: true,
+    description:
+      'The `spec` the products endpoint returned, echoed back. It is what ' +
+      'separates two products the ERP gives the same name, so a line without ' +
+      'it cannot always be tied back to a product.',
   })
+  @IsOptional()
+  @IsString()
+  spec?: string | null;
+
+  @ApiPropertyOptional({
+    example: 100,
+    description:
+      'The `quantityLeft` the products endpoint returned, echoed back. ' +
+      'Stored as a snapshot of what the distributor was shown; it is NOT ' +
+      'trusted as a limit, because the caller supplies it.',
+  })
+  @IsOptional()
   @IsInt()
-  @Min(1)
-  quantity: number;
+  @Min(0)
+  quantityLeft?: number;
+
+  @ApiProperty({
+    example: 20,
+    description:
+      'Cartons of this product to load - what the distributor typed." + NL + "' +
+      'REQUIRED, but validated in the service rather than here, because the ' +
+      'former name `quantity` is still accepted: a line must carry ONE of the ' +
+      'two, and a line carrying neither is refused with a message naming ' +
+      'both. Declaring it required here would reject an older client before ' +
+      'that fallback could apply.\n\n' +
+      'A SINGLE line may be 0 - a picker that lists every product on an order ' +
+      'and lets the distributor fill in only some of them sends zeros for the ' +
+      'rest. What must not be zero is the TOTAL across the request, which is ' +
+      'checked in the service. Negatives are refused here.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  quantityToLoad?: number;
+
+  @ApiPropertyOptional({
+    deprecated: true,
+    example: 120,
+    description:
+      'The former name for `quantityToLoad`. Still accepted so older clients ' +
+      'keep working; send `quantityToLoad` on anything new. When both are ' +
+      'present `quantityToLoad` wins.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  quantity?: number;
 
   @ApiPropertyOptional({
     example: 9.38,
@@ -133,8 +184,21 @@ export class SubmitLoadingRequestDto {
       'ea95bb9e-e470-4743-ab20-618841ea9abf',
     ],
   })
-  @IsDefined()
-  linkedPurchaseId: string | string[];
+  @IsOptional()
+  linkedPurchaseId?: string | string[];
+
+  @ApiProperty({
+    example: 'e8fef5ed-bdc5-4ee2-e902-1839e3c9ddd4',
+    description:
+      'The distributor the request is for.\n\n' +
+      'REQUIRED, but it does NOT choose the account: the distributor is taken ' +
+      'from the token. It is a cross-check - sending someone else`s id is ' +
+      'refused with a 403 rather than quietly ignored, so a form that has ' +
+      'the wrong customer loaded fails loudly instead of filing against the ' +
+      'wrong account.',
+  })
+  @IsUUID()
+  customerId: string;
 
   @ApiProperty({ example: '2026-06-15' })
   @IsDateString()
@@ -146,52 +210,59 @@ export class SubmitLoadingRequestDto {
   @Min(1)
   quantityCartons?: number;
 
-  @ApiPropertyOptional({ example: 'Yaba Warehouse' })
-  @IsOptional()
+  @ApiProperty({
+    example: 'Yaba Warehouse',
+    description: 'Where the load is going. Required.',
+  })
   @IsString()
-  destination?: string;
+  @IsNotEmpty()
+  destination: string;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     enum: WAREHOUSE_NAMES,
     example: 'LAGOS WAREHOUSE',
-    description: 'The Viju warehouse the truck loads from.',
+    description: 'The Viju warehouse the truck loads from. Required.',
   })
-  @IsOptional()
   @IsIn(WAREHOUSE_NAMES, {
     message: `warehouseName must be one of: ${WAREHOUSE_NAMES.join(', ')}`,
   })
-  warehouseName?: WarehouseName;
+  warehouseName: WarehouseName;
 
-  @ApiPropertyOptional({
-    example: 2000,
+  @ApiProperty({
+    example: 174,
     description:
-      'The TRUCK’s carrying capacity IN KILOGRAMS - what it can haul, not ' +
-      'the size of this load.\n\n' +
-      'The load is weighed against it before the request is accepted: ' +
-      'SUM(quantity x weightPerCarton) across every line, over every order. ' +
-      'A load heavier than this is refused with a 400 and nothing is ' +
-      'written.\n\n' +
+      'The weight of the load IN KILOGRAMS. Required.\n\n' +
+      'It must EQUAL the sum of the product lines: ' +
+      'SUM(quantityToLoad x weightPerCarton), across every order. In the ' +
+      'worked example 20 x 2.7 = 54 and 24 x 5 = 120, so this is 174. A ' +
+      'value that disagrees is refused with a 400 and nothing is written.\n\n' +
       'A line sending no `weightPerCarton` is weighed from the Viju ' +
-      'specification sheet instead, so omitting it does not skip the ' +
-      'check. A product neither source can weigh is left out of the total ' +
-      'and the request is allowed through - the check never rejects on a ' +
-      'figure it cannot stand behind.',
+      'specification sheet instead, so omitting it does not skip the check. ' +
+      'A product neither source can weigh is left out of the total and the ' +
+      'request is allowed through - the check never rejects on a figure it ' +
+      'cannot stand behind.',
   })
-  @IsOptional()
   @IsInt()
   @Min(1)
-  loadingCapacity?: number;
+  loadingCapacity: number;
 
-  @ApiPropertyOptional({
+  @ApiProperty({
     type: [LoadingRequestProductDto],
+    minItems: 1,
     description:
-      'SINGLE-ORDER form: the products being loaded, all from the order named ' +
-      'by `linkedPurchaseId`. Use `orders` instead to load from several ' +
-      'orders at once. When either is present, `quantityCartons` is derived ' +
-      'from the sum of the quantities and any value sent for it is ignored.',
+      'The products being loaded. AT LEAST ONE IS REQUIRED, and their ' +
+      'quantities must ADD UP TO MORE THAN ZERO - a loading request that ' +
+      'loads nothing is not a request. An individual line MAY be 0.\n\n' +
+      'Marked optional to the validator, and enforced in the service, only so ' +
+      'that the multi-order `orders` form can satisfy the same rule: a body ' +
+      'must carry at least one product line in ONE of the two shapes. A body ' +
+      'with neither is refused with a message naming `products`.\n\n' +
+      '`quantityCartons` is derived from the sum of the quantities; any value ' +
+      'sent for it is ignored.',
   })
   @IsOptional()
   @IsArray()
+  @ArrayMinSize(1)
   @ArrayMaxSize(MAX_PRODUCTS_PER_REQUEST)
   @ValidateNested({ each: true })
   @Type(() => LoadingRequestProductDto)
@@ -234,4 +305,140 @@ export class SubmitLoadingRequestDto {
   @IsOptional()
   @IsObject()
   orders?: Record<string, LoadingRequestProductDto[]>;
+}
+
+/**
+ * Editing a loading request that has not been acted on yet.
+ *
+ * Every field is optional: send only what changed. Anything omitted is left
+ * as it was - EXCEPT the product lines, which are replaced wholesale when
+ * `products` or `orders` is present, because a partial line list has no
+ * sensible meaning ("these three lines, and whatever else was there" is not
+ * something a form can express).
+ *
+ * `loadingCapacity` and the lines are validated together after the merge, so
+ * changing one without the other is caught: editing the quantities and
+ * leaving the old capacity behind is exactly the mistake the rule exists for.
+ */
+export class UpdateLoadingRequestDto {
+  @ApiPropertyOptional({ example: 'LAG-234-XY' })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  truckPlateNumber?: string;
+
+  @ApiPropertyOptional({ example: 'Jimoh Ibrahim' })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  driverName?: string;
+
+  @ApiPropertyOptional({ example: '+2348012345678' })
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  driverPhone?: string;
+
+  @ApiPropertyOptional({ example: '2026-06-15' })
+  @IsOptional()
+  @IsDateString()
+  requestedLoadingDate?: string;
+
+  @ApiPropertyOptional({ example: 'Yaba Warehouse' })
+  @IsOptional()
+  @IsString()
+  destination?: string;
+
+  @ApiPropertyOptional({ enum: WAREHOUSE_NAMES, example: 'LAGOS WAREHOUSE' })
+  @IsOptional()
+  @IsIn(WAREHOUSE_NAMES, {
+    message: `warehouseName must be one of: ${WAREHOUSE_NAMES.join(', ')}`,
+  })
+  warehouseName?: WarehouseName;
+
+  @ApiPropertyOptional({
+    example: 174,
+    description:
+      'Must still equal the weight of the load AFTER the edit - see ' +
+      'POST /customers/me/waybills. Change it whenever you change a quantity.',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  loadingCapacity?: number;
+
+  @ApiPropertyOptional({
+    type: [LoadingRequestProductDto],
+    description:
+      'REPLACES the product lines entirely. Omit to leave them alone; send ' +
+      'an empty array to clear them.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_PRODUCTS_PER_REQUEST)
+  @ValidateNested({ each: true })
+  @Type(() => LoadingRequestProductDto)
+  products?: LoadingRequestProductDto[];
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/LoadingRequestProductDto' },
+    },
+    description:
+      'The multi-order form of `products`, keyed by order. Also REPLACES the ' +
+      'lines entirely.',
+  })
+  @IsOptional()
+  @IsObject()
+  orders?: Record<string, LoadingRequestProductDto[]>;
+
+  @ApiPropertyOptional({
+    description:
+      'The order(s) the request is filed against. Sending it re-files the ' +
+      'request; omitting it leaves the existing link alone. It does NOT ' +
+      'change `reference`, which is fixed when the request is created.',
+    oneOf: [
+      { type: 'string' },
+      { type: 'array', items: { type: 'string' }, minItems: 1 },
+    ],
+  })
+  @IsOptional()
+  linkedPurchaseId?: string | string[];
+}
+
+/** How GET /customers/me/waybills may be ordered. */
+export const WAYBILL_SORT_FIELDS = [
+  'createdAt',
+  'status',
+  'requestedLoadingDate',
+] as const;
+export type WaybillSortField = (typeof WAYBILL_SORT_FIELDS)[number];
+
+export class WaybillListQueryDto extends PaginationQueryDto {
+  @ApiPropertyOptional({
+    enum: WAYBILL_SORT_FIELDS,
+    default: 'createdAt',
+    description:
+      'What to order by. `createdAt` (newest first) is the default." + NL + "' +
+      '`status` orders by the LIFECYCLE, not alphabetically: ascending runs ' +
+      'PENDING_ASSIGNMENT, ASSIGNED, LOADING_IN_PROGRESS, COMPLETED, ' +
+      'CANCELLED - so what still needs doing comes first. Ties break on ' +
+      '`createdAt` descending, so a page cannot shuffle between two requests.',
+  })
+  @IsOptional()
+  @IsIn(WAYBILL_SORT_FIELDS)
+  sortBy?: WaybillSortField;
+
+  @ApiPropertyOptional({
+    enum: ['asc', 'desc'],
+    default: 'desc',
+    description:
+      'Ascending is the useful direction for `status`; descending for the ' +
+      'two dates.',
+  })
+  @IsOptional()
+  @IsIn(['asc', 'desc'])
+  sortOrder?: 'asc' | 'desc';
 }
