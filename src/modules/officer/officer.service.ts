@@ -12,10 +12,14 @@ import {
   sortDirection,
 } from '../../common/pagination/sort.dto';
 import { AssignedCustomerSortField } from './dto/officer-request.dto';
-import { stockBalanceByCustomer } from '../../common/customers/stock-balance';
+import { stockByCustomer } from '../../common/customers/stock-balance';
 import { messagePreview } from '../../common/messaging/message-preview';
 import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
 import { ErpStockBalanceService } from '../erp/erp-stock-balance.service';
+import {
+  balanceByErpId,
+  balanceForCustomer,
+} from '../../common/customers/account-balance';
 import { CustomerService } from '../customer/customer.service';
 import { PurchaseFilterDto } from '../customer/dto/customer.dto';
 
@@ -70,12 +74,7 @@ export class OfficerService {
   private async balancesFor(
     rows: { erpId: string; outstandingBalance: number }[],
   ): Promise<Map<string, number>> {
-    const derived = await this.accountBalance.getRunningBalances(
-      rows.map((r) => r.erpId),
-    );
-    return new Map(
-      rows.map((r) => [r.erpId, derived.get(r.erpId) ?? r.outstandingBalance]),
-    );
+    return balanceByErpId(this.accountBalance, rows);
   }
 
   /** The same derivation for one customer. */
@@ -112,11 +111,15 @@ export class OfficerService {
   async getDashboardSummary(officerId: string) {
     const customers = await this.prisma.customer.findMany({
       where: this.portfolioOf(officerId),
-      select: { id: true, outstandingBalance: true },
+      select: { id: true, erpId: true, outstandingBalance: true },
     });
     const customerIds = customers.map((c) => c.id);
+    // Judged on the ERP-derived balance, not the stored column: that column's
+    // sign is inverted for every customer holding credit, so this tile used to
+    // count customers as overdue precisely when they were in credit.
+    const balances = await balanceByErpId(this.accountBalance, customers);
     const overdueCount = customers.filter(
-      (c) => c.outstandingBalance < 0,
+      (c) => (balances.get(c.erpId) ?? 0) < 0,
     ).length;
 
     const [openTickets, unreadMessages] = await Promise.all([
@@ -352,7 +355,7 @@ export class OfficerService {
         where: { customerId: { in: customerIds }, ...UNREAD_FROM_CUSTOMER },
         _count: { _all: true },
       }),
-      stockBalanceByCustomer(this.prisma, customerIds),
+      stockByCustomer(this.prisma, rows, this.stockBalance),
       this.balancesFor(rows),
       // CH-1 — the newest message on each thread, either side. `groupBy` above
       // gives the TIMESTAMP but not the row, so the messages themselves are
@@ -376,7 +379,11 @@ export class OfficerService {
       region: c.region,
       // Derived from the ERP credit feed, exactly as GET /customers/me does.
       walletBalance: accountBalances.get(c.erpId) ?? c.outstandingBalance,
-      stockBalanceCartons: stockBalances.get(c.id) ?? 0,
+      ...(stockBalances.get(c.id) ?? {
+        totalStock: 0,
+        stockLoaded: 0,
+        stockBalanceCartons: 0,
+      }),
       accountStatus: c.accountStatus,
       openTickets: c._count.supportTickets,
       // Always a number, never omitted - 0 when nothing is waiting.
@@ -638,7 +645,7 @@ export class OfficerService {
     const [customer, page, payments, lastSync] = await Promise.all([
       this.prisma.customer.findUnique({
         where: { id: customerId },
-        select: { outstandingBalance: true, updatedAt: true },
+        select: { erpId: true, outstandingBalance: true, updatedAt: true },
       }),
       this.customers.getPurchases(customerId, filter, filter),
       this.prisma.payment.findMany({
@@ -659,7 +666,13 @@ export class OfficerService {
         lastSync._max.updatedAt,
         ...payments.map((p) => p.createdAt),
       ]),
-      walletBalance: customer?.outstandingBalance ?? 0,
+      // The ERP-derived balance, as every other screen shows it. This read
+      // the stored column outright, so the Invoices tab could report a
+      // different - and oppositely signed - balance from the Overview tab
+      // beside it.
+      walletBalance: customer
+        ? await balanceForCustomer(this.accountBalance, customer)
+        : 0,
       paymentHistory: payments,
       ...page,
     };

@@ -73,6 +73,9 @@ describe('Account balance consistency across endpoints', () => {
         prisma as never,
         {} as never,
         accountBalance as never,
+        // The STOCK column's ERP source. These specs assert the BALANCE
+        // column, so it answers "nothing known" and the local fallback stands.
+        { stockByErpId: jest.fn().mockResolvedValue(new Map()) } as never,
       );
     };
 
@@ -109,6 +112,9 @@ describe('Account balance consistency across endpoints', () => {
         } as never,
         {} as never,
         accountBalance as never,
+        // The STOCK column's ERP source. These specs assert the BALANCE
+        // column, so it answers "nothing known" and the local fallback stands.
+        { stockByErpId: jest.fn().mockResolvedValue(new Map()) } as never,
       );
     };
 
@@ -158,6 +164,9 @@ describe('Account balance consistency across endpoints', () => {
         } as never,
         {} as never,
         accountBalance as never,
+        // The STOCK column's ERP source. These specs assert the BALANCE
+        // column, so it answers "nothing known" and the local fallback stands.
+        { stockByErpId: jest.fn().mockResolvedValue(new Map()) } as never,
       );
 
       await service.getAllCustomers({}, { page: 1, pageSize: 20 });
@@ -190,6 +199,9 @@ describe('Account balance consistency across endpoints', () => {
         } as never,
         {} as never,
         accountBalance as never,
+        // The STOCK column's ERP source. These specs assert the BALANCE
+        // column, so it answers "nothing known" and the local fallback stands.
+        { stockByErpId: jest.fn().mockResolvedValue(new Map()) } as never,
       );
     };
 

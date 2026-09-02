@@ -70,11 +70,36 @@ export class CustomerListItemDto {
   outstandingBalance: number | null;
 
   @ApiProperty({
-    example: 320,
-    description:
-      'B-1.1 — cartons paid for but not yet loaded (ordered minus completed ' +
-      'loading requests, floored at zero). Null only on an unprojected row (`isProjected: false`), which has no local record and no ERP source for this field.',
+    example: 39765,
     nullable: true,
+    description:
+      'Cartons ordered on the distributor`s OPEN, APPROVED orders - the same ' +
+      'figure GET /customers/me/stock-balance calls ' +
+      '`totalPurchasedCartons`. Null only on an unprojected row ' +
+      '(`isProjected: false`), which has no local record.',
+  })
+  totalStock: number | null;
+
+  @ApiProperty({
+    example: 33913,
+    nullable: true,
+    description:
+      'Cartons already delivered against them - `totalLoadedCartons` on ' +
+      'GET /customers/me/stock-balance. Null only on an unprojected row ' +
+      '(`isProjected: false`), which has no local record.',
+  })
+  stockLoaded: number | null;
+
+  @ApiProperty({
+    example: 5852,
+    nullable: true,
+    description:
+      'Cartons still to collect: `totalStock` - `stockLoaded`, floored at ' +
+      'zero. Identical to `totalRemainingCartons` on ' +
+      'GET /customers/me/stock-balance for the same distributor, because ' +
+      'it is the same ERP query: SUM(BUSINESS_QTY1 - ' +
+      'DELIVERED_BUSINESS_QTY) WHERE CLOSE = `0` AND ApproveStatus = `Y`. Null only on an unprojected row ' +
+      '(`isProjected: false`), which has no local record.',
   })
   stockBalanceCartons: number | null;
 

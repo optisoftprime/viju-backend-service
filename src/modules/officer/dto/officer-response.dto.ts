@@ -82,12 +82,30 @@ export class AssignedCustomerListItemDto {
   walletBalance: number;
 
   @ApiProperty({
-    example: 240,
+    example: 39765,
     description:
-      'AO-P2 - cartons paid for but not yet loaded (ordered minus completed ' +
-      'loading requests, floored at 0). The same figure ' +
-      'GET /admin/customers returns for the STOCK column. 0 when the ' +
-      'distributor has nothing waiting.',
+      'Cartons ordered on the distributor`s OPEN, APPROVED orders - the same ' +
+      'figure GET /customers/me/stock-balance calls ' +
+      '`totalPurchasedCartons`.',
+  })
+  totalStock: number;
+
+  @ApiProperty({
+    example: 33913,
+    description:
+      'Cartons already delivered against them - `totalLoadedCartons` on ' +
+      'GET /customers/me/stock-balance.',
+  })
+  stockLoaded: number;
+
+  @ApiProperty({
+    example: 5852,
+    description:
+      'Cartons still to collect: `totalStock` - `stockLoaded`, floored at ' +
+      'zero. Identical to `totalRemainingCartons` on ' +
+      'GET /customers/me/stock-balance for the same distributor, because ' +
+      'it is the same ERP query: SUM(BUSINESS_QTY1 - ' +
+      'DELIVERED_BUSINESS_QTY) WHERE CLOSE = `0` AND ApproveStatus = `Y`.',
   })
   stockBalanceCartons: number;
 
