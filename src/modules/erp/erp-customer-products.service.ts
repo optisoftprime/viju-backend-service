@@ -3,6 +3,7 @@ import { PrismaService } from '../../infrastructure/database/prisma.service';
 import { resolveProduct } from './product-specification.resolver';
 import { stripCjk } from './strip-cjk';
 import { ErpItemCodeService } from './erp-item-code.service';
+import { ErpStockBalanceService } from './erp-stock-balance.service';
 
 /**
  * A product on one order: what the specification sheet knows about it, plus
@@ -47,7 +48,67 @@ export class ErpCustomerProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly itemCodes: ErpItemCodeService,
+    private readonly stockBalance: ErpStockBalanceService,
   ) {}
+
+  /**
+   * Everything ONE DISTRIBUTOR still has to collect, product by product.
+   *
+   * This is the picker behind a loading request. A request is filed against
+   * the ACCOUNT rather than a single order, so the products it may draw on are
+   * the distributor's whole outstanding stock, not one document's lines.
+   *
+   * ─── The same figures the distributor's own screen shows ──────────────
+   *
+   * `quantityLeft` comes from the stock-balance query, not a second one of its
+   * own: SUM(BUSINESS_QTY1 - DELIVERED_BUSINESS_QTY) over OPEN, APPROVED
+   * orders. So the picker and GET /customers/me/stock-balance cannot disagree
+   * about how much of a product is outstanding - which they would within a
+   * day if this counted it differently.
+   *
+   * Only products with something still to collect appear: a product taken in
+   * full is not something a truck can be loaded with.
+   *
+   * `id` may be the local `Customer.id` uuid or the ERP CUSTOMER_CODE; both
+   * identify one distributor.
+   *
+   * Returns [] - never an error - for an unknown distributor or an absent
+   * feed, so a picker renders empty rather than breaking.
+   */
+  async listForCustomer(
+    id: string,
+    requesterId?: string,
+  ): Promise<ErpOrderProduct[]> {
+    if (!id) return [];
+    const customer = await this.prisma.customer.findFirst({
+      where: { OR: [{ id }, { erpId: id }] },
+      select: { id: true, erpId: true },
+    });
+    if (!customer) return [];
+    // A distributor is pinned to their own stock. `requesterId` is set only
+    // for a CUSTOMER caller, and naming anyone else reads as empty rather
+    // than being obeyed - the id in the path never widens what a token can
+    // see. Their own erpId names them just as well as their uuid.
+    if (requesterId && customer.id !== requesterId) return [];
+
+    const balance = await this.stockBalance.getStockBalance(customer.erpId);
+    if (!balance) return [];
+
+    return balance.products
+      .filter((product) => product.quantityRemaining > 0)
+      .map((product) => {
+        // The carton weight is the specification sheet's, matched on the same
+        // name and spec the stock query grouped by.
+        const resolved = resolveProduct(product.productName, product.spec);
+        return {
+          productId: product.itemCode ?? resolved.productId,
+          productName: product.productName,
+          spec: product.spec,
+          weightPerCarton: resolved.weightPerCarton,
+          quantityLeft: product.quantityRemaining,
+        };
+      });
+  }
 
   async isAvailable(): Promise<boolean> {
     if (this.available !== null) return this.available;
@@ -63,129 +124,5 @@ export class ErpCustomerProductsService {
       );
     }
     return this.available;
-  }
-
-  /**
-   * Resolves the order to its ERP DOC_NO.
-   *
-   * `orderId` may be a `Purchase.id` uuid (what `linkedPurchaseId` carries) or
-   * the DOC_NO itself. When `customerId` is given the order must belong to
-   * that customer, so a distributor cannot read another's order by id.
-   *
-   * Returns null when the order is unknown, or is not the caller's.
-   */
-  private async resolveDocNo(
-    orderId: string,
-    customerId?: string,
-  ): Promise<string | null> {
-    const purchase = await this.prisma.purchase.findFirst({
-      where: {
-        OR: [{ id: orderId }, { erpId: orderId }],
-        ...(customerId ? { customerId } : {}),
-      },
-      select: { erpId: true },
-    });
-    if (purchase) return purchase.erpId;
-    // A DOC_NO the projector has never copied into `Purchase` is still a real
-    // ERP order, so staff may still read it. A customer may not: without a
-    // local row there is nothing that proves it is theirs.
-    return customerId ? null : orderId;
-  }
-
-  /**
-   * One entry per DISTINCT product on the order.
-   *
-   * The feed holds a row per order LINE, so an order with several lines of the
-   * same product collapses to one entry.
-   *
-   * Returns [] - never an error - when the feed is absent, the order is
-   * unknown, or the order is not this customer's, so a picker renders empty
-   * rather than breaking.
-   */
-  async listForOrder(
-    orderId: string,
-    customerId?: string,
-  ): Promise<ErpOrderProduct[]> {
-    if (!orderId) return [];
-    if (!(await this.isAvailable())) return [];
-    try {
-      const docNo = await this.resolveDocNo(orderId, customerId);
-      if (!docNo) return [];
-
-      const rows = await this.prisma.$queryRawUnsafe<
-        {
-          descr: string | null;
-          spec: string | null;
-          item_code: string | null;
-          ordered_qty: string | number | null;
-          delivered_qty: string | number | null;
-        }[]
-      >(
-        // Aggregated rather than DISTINCT: the feed holds a row per order
-        // LINE, and `quantityLeft` has to be the sum across every line of the
-        // product on this order, not one line's share of it.
-        `SELECT so.payload->>'ITEM_DESCRIPTION'   AS descr,
-                so.payload->>'ITEM_SPECIFICATION' AS spec,
-                min(nullif(so.payload->>'ITEM_CODE', '')) AS item_code,
-                sum(coalesce(nullif(so.payload->>'BUSINESS_QTY1', '')::numeric, 0))
-                  AS ordered_qty,
-                sum(coalesce(nullif(so.payload->>'DELIVERED_BUSINESS_QTY', '')::numeric, 0))
-                  AS delivered_qty
-           FROM erp_raw.raw_sales_order so
-          WHERE so.object_type = 'SALES_ORDER'
-            AND so.payload->>'DOC_NO' = $1
-          GROUP BY 1, 2
-          ORDER BY 1`,
-        docNo,
-      );
-
-      // One product can arrive under two specifications that resolve to the
-      // same code and weight - '(1.5)MALT MILK(O)' under both 500ML果汁(O) and
-      // 500ML麦汁(O). Those rows are indistinguishable once resolved, so they
-      // would read as a duplicated product on screen.
-      const num = (v: string | number | null): number => {
-        const parsed = Number(v ?? 0);
-        return Number.isFinite(parsed) ? parsed : 0;
-      };
-
-      const byKey = new Map<string, ErpOrderProduct>();
-      for (const row of rows) {
-        if ((row.descr ?? '').trim() === '') continue;
-        const resolved = resolveProduct(row.descr, row.spec);
-        // The ERP's own code first, then the sheet's: the feed is the system
-        // of record for its codes, and states one on only ~6% of line rows.
-        const productId =
-          row.item_code ??
-          this.itemCodes.codeFor(row.descr) ??
-          resolved.productId;
-        const spec = stripCjk(row.spec);
-        // Keyed on the spec too: two sizes under one ERP name are two
-        // products, and merging them would hide one of them.
-        const key = `${productId ?? ''}|${resolved.productName}|${spec ?? ''}|${resolved.weightPerCarton ?? ''}`;
-        // Two specifications can resolve to the same product - '(1.5)MALT
-        // MILK(O)' arrives under both 500ML果汁(O) and 500ML麦汁(O). They are
-        // one product on screen, so their quantities are ADDED rather than
-        // one row being dropped.
-        const seen = byKey.get(key);
-        const left = Math.max(0, num(row.ordered_qty) - num(row.delivered_qty));
-        if (seen) {
-          seen.quantityLeft += left;
-          continue;
-        }
-        byKey.set(key, {
-          productId,
-          productName: resolved.productName,
-          spec,
-          weightPerCarton: resolved.weightPerCarton,
-          quantityLeft: left,
-        });
-      }
-      return [...byKey.values()];
-    } catch (e) {
-      this.logger.error(
-        `listForOrder(${orderId}) failed: ${(e as Error).message}`,
-      );
-      return [];
-    }
   }
 }

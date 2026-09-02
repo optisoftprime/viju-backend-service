@@ -10,7 +10,7 @@ Four endpoints, and **all four changed**. This supersedes
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /erp/orders/{orderId}/products` | the products on an order, with weights |
+| `GET /erp/orders/{customerId}/products` | what the distributor still has to collect |
 | `POST /customers/me/waybills` | create |
 | `PATCH /customers/me/waybills/{id}` | **new** — edit |
 | `GET /customers/me/waybills` | list |
@@ -24,27 +24,34 @@ Every example was captured from live data.
 
 ---
 
-## 1. Products on an order
+## 1. The distributor's stock — the product picker
 
 ```http
-GET /api/v1/erp/orders/{orderId}/products
+GET /api/v1/erp/orders/{customerId}/products
 Authorization: Bearer <customer JWT>
 ```
 
-`orderId` is the `id` from `GET /customers/me/invoices`, or the ERP `DOC_NO`.
+> ### ⚠️ This route changed shape
+> It used to take an **order** id and list that one document's products. It now
+> takes a **distributor** id and lists their whole outstanding stock, because a
+> loading request is filed against the account rather than one order (§2.5).
+> The path still reads `/erp/orders/…` — only the parameter changed.
+
+`customerId` is either the local `Customer.id` uuid **or** the ERP
+`CUSTOMER_CODE` (`erpId`, e.g. `10110003`). Both work.
 
 ```json
 [
-  { "productId": "101020104",
-    "productName": "Mr V Premium Table Water(Lagos)",
-    "spec": "100ML",
-    "weightPerCarton": 2.7,
-    "quantityLeft": 100 },
-  { "productId": "101010610",
-    "productName": "Viju Yoghurt Plain Sweet",
-    "spec": "750ML",
-    "weightPerCarton": 5,
-    "quantityLeft": 120 }
+  { "productId": "101010511",
+    "productName": "Viju Apple Fruit Milk(Ogun)",
+    "spec": "500ML*12/CTN(Ogun）",
+    "weightPerCarton": 6.6,
+    "quantityLeft": 1780 },
+  { "productId": "101020101",
+    "productName": "Mr V Premium Table Water(Ogun)",
+    "spec": "750ML*12/CTN(Ogun）",
+    "weightPerCarton": 9.38,
+    "quantityLeft": 1352 }
 ]
 ```
 
@@ -56,7 +63,22 @@ Authorization: Bearer <customer JWT>
 | `productName` | `ITEM_DESCRIPTION`, verbatim |
 | `spec` | `ITEM_SPECIFICATION`, Chinese category characters stripped. **Can be `null`** |
 | `weightPerCarton` | kilograms. **Can be `null`** where the Viju specification sheet has no entry |
-| `quantityLeft` | cartons still to collect **on this order** |
+| `quantityLeft` | cartons of this product still to collect, **across every open order** |
+
+**Only products with something outstanding appear.** A product taken in full is
+not something a truck can be loaded with, so it is absent — not present with a
+zero.
+
+**`quantityLeft` is the same figure the stock screen shows.** It comes from the
+one stock-balance query — `SUM(BUSINESS_QTY1 − DELIVERED_BUSINESS_QTY)` over
+**open, approved** orders — so the picker and
+`GET /customers/me/stock-balance` cannot disagree. Verified live: both return
+10 products totalling 5,852 cartons for the same distributor.
+
+**A distributor may only read their own stock.** Another distributor's id
+returns `[]` — the id in the path never widens what a token can see. Staff may
+read any. An unknown distributor or an absent feed also returns `[]`, never an
+error, so the picker renders empty rather than breaking.
 
 **`spec` is not decoration — it disambiguates.** The ERP gives two different
 products the same name: `VIJU MULIIFRUIT FURIT JUICE` ships as both 100ML and
@@ -182,7 +204,7 @@ Two easements, so the rule never rejects something it cannot judge:
 | `productId` | no | echo it back; `null` is fine |
 | `spec` | no | echo it back |
 | `weightPerCarton` | no | echo it back; drives the capacity check |
-| `quantityLeft` | no | echo it back; stored as a snapshot of what was shown |
+| `quantityLeft` | no | echo it back; stored as a snapshot of what was shown at the time |
 
 `quantityLeft` is recorded, **not enforced** — the client supplies it, so it is
 not trusted as a limit. Enforce it in the UI.
@@ -459,6 +481,13 @@ Two worth handling specially:
 - [ ] **A request with no products is refused.** It used to be accepted with a
       bare `quantityCartons`.
 
+**Endpoint changes:**
+
+- [ ] **The product picker is now per DISTRIBUTOR, not per order** —
+      `GET /erp/orders/{customerId}/products`. Call it once with the
+      distributor's id instead of once per selected order, and drop the
+      order-selection step ahead of it.
+
 **Response changes:**
 
 - [ ] `products` rows lost `purchaseId` / `orderReference`, gained `spec`
@@ -486,12 +515,13 @@ export type LoadingRequestStatus =
   | 'PENDING_ASSIGNMENT' | 'ASSIGNED' | 'LOADING_IN_PROGRESS'
   | 'COMPLETED' | 'CANCELLED';
 
-/** A row from GET /erp/orders/{orderId}/products. */
-export interface OrderProduct {
+/** A row from GET /erp/orders/{customerId}/products. */
+export interface CustomerStockProduct {
   productId: string | null;
   productName: string;
   spec: string | null;
   weightPerCarton: number | null;
+  /** Cartons still to collect, across every open order. */
   quantityLeft: number;
 }
 
@@ -611,7 +641,11 @@ const weighLoad = (products: SubmitProduct[]) =>
     ) * 100,
   ) / 100;
 
-const products = catalogue
+// ONE call now, for the distributor - not one per selected order.
+const stock: CustomerStockProduct[] =
+  await get(`/erp/orders/${me.id}/products`);
+
+const products = stock
   .map((p) => ({
     productId: p.productId,          // echo, nulls included
     productName: p.productName,

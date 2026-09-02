@@ -16,13 +16,12 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { ErpCustomerProductDto } from './dto/erp-product-response.dto';
 
 /**
- * Products on one ERP sales order.
+ * What a distributor still has to collect.
  *
- * Open to distributors as well as staff: the id this takes is the one
- * `linkedPurchaseId` carries on GET /customers/me/waybills, so the natural
- * caller is the distributor app asking what is on the order a loading request
- * is against. A CUSTOMER is scoped to their OWN orders - another distributor's
- * order id reads as unknown - while staff may read any.
+ * Open to distributors as well as staff. A CUSTOMER is pinned to their own
+ * stock - their token decides the account, and a path parameter naming anyone
+ * else reads as empty rather than being obeyed - while staff may read any
+ * distributor.
  */
 @ApiTags('ERP Webhooks')
 @ApiBearerAuth()
@@ -40,51 +39,51 @@ import { ErpCustomerProductDto } from './dto/erp-product-response.dto';
 export class ErpProductsController {
   constructor(private readonly products: ErpCustomerProductsService) {}
 
-  @Get(':orderId/products')
+  @Get(':customerId/products')
   @ApiOperation({
-    summary: 'Products on one sales order, with carton weights',
+    summary: 'What a distributor still has to collect, product by product',
     description:
-      'One entry per DISTINCT product on the order, ordered by name. The ERP ' +
-      'feed holds a row per order LINE, so several lines of the same product ' +
-      'collapse to one entry.\n\n' +
-      '`orderId` is the id `linkedPurchaseId` carries on ' +
-      'GET /customers/me/waybills, so a distributor holding a loading request ' +
-      'can ask what is on the order it is against.\n\n' +
-      '`productName` is the feed’s own ITEM_DESCRIPTION, verbatim. ' +
-      '`productId` and `weightPerCarton` come from the Viju product ' +
-      'specification sheet.\n\n' +
-      'MATCHING: the sheet’s product names are NOT unique — 11 of them carry ' +
-      'more than one code and weight, because the same drink ships in several ' +
-      'sizes (VIJU WHEAT MILK is 4.22 kg/carton at 320ML and 6.6 kg at ' +
-      '500ML). ITEM_SPECIFICATION is what disambiguates, and every spec in ' +
-      'the sheet maps to exactly one weight. So the match runs spec+name, ' +
-      'then an unambiguous name, then spec alone. `matchedOn` reports which ' +
-      'applied.\n\n' +
-      'A product the sheet does not cover returns `productId: null` and ' +
-      '`weightPerCarton: null` with `matchedOn: "NONE"` rather than a guessed ' +
-      'weight — 18.9L water and the cracker lines are absent from the sheet ' +
-      'today. Check for null before doing arithmetic.\n\n' +
-      'A CUSTOMER may only read their OWN orders; another distributor’s order ' +
-      'id returns `[]`. An absent ERP feed or an unknown order also returns ' +
-      '`[]`, never an error.',
+      'The picker behind a loading request. A request is filed against the ' +
+      'ACCOUNT rather than a single order, so this lists the ' +
+      'distributor`s whole outstanding stock.\n\n' +
+      'ONE ENTRY PER PRODUCT, only where something is still to collect - a ' +
+      'product taken in full is not something a truck can be loaded with.\n\n' +
+      '`quantityLeft` is the SAME figure GET /customers/me/stock-balance ' +
+      'reports as `quantityRemaining`, from the same query: ' +
+      'SUM(BUSINESS_QTY1 - DELIVERED_BUSINESS_QTY) over OPEN, APPROVED ' +
+      'orders. The picker and the stock screen cannot disagree.\n\n' +
+      '`productName` is the feed`s own ITEM_DESCRIPTION, verbatim. `spec` ' +
+      'is ITEM_SPECIFICATION with the ERP`s Chinese category characters ' +
+      'stripped, and is what separates two products the feed gives the ' +
+      'same name - VIJU MULIIFRUIT FURIT JUICE ships as both 100ML and ' +
+      '200ML. `productId` and `weightPerCarton` come from the ERP feed and ' +
+      'the Viju specification sheet.\n\n' +
+      'ANY OF THE THREE MAY BE NULL where no source states them - 33 of the ' +
+      'feed`s 152 products have no item code anywhere, and the sheet does ' +
+      'not cover packaging film or freight lines. Check before doing ' +
+      'arithmetic; never substitute 0.\n\n' +
+      'CHANGED: this route took an ORDER id and listed that one document`s ' +
+      'products. It now takes a DISTRIBUTOR id, because a loading request ' +
+      'no longer names an order.\n\n' +
+      'A CUSTOMER may only read their OWN stock; another distributor`s id ' +
+      'returns `[]`, as does an unknown one or an absent feed - never an ' +
+      'error, so a picker renders empty rather than breaking.',
   })
   @ApiParam({
-    name: 'orderId',
+    name: 'customerId',
     description:
-      'The order. Either a `Purchase.id` uuid — what `linkedPurchaseId` on ' +
-      'GET /customers/me/waybills carries — or the ERP DOC_NO held as ' +
-      '`Purchase.erpId` (e.g. `2310-202606110033`). Both are accepted.',
-    example: '2310-202606110033',
+      'The distributor. Either the local `Customer.id` uuid or the ERP ' +
+      'CUSTOMER_CODE (`erpId`, e.g. `10110003`). Both are accepted.',
+    example: 'f4065cfe-682e-4864-9e7a-49e0a3b0f244',
   })
   @ApiOkResponse({ type: [ErpCustomerProductDto] })
-  async listForOrder(
+  async listForCustomer(
     @CurrentUser() user: { id: string; role: string },
-    @Param('orderId') orderId: string,
+    @Param('customerId') customerId: string,
   ) {
-    // A distributor is pinned to their own orders; staff pass no customer
-    // scope and may read any order.
-    return this.products.listForOrder(
-      orderId,
+    // A distributor is pinned to their own stock; staff may read any.
+    return this.products.listForCustomer(
+      customerId,
       user.role === 'CUSTOMER' ? user.id : undefined,
     );
   }
