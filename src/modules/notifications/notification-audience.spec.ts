@@ -35,7 +35,11 @@ describe('Notification audience (N-2, N-3, N-4)', () => {
       return {
         prisma,
         notifications,
-        service: new WaybillService(prisma as never, notifications as never),
+        service: new WaybillService(
+          prisma as never,
+          notifications as never,
+          { listForCustomer: async () => [] } as never,
+        ),
       };
     };
 

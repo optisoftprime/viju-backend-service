@@ -17,6 +17,7 @@ import {
   WaybillListQueryDto,
 } from './dto/waybill.dto';
 import { paginate } from '../../common/pagination/paginate';
+import { ErpCustomerProductsService } from '../erp/erp-customer-products.service';
 
 /** The page a list query asks for. */
 function pagination(query: { page?: number; pageSize?: number }) {
@@ -116,6 +117,19 @@ interface LoadingLine {
 }
 
 /**
+ * A body carrying product lines, in whichever shape it states them.
+ *
+ * Submission takes `products` alone. Editing may also key them by order, so
+ * the flattener is typed to the union rather than to either DTO - which is
+ * what lets both call it without a cast.
+ */
+interface OrderLineSource {
+  products?: LoadingRequestProductDto[];
+  orders?: Record<string, LoadingRequestProductDto[]>;
+  linkedPurchaseId?: string | string[];
+}
+
+/**
  * Cartons to load on one line.
  *
  * `quantityToLoad` is what the form sends. `quantity` was its former name and
@@ -199,6 +213,7 @@ export class WaybillService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationService,
+    private readonly customerProducts: ErpCustomerProductsService,
   ) {}
 
   /**
@@ -252,7 +267,7 @@ export class WaybillService {
     const lines = replacingLines
       ? await this.resolveOrderLines(
           customerId,
-          dto as unknown as SubmitLoadingRequestDto,
+          dto,
           linkedOrders.length > 0
             ? linkedOrders
             : existing.linkedPurchaseId
@@ -677,13 +692,18 @@ export class WaybillService {
    * can draw on several; `products` is the single-order form and is treated as
    * belonging to `linkedPurchaseId`. `orders` wins if both are sent.
    *
+   * ONLY THE EDIT PATH STILL SENDS THE ORDER-KEYED SHAPES. Submission takes
+   * `products` alone and files against the account - see
+   * `submitLoadingRequest` - so on that path `orders` and `linked` are always
+   * absent and every line comes back with a null order.
+   *
    * EVERY order named must belong to the caller. Without that check a
    * distributor could attach another distributor's order by id and have its
    * products recorded against their own load.
    */
   private async resolveOrderLines(
     customerId: string,
-    dto: SubmitLoadingRequestDto,
+    dto: OrderLineSource,
     linked: { id: string; erpId: string }[],
   ): Promise<LoadingLine[]> {
     for (const product of dto.products ?? []) {
@@ -859,6 +879,98 @@ export class WaybillService {
   }
 
   /**
+   * `quantityToLoad` must not exceed what is still left to collect.
+   *
+   * Loading more of a product than the distributor is owed is not a load the
+   * depot can fill, and it would overstate the account's outstanding stock.
+   *
+   * CHECKED TWICE, because neither source alone is enough:
+   *
+   * 1. Against the `quantityLeft` the line itself carries. That is the figure
+   *    the distributor was shown, so this catches the honest form mistake and
+   *    names the product they typed too much against. It cannot be trusted on
+   *    its own - the caller supplies it - but it works with no ERP feed.
+   *
+   * 2. Against what the ERP actually still owes them, from the same
+   *    stock-balance query the picker and GET /customers/me/stock-balance
+   *    read: SUM(BUSINESS_QTY1 - DELIVERED_BUSINESS_QTY) over open, approved
+   *    orders. This is the one a caller cannot talk their way past, and it
+   *    SUMS the request's lines per product first - three lines of 100
+   *    against 150 left is over the limit even though no single line is.
+   *
+   * Lines are matched to the ERP's products on item code first, then name and
+   * spec, then name. A line that matches NOTHING is left to rule 1 alone: an
+   * unmatched name is as likely to be a naming mismatch as an invented
+   * product, and this check does not reject on a figure it cannot stand
+   * behind - the same rule `assertCapacityMatchesLoad` follows. An absent or
+   * silent feed skips rule 2 entirely for the same reason.
+   */
+  private async assertWithinQuantityLeft(
+    customerId: string,
+    lines: LoadingLine[],
+  ): Promise<void> {
+    // 1. What the caller was shown.
+    for (const line of lines) {
+      if (line.quantityLeft === null) continue;
+      if (line.quantity > line.quantityLeft) {
+        throw new BadRequestException(
+          `"${line.productName}": quantityToLoad is ${line.quantity} but only ` +
+            `${line.quantityLeft} carton(s) are left to collect.`,
+        );
+      }
+    }
+
+    // 2. What the ERP says is left.
+    const outstanding = await this.customerProducts.listForCustomer(customerId);
+    if (outstanding.length === 0) return;
+
+    const left = new Map<string, number>();
+    const add = (key: string, qty: number) =>
+      left.set(key, (left.get(key) ?? 0) + qty);
+    for (const product of outstanding) {
+      if (product.productId)
+        add(`id:${product.productId}`, product.quantityLeft);
+      if (product.spec)
+        add(`ns:${product.productName}|${product.spec}`, product.quantityLeft);
+      // Name alone is the last resort, and two products can share one name -
+      // summing them keeps the fallback permissive rather than rejecting a
+      // line the stricter keys would have allowed.
+      add(`n:${product.productName}`, product.quantityLeft);
+    }
+
+    const keyFor = (line: LoadingLine): string | null => {
+      if (line.productId && left.has(`id:${line.productId}`))
+        return `id:${line.productId}`;
+      if (line.spec && left.has(`ns:${line.productName}|${line.spec}`))
+        return `ns:${line.productName}|${line.spec}`;
+      if (left.has(`n:${line.productName}`)) return `n:${line.productName}`;
+      return null;
+    };
+
+    // Summed per product: the limit is on the product, not on one row of a
+    // form that may list it more than once.
+    const requested = new Map<string, { quantity: number; name: string }>();
+    for (const line of lines) {
+      const key = keyFor(line);
+      if (key === null) continue;
+      const seen = requested.get(key);
+      if (seen) seen.quantity += line.quantity;
+      else
+        requested.set(key, { quantity: line.quantity, name: line.productName });
+    }
+
+    for (const [key, { quantity, name }] of requested) {
+      const available = left.get(key) ?? 0;
+      if (quantity > available) {
+        throw new BadRequestException(
+          `"${name}": quantityToLoad is ${quantity} but only ${available} ` +
+            `carton(s) are left to collect.`,
+        );
+      }
+    }
+  }
+
+  /**
    * Creates the request with a reference derived from the ERP document.
    *
    * `reference` used to be `WB-<timestamp>`, which carried no relationship to
@@ -939,16 +1051,13 @@ export class WaybillService {
     });
     if (!customer) throw new NotFoundException('Customer not found');
 
-    // The first is the PRIMARY order, when one is named: the request is filed
-    // under it and its DOC_NO becomes the reference. The form no longer sends
-    // one, so this is usually empty.
-    const linkedOrders = await this.resolveLinkedOrders(
-      customerId,
-      dto.linkedPurchaseId,
-    );
-    const purchase = linkedOrders[0] ?? null;
-
-    const lines = await this.resolveOrderLines(customerId, dto, linkedOrders);
+    // NO ORDER IS NAMED. A loading request is filed against the ACCOUNT: the
+    // distributor picks from GET /erp/orders/{customerId}/products, which is
+    // their whole outstanding stock across every open order in
+    // `erp_raw.raw_sales_order` rather than one document's lines. There is
+    // nothing for the client to state, so `linkedPurchaseId` and the
+    // order-keyed `orders` map are no longer part of the body.
+    const lines = await this.resolveOrderLines(customerId, dto, []);
     // `loadingCapacity` is the TRUCK's capacity, not the load. The load is the
     // sum of the product lines ACROSS EVERY ORDER, and it is mirrored onto
     // `quantityCartons` so every existing stock calculation - which reads that
@@ -974,21 +1083,18 @@ export class WaybillService {
       );
     }
 
+    await this.assertWithinQuantityLeft(customerId, lines);
     this.assertCapacityMatchesLoad(dto.loadingCapacity, lines);
 
-    // WHAT THE REFERENCE IS DRAWN FROM. When the request names an order, its
-    // DOC_NO - so the reference can be matched against the ERP by eye. The
-    // form no longer names one, so the fallback is the distributor's own ERP
-    // code and the date, which is still recognisable and still unique once
-    // the -02 suffix settles same-day collisions.
-    const referenceBase = purchase
-      ? purchase.erpId
-      : `LR-${customer.erpId}-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
+    // WHAT THE REFERENCE IS DRAWN FROM. The request names no order, so it is
+    // the distributor's own ERP code and the date - recognisable, and unique
+    // once the -02 suffix settles same-day collisions.
+    const referenceBase = `LR-${customer.erpId}-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
 
     const request = await this.createWithOrderReference(referenceBase, {
       customerId,
       region: customer.region,
-      linkedPurchaseId: purchase?.id ?? null,
+      linkedPurchaseId: null,
       truckPlateNumber: dto.truckPlateNumber,
       driverName: dto.driverName,
       driverPhone: dto.driverPhone,
@@ -1038,12 +1144,13 @@ export class WaybillService {
 
     return {
       ...created,
-      // Every order this request draws on, primary first - the array the
-      // client sent, resolved to uuids.
-      linkedPurchaseIds: linkedPurchaseIdsOf(created.linkedPurchaseId, [
-        ...linkedOrders.map((o) => ({ purchaseId: o.id })),
-        ...createdItems,
-      ]),
+      // Kept on the response for the clients that read it. Now always empty
+      // on creation: the request is filed against the account, so there is no
+      // order to name until an edit re-files it against one.
+      linkedPurchaseIds: linkedPurchaseIdsOf(
+        created.linkedPurchaseId,
+        createdItems,
+      ),
       products: createdItems,
     };
   }

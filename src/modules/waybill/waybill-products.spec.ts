@@ -33,7 +33,11 @@ describe('Loading request product breakdown', () => {
     const notifications = { notify: jest.fn().mockResolvedValue(undefined) };
     return {
       prisma,
-      service: new WaybillService(prisma as never, notifications as never),
+      service: new WaybillService(
+        prisma as never,
+        notifications as never,
+        { listForCustomer: async () => [] } as never,
+      ),
     };
   };
 
@@ -41,7 +45,6 @@ describe('Loading request product breakdown', () => {
     truckPlateNumber: 'LAG-234-XY',
     driverName: 'Jimoh Ibrahim',
     driverPhone: '+2348012345678',
-    linkedPurchaseId: 'p-1',
     requestedLoadingDate: '2026-08-30',
   };
 
@@ -71,12 +74,12 @@ describe('Loading request product breakdown', () => {
     } as never);
 
     const data = prisma.loadingRequest.create.mock.calls[0][0].data;
-    // Every line is attributed to the linked order, so the single-order body
-    // and the `orders` map produce the same rows.
+    // The request is filed against the ACCOUNT, so no line names an order:
+    // the body no longer carries one to attribute them to.
     expect(data.items.create).toEqual([
       {
-        purchaseId: 'p-1',
-        orderReference: '2310-202606110033',
+        purchaseId: null,
+        orderReference: null,
         productId: '101020104',
         productName: '750ml water(L-水)',
         spec: null,
@@ -85,8 +88,8 @@ describe('Loading request product breakdown', () => {
         weightPerCarton: 9.38,
       },
       {
-        purchaseId: 'p-1',
-        orderReference: '2310-202606110033',
+        purchaseId: null,
+        orderReference: null,
         productId: null,
         productName: '18.9L water(L)',
         spec: null,
@@ -199,12 +202,16 @@ describe('Loading request product breakdown', () => {
     expect(res).not.toHaveProperty('items');
   });
 
-  it('still refuses a linked order that is not the caller’s', async () => {
+  it('never looks an order up - the request is filed against the account', async () => {
+    // `linkedPurchaseId` and the order-keyed `orders` map are gone from the
+    // body, so there is nothing to resolve and nothing to get wrong.
     const { service, prisma } = build();
-    prisma.purchase.findFirst.mockResolvedValue(null);
 
-    await expect(
-      service.submitLoadingRequest('c-1', { ...baseDto, products }),
-    ).rejects.toThrow(/Linked order not found/);
+    await service.submitLoadingRequest('c-1', {
+      ...baseDto,
+      products,
+    } as never);
+
+    expect(prisma.purchase.findFirst).not.toHaveBeenCalled();
   });
 });

@@ -58,7 +58,11 @@ describe('Loading request detail', () => {
     };
     return {
       prisma,
-      service: new WaybillService(prisma as never, {} as never),
+      service: new WaybillService(
+        prisma as never,
+        {} as never,
+        { listForCustomer: async () => [] } as never,
+      ),
     };
   };
 

@@ -126,6 +126,7 @@ describe('Loading request required fields', () => {
           {
             notify: jest.fn(),
           } as never,
+          { listForCustomer: async () => [] } as never,
         ),
       };
     };

@@ -44,6 +44,7 @@ describe('Loading request capacity guard', () => {
         {
           notify: jest.fn(),
         } as never,
+        { listForCustomer: async () => [] } as never,
       ),
     };
   };

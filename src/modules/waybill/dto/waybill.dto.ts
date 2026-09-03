@@ -82,9 +82,14 @@ export class LoadingRequestProductDto {
   @ApiPropertyOptional({
     example: 100,
     description:
-      'The `quantityLeft` the products endpoint returned, echoed back. ' +
-      'Stored as a snapshot of what the distributor was shown; it is NOT ' +
-      'trusted as a limit, because the caller supplies it.',
+      'The `quantityLeft` the products endpoint returned, echoed back, and ' +
+      'stored as a snapshot of what the distributor was shown.\n\n' +
+      '`quantityToLoad` MUST NOT EXCEED IT: a line loading more of a product ' +
+      'than is left to collect is refused with a 400. Because the caller ' +
+      'supplies this figure it is not trusted on its own - the same rule is ' +
+      "also applied against the ERP's own outstanding quantity, summed " +
+      'across every line naming that product. Omitting it therefore does ' +
+      'not skip the check.',
   })
   @IsOptional()
   @IsInt()
@@ -163,31 +168,6 @@ export class SubmitLoadingRequestDto {
   driverPhone: string;
 
   @ApiProperty({
-    description:
-      'The order(s) this request is raised against. Send an ARRAY when the ' +
-      'truck loads from several - normally the same ids used as the `orders` ' +
-      'keys. A single string is still accepted for the one-order case.\n\n' +
-      'Each entry is either a `Purchase.id` uuid (what ' +
-      'GET /customers/me/invoices returns as `id`) or the ERP DOC_NO ' +
-      '(`erpId`). Every one must belong to the caller.\n\n' +
-      'THE FIRST ENTRY IS THE PRIMARY ORDER: the request is filed under it ' +
-      'and `reference` is derived from its DOC_NO. When an array is sent, ' +
-      'every entry must also appear as a key of `orders` - an order the ' +
-      'request names but loads nothing from would otherwise be silently ' +
-      'dropped.',
-    oneOf: [
-      { type: 'string' },
-      { type: 'array', items: { type: 'string' }, minItems: 1 },
-    ],
-    example: [
-      'f7a86c0a-1ee9-40d0-85a0-5334f6da100c',
-      'ea95bb9e-e470-4743-ab20-618841ea9abf',
-    ],
-  })
-  @IsOptional()
-  linkedPurchaseId?: string | string[];
-
-  @ApiProperty({
     example: 'e8fef5ed-bdc5-4ee2-e902-1839e3c9ddd4',
     description:
       'The distributor the request is for.\n\n' +
@@ -253,58 +233,20 @@ export class SubmitLoadingRequestDto {
       'The products being loaded. AT LEAST ONE IS REQUIRED, and their ' +
       'quantities must ADD UP TO MORE THAN ZERO - a loading request that ' +
       'loads nothing is not a request. An individual line MAY be 0.\n\n' +
-      'Marked optional to the validator, and enforced in the service, only so ' +
-      'that the multi-order `orders` form can satisfy the same rule: a body ' +
-      'must carry at least one product line in ONE of the two shapes. A body ' +
-      'with neither is refused with a message naming `products`.\n\n' +
+      'Pick them from GET /erp/orders/{customerId}/products, which is what ' +
+      'the distributor still has to collect across ALL their open orders.\n\n' +
+      'THE ONLY LINE SHAPE. The request is filed against the ACCOUNT, so it ' +
+      'no longer names the orders it draws on: `orders` and ' +
+      '`linkedPurchaseId` are gone - see the note on the endpoint.\n\n' +
       '`quantityCartons` is derived from the sum of the quantities; any value ' +
       'sent for it is ignored.',
   })
-  @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(MAX_PRODUCTS_PER_REQUEST)
   @ValidateNested({ each: true })
   @Type(() => LoadingRequestProductDto)
-  products?: LoadingRequestProductDto[];
-
-  @ApiPropertyOptional({
-    type: 'object',
-    additionalProperties: {
-      type: 'array',
-      items: { $ref: '#/components/schemas/LoadingRequestProductDto' },
-    },
-    example: {
-      '2310-202606110033': [
-        {
-          productId: '101020104',
-          productName: '750ml water(L-水)',
-          quantity: 120,
-          weightPerCarton: 9.38,
-        },
-      ],
-      '2301-202606090060': [
-        {
-          productId: null,
-          productName: '18.9L water(L)',
-          quantity: 80,
-          weightPerCarton: null,
-        },
-      ],
-    },
-    description:
-      'MULTI-ORDER form: the products being loaded, keyed by the order each ' +
-      'came from. One loading request can draw on several orders, so this ' +
-      'supersedes `products`; send one or the other, not both.\n\n' +
-      'Each key is an order - either a `Purchase.id` uuid or the ERP DOC_NO ' +
-      '(`Purchase.erpId`). Every order must belong to the caller, or the ' +
-      'request is refused.\n\n' +
-      '`linkedPurchaseId` stays required and lists the same orders; its ' +
-      'FIRST entry is the primary one, which `reference` is derived from.',
-  })
-  @IsOptional()
-  @IsObject()
-  orders?: Record<string, LoadingRequestProductDto[]>;
+  products: LoadingRequestProductDto[];
 }
 
 /**

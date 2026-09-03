@@ -50,6 +50,40 @@ export class ErpOrderStatusSyncResponseDto {
 }
 
 /**
+ * Outcome of a customer projection pass — the ERP customers copied into the
+ * portal so the region-scoped screens can see them.
+ */
+export class ErpCustomerProjectionSyncResponseDto {
+  @ApiProperty({ example: true })
+  success: boolean;
+
+  @ApiProperty({ example: 'Projected 1902 ERP customer(s) into the portal' })
+  message: string;
+
+  @ApiProperty({
+    example: 1902,
+    description:
+      'Customers inserted on this pass. 0 once the feed is fully projected — ' +
+      'existing customers are never updated, only gaps are filled.',
+  })
+  inserted: number;
+
+  @ApiProperty({
+    example: true,
+    description:
+      'False when this database carries no erp_raw feed — nothing was written.',
+  })
+  available: boolean;
+
+  @ApiProperty({
+    example: false,
+    description:
+      'True when another instance held the lock, so this pass did nothing.',
+  })
+  skipped: boolean;
+}
+
+/**
  * Outcome of an account-balance reconcile. Like the order-status pass above it
  * reports what it did, so the caller can see whether the ERP credit feed was
  * reachable and how many balances actually moved.
