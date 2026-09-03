@@ -150,28 +150,6 @@ describe('Loading request required fields', () => {
       expect(prisma.loadingRequest.create).not.toHaveBeenCalled();
     });
 
-    it('accepts lines carried by `orders` instead of `products`', async () => {
-      // The multi-order form satisfies the same rule.
-      const { run, prisma } = submit({
-        products: undefined,
-        loadingCapacity: 54,
-        linkedPurchaseId: undefined,
-        orders: {
-          'p-1': [
-            { productName: 'A', weightPerCarton: 2.7, quantityToLoad: 20 },
-          ],
-        },
-      });
-      prisma.purchase.findFirst.mockResolvedValue({
-        id: 'p-1',
-        erpId: '2310-202606110033',
-      });
-
-      await run;
-
-      expect(prisma.loadingRequest.create).toHaveBeenCalled();
-    });
-
     it('refuses a line that states no quantity under either name', async () => {
       const { run } = submit({
         products: [{ productName: 'Mr V Premium Table Water(Lagos)' }],

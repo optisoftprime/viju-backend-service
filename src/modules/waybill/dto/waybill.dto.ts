@@ -13,7 +13,6 @@ import {
   ValidateNested,
   ArrayMaxSize,
   ArrayMinSize,
-  IsObject,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -321,33 +320,6 @@ export class UpdateLoadingRequestDto {
   @ValidateNested({ each: true })
   @Type(() => LoadingRequestProductDto)
   products?: LoadingRequestProductDto[];
-
-  @ApiPropertyOptional({
-    type: 'object',
-    additionalProperties: {
-      type: 'array',
-      items: { $ref: '#/components/schemas/LoadingRequestProductDto' },
-    },
-    description:
-      'The multi-order form of `products`, keyed by order. Also REPLACES the ' +
-      'lines entirely.',
-  })
-  @IsOptional()
-  @IsObject()
-  orders?: Record<string, LoadingRequestProductDto[]>;
-
-  @ApiPropertyOptional({
-    description:
-      'The order(s) the request is filed against. Sending it re-files the ' +
-      'request; omitting it leaves the existing link alone. It does NOT ' +
-      'change `reference`, which is fixed when the request is created.',
-    oneOf: [
-      { type: 'string' },
-      { type: 'array', items: { type: 'string' }, minItems: 1 },
-    ],
-  })
-  @IsOptional()
-  linkedPurchaseId?: string | string[];
 }
 
 /** How GET /customers/me/waybills may be ordered. */

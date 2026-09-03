@@ -137,19 +137,14 @@ describe('Loading request capacity guard', () => {
     expect(prisma.loadingRequest.create).toHaveBeenCalled();
   });
 
-  it('weighs the load ACROSS every order', async () => {
+  it('weighs EVERY line on the load, not just the first', async () => {
     // 100 x 9.38 + 100 x 6.33 = 1,571kg.
     const { run, prisma } = submit({
       loadingCapacity: 1571,
-      orders: {
-        'p-1': [
-          { productName: 'A', weightPerCarton: 9.38, quantityToLoad: 100 },
-        ],
-        '2310-202606110033': [
-          { productName: 'B', weightPerCarton: 6.33, quantityToLoad: 100 },
-        ],
-      },
-      linkedPurchaseId: 'p-1',
+      products: [
+        { productName: 'A', weightPerCarton: 9.38, quantityToLoad: 100 },
+        { productName: 'B', weightPerCarton: 6.33, quantityToLoad: 100 },
+      ],
     });
 
     await run;
