@@ -13,6 +13,7 @@ import {
 } from '../../common/pagination/sort.dto';
 import { AssignedCustomerSortField } from './dto/officer-request.dto';
 import { stockByCustomer } from '../../common/customers/stock-balance';
+import { displayPhone } from '../../common/customers/display-phone';
 import { messagePreview } from '../../common/messaging/message-preview';
 import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
 import { ErpStockBalanceService } from '../erp/erp-stock-balance.service';
@@ -375,7 +376,7 @@ export class OfficerService {
       id: c.id,
       name: c.name,
       accountNumber: c.erpId,
-      phone: c.phone,
+      phone: displayPhone(c.phone),
       region: c.region,
       // Derived from the ERP credit feed, exactly as GET /customers/me does.
       walletBalance: accountBalances.get(c.erpId) ?? c.outstandingBalance,

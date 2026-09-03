@@ -3,7 +3,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsDateString,
-  IsInt,
+  IsPositive,
   IsNumber,
   IsIn,
   Min,
@@ -92,7 +92,7 @@ export class LoadingRequestProductDto {
       'not skip the check.',
   })
   @IsOptional()
-  @IsInt()
+  @IsNumber()
   @Min(0)
   quantityLeft?: number;
 
@@ -111,7 +111,7 @@ export class LoadingRequestProductDto {
       'checked in the service. Negatives are refused here.',
   })
   @IsOptional()
-  @IsInt()
+  @IsNumber()
   @Min(0)
   quantityToLoad?: number;
 
@@ -124,7 +124,7 @@ export class LoadingRequestProductDto {
       'present `quantityToLoad` wins.',
   })
   @IsOptional()
-  @IsInt()
+  @IsNumber()
   @Min(0)
   quantity?: number;
 
@@ -186,8 +186,8 @@ export class SubmitLoadingRequestDto {
 
   @ApiPropertyOptional({ example: 320 })
   @IsOptional()
-  @IsInt()
-  @Min(1)
+  @IsNumber()
+  @Min(0)
   quantityCartons?: number;
 
   @ApiProperty({
@@ -222,8 +222,8 @@ export class SubmitLoadingRequestDto {
       'request is allowed through - the check never rejects on a figure it ' +
       'cannot stand behind.',
   })
-  @IsInt()
-  @Min(1)
+  @IsNumber()
+  @IsPositive()
   loadingCapacity: number;
 
   @ApiProperty({
@@ -305,8 +305,8 @@ export class UpdateLoadingRequestDto {
       'POST /customers/me/waybills. Change it whenever you change a quantity.',
   })
   @IsOptional()
-  @IsInt()
-  @Min(1)
+  @IsNumber()
+  @IsPositive()
   loadingCapacity?: number;
 
   @ApiPropertyOptional({

@@ -51,6 +51,7 @@ import {
   sortDirection,
 } from '../../common/pagination/sort.dto';
 import { stockByCustomer } from '../../common/customers/stock-balance';
+import { displayPhone } from '../../common/customers/display-phone';
 import { ErpStockBalanceService } from '../erp/erp-stock-balance.service';
 import {
   balanceByErpId,
@@ -463,7 +464,7 @@ export class AdminService {
           id: null,
           erpId: r.erpId,
           name: r.name,
-          phone: r.phone,
+          phone: r.phone ?? '',
           region: r.region,
           accountStatus: null,
           outstandingBalance: null,
@@ -605,6 +606,9 @@ export class AdminService {
 
     return rows.map((row) => ({
       ...row,
+      // A projected customer's stored phone is the portal's own placeholder,
+      // never a number to show. See `displayPhone`.
+      phone: displayPhone((row as { phone?: string | null }).phone),
       // Derived from the ERP credit feed, exactly as GET /customers/me does.
       outstandingBalance:
         accountBalances.get(row.erpId) ?? row.outstandingBalance,
@@ -683,7 +687,7 @@ export class AdminService {
       id: customer.id,
       erpId: customer.erpId,
       name: customer.name,
-      phone: customer.phone,
+      phone: displayPhone(customer.phone),
       email: customer.email ?? null,
       address: erp?.address ?? null,
       region: customer.region,
@@ -749,7 +753,7 @@ export class AdminService {
       [
         this.csv(c.erpId),
         this.csv(c.name),
-        this.csv(c.phone),
+        this.csv(displayPhone(c.phone)),
         c.region,
         c.accountStatus,
         exportBalances.get(c.erpId) ?? c.outstandingBalance,

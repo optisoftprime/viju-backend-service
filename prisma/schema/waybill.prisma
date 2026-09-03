@@ -22,7 +22,10 @@ model LoadingRequest {
   driverName           String
   driverPhone          String
   requestedLoadingDate DateTime
-  quantityCartons      Int?
+  /// Cartons on the load: the sum of `items.quantity`. FRACTIONAL, because
+  /// the ERP itself states fractional quantities on 5,799 of its sales-order
+  /// lines - an integer column silently truncated them.
+  quantityCartons      Float?
   destination          String?
 
   /// The Viju warehouse the truck is loading from. Stored as text rather than
@@ -35,7 +38,9 @@ model LoadingRequest {
   /// The TRUCK's carton capacity, as the distributor states it - not the size
   /// of this load. The load itself is the sum of `items.quantity`, mirrored
   /// onto `quantityCartons` so every existing stock calculation keeps working.
-  loadingCapacity Int?
+  /// Fractional for the same reason as `quantityCartons`: it is compared
+  /// against SUM(quantity x weightPerCarton), and both sides carry decimals.
+  loadingCapacity Float?
 
   /// The products being loaded. Empty on requests raised before the field
   /// existed, and on any raised without a product breakdown.
@@ -137,10 +142,12 @@ model LoadingRequestItem {
   /// How much of the product was still to collect WHEN THE REQUEST WAS MADE.
   /// A snapshot, deliberately: it records what the distributor was shown, and
   /// must not move under them as later deliveries land.
-  quantityLeft Int?
+  /// Fractional: the ERP states fractional quantities.
+  quantityLeft Float?
 
-  /// Cartons of this product on the load.
-  quantity Int
+  /// Cartons of this product on the load. Fractional - the ERP states
+  /// fractional quantities on 5,799 of its sales-order lines.
+  quantity Float
 
   /// Kilograms per carton, as the specification sheet states it. Null when the
   /// sheet does not cover the product.
