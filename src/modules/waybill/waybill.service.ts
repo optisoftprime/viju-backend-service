@@ -34,9 +34,9 @@ import { resolveProduct } from '../erp/product-specification.resolver';
 const MAX_REFERENCE_ATTEMPTS = 25;
 
 /**
- * Ceiling on product lines across every order on one request. The DTO caps the
- * single-order array; this is the same bound applied to the multi-order map,
- * whose total is only known once the orders are flattened.
+ * Ceiling on product lines for one request. The DTO caps the array it can see;
+ * this is the same bound re-applied in the service, so a body that reaches the
+ * flattener another way cannot slip past it.
  */
 const MAX_LOADING_REQUEST_LINES = 200;
 
@@ -117,16 +117,14 @@ interface LoadingLine {
 }
 
 /**
- * A body carrying product lines, in whichever shape it states them.
+ * A body carrying product lines.
  *
- * Submission takes `products` alone. Editing may also key them by order, so
- * the flattener is typed to the union rather than to either DTO - which is
- * what lets both call it without a cast.
+ * Submission and editing now state them the same way - a flat `products`
+ * array - so the flattener is typed to the shape they share rather than to
+ * either DTO, which is what lets both call it without a cast.
  */
 interface OrderLineSource {
   products?: LoadingRequestProductDto[];
-  orders?: Record<string, LoadingRequestProductDto[]>;
-  linkedPurchaseId?: string | string[];
 }
 
 /**
@@ -255,29 +253,19 @@ export class WaybillService {
       );
     }
 
-    const linkedOrders =
-      dto.linkedPurchaseId === undefined
-        ? []
-        : await this.resolveLinkedOrders(customerId, dto.linkedPurchaseId);
-
     // Only when the caller sent lines. Otherwise the stored ones stand, and
     // they are what the capacity is checked against.
-    const replacingLines =
-      dto.products !== undefined || dto.orders !== undefined;
+    const replacingLines = dto.products !== undefined;
     const lines = replacingLines
-      ? await this.resolveOrderLines(
-          customerId,
+      ? this.resolveOrderLines(
           dto,
-          linkedOrders.length > 0
-            ? linkedOrders
-            : existing.linkedPurchaseId
-              ? [
-                  {
-                    id: existing.linkedPurchaseId,
-                    erpId: existing.reference,
-                  },
-                ]
-              : [],
+          // The request keeps whatever order it was already filed under: an
+          // edit replaces the LINES, and the body no longer names an order to
+          // re-file it against. Null on anything raised since submission
+          // stopped naming one.
+          existing.linkedPurchaseId
+            ? { id: existing.linkedPurchaseId, erpId: existing.reference }
+            : null,
         )
       : existing.items.map((i) => ({
           purchaseId: i.purchaseId,
@@ -320,9 +308,9 @@ export class WaybillService {
         destination: dto.destination,
         warehouseName: dto.warehouseName,
         loadingCapacity: dto.loadingCapacity,
-        ...(linkedOrders.length > 0
-          ? { linkedPurchaseId: linkedOrders[0].id }
-          : {}),
+        // `linkedPurchaseId` is deliberately absent: an edit can no longer
+        // re-file a request against a different order, because the body no
+        // longer names one. Whatever it was filed under stands.
         ...(replacingLines
           ? {
               quantityCartons: lines.length > 0 ? loadedCartons : undefined,
@@ -633,91 +621,38 @@ export class WaybillService {
   }
 
   /**
-   * Resolves `linkedPurchaseId` - one order id or a list of them - to the
-   * orders the request is raised against.
+   * Flattens the submitted product lines into what is stored.
    *
-   * A truck loads from several sales orders, so the field takes an array. The
-   * FIRST entry is the primary: it goes in the `linkedPurchaseId` column and
-   * its DOC_NO becomes the request's `reference`. A bare string is still
-   * accepted and behaves exactly as it did.
+   * ONE SHAPE ONLY: a flat `products` array. A loading request is filed
+   * against the ACCOUNT, and the picker behind it
+   * (GET /erp/orders/{customerId}/products) reports the distributor's whole
+   * outstanding stock across every open order rather than one document's
+   * lines - so neither submission nor editing names the orders it draws on.
+   * The order-keyed `orders` map and `linkedPurchaseId` are gone from both.
    *
-   * Every entry is scoped to the caller, so a distributor cannot file a
-   * request against another distributor's order.
+   * `order` is the one a request is ALREADY filed under, which only legacy
+   * requests have. It is stamped onto each line so an existing request keeps
+   * saying where its products came from; new ones carry null.
    */
-  private async resolveLinkedOrders(
-    customerId: string,
-    linkedPurchaseId: string | string[] | undefined,
-  ): Promise<{ id: string; erpId: string }[]> {
-    // The form no longer names an order: the distributor picks products, and
-    // the request is filed against the ACCOUNT. An order id is still accepted
-    // - older clients send one, and it makes the reference match the ERP
-    // document - but its absence is not an error.
-    if (linkedPurchaseId === undefined || linkedPurchaseId === null) return [];
-    const isList = Array.isArray(linkedPurchaseId);
-    const raw = isList ? linkedPurchaseId : [linkedPurchaseId];
-    if (raw.length === 0) return [];
-    if (raw.some((id) => typeof id !== 'string' || id.trim() === '')) {
-      throw new BadRequestException(
-        'linkedPurchaseId must be an order id, or an array of order ids.',
-      );
-    }
-    // The same order twice is a duplicate, not two orders. Order is kept
-    // because the first entry decides the reference.
-    const ids = [...new Set(raw.map((id) => id.trim()))];
-
-    const orders: { id: string; erpId: string }[] = [];
-    for (const id of ids) {
-      const order = await this.prisma.purchase.findFirst({
-        where: { OR: [{ id }, { erpId: id }], customerId },
-        select: { id: true, erpId: true },
-      });
-      if (!order) {
-        // The single-order form keeps its original wording: clients already
-        // match on it.
-        throw new BadRequestException(
-          isList
-            ? `Linked order "${id}" was not found or does not belong to this customer.`
-            : 'Linked order not found or does not belong to this customer.',
-        );
-      }
-      orders.push(order);
-    }
-    return orders;
-  }
-
-  /**
-   * Flattens the submitted product lines, resolving which order each came from.
-   *
-   * Two shapes are accepted. `orders` keys the lines by order, so one request
-   * can draw on several; `products` is the single-order form and is treated as
-   * belonging to `linkedPurchaseId`. `orders` wins if both are sent.
-   *
-   * ONLY THE EDIT PATH STILL SENDS THE ORDER-KEYED SHAPES. Submission takes
-   * `products` alone and files against the account - see
-   * `submitLoadingRequest` - so on that path `orders` and `linked` are always
-   * absent and every line comes back with a null order.
-   *
-   * EVERY order named must belong to the caller. Without that check a
-   * distributor could attach another distributor's order by id and have its
-   * products recorded against their own load.
-   */
-  private async resolveOrderLines(
-    customerId: string,
+  private resolveOrderLines(
     dto: OrderLineSource,
-    linked: { id: string; erpId: string }[],
-  ): Promise<LoadingLine[]> {
-    for (const product of dto.products ?? []) {
+    order: { id: string; erpId: string } | null,
+  ): LoadingLine[] {
+    const products = dto.products ?? [];
+    for (const product of products) {
       if (product.quantityToLoad == null && product.quantity == null) {
         throw new BadRequestException(
           `"${product.productName}" states no quantityToLoad.`,
         );
       }
     }
+    if (products.length > MAX_LOADING_REQUEST_LINES) {
+      throw new BadRequestException(
+        `A loading request cannot carry more than ${MAX_LOADING_REQUEST_LINES} product lines.`,
+      );
+    }
 
-    const toLine = (
-      p: LoadingRequestProductDto,
-      order: { id: string; erpId: string } | null,
-    ) => ({
+    return products.map((p) => ({
       purchaseId: order?.id ?? null,
       orderReference: order?.erpId ?? null,
       productId: p.productId ?? null,
@@ -728,81 +663,7 @@ export class WaybillService {
       // former name and is still accepted so older clients keep working.
       quantity: quantityOf(p),
       weightPerCarton: p.weightPerCarton ?? null,
-    });
-
-    const primary = linked[0] ?? null;
-    if (!dto.orders) {
-      return (dto.products ?? []).map((p) => toLine(p, primary));
-    }
-
-    const entries = Object.entries(dto.orders);
-    const covered = new Set<string>();
-    const lines: ReturnType<typeof toLine>[] = [];
-    for (const [key, products] of entries) {
-      if (!Array.isArray(products)) {
-        throw new BadRequestException(
-          `orders["${key}"] must be an array of products.`,
-        );
-      }
-      // The key may be a Purchase.id uuid or the ERP DOC_NO; both identify one
-      // order, and the customer scope is what makes it safe.
-      const order =
-        linked.find((o) => o.id === key || o.erpId === key) ??
-        (await this.prisma.purchase.findFirst({
-          where: { OR: [{ id: key }, { erpId: key }], customerId },
-          select: { id: true, erpId: true },
-        }));
-      if (!order) {
-        throw new BadRequestException(
-          `Order "${key}" was not found or does not belong to this customer.`,
-        );
-      }
-      covered.add(order.id);
-      for (const product of products) {
-        const stated = product?.quantityToLoad ?? product?.quantity;
-        if (!product?.productName || typeof stated !== 'number') {
-          throw new BadRequestException(
-            `orders["${key}"] contains a line without a productName or quantity.`,
-          );
-        }
-        if (stated < 0) {
-          throw new BadRequestException(
-            `orders["${key}"] contains a line with a negative quantity.`,
-          );
-        }
-        lines.push(
-          toLine(
-            {
-              ...product,
-              // A number is coerced here too, matching the single-order form.
-              productId:
-                typeof product.productId === 'number'
-                  ? String(product.productId)
-                  : product.productId,
-            },
-            order,
-          ),
-        );
-      }
-    }
-    if (lines.length > MAX_LOADING_REQUEST_LINES) {
-      throw new BadRequestException(
-        `A loading request cannot carry more than ${MAX_LOADING_REQUEST_LINES} product lines.`,
-      );
-    }
-    // An order named in the LIST form but absent from `orders` would be
-    // dropped: the lines are the only record of which orders a request draws
-    // on. Say so rather than lose it. The single-order form is left alone -
-    // it never promised the two agreed.
-    if (Array.isArray(dto.linkedPurchaseId)) {
-      const missing = linked.find((o) => !covered.has(o.id));
-      if (missing) {
-        throw new BadRequestException(
-          `Order "${missing.erpId}" is listed in linkedPurchaseId but has no products in \`orders\`.`,
-        );
-      }
-    }
-    return lines;
+    }));
   }
 
   /**
@@ -1057,7 +918,7 @@ export class WaybillService {
     // `erp_raw.raw_sales_order` rather than one document's lines. There is
     // nothing for the client to state, so `linkedPurchaseId` and the
     // order-keyed `orders` map are no longer part of the body.
-    const lines = await this.resolveOrderLines(customerId, dto, []);
+    const lines = this.resolveOrderLines(dto, null);
     // `loadingCapacity` is the TRUCK's capacity, not the load. The load is the
     // sum of the product lines ACROSS EVERY ORDER, and it is mirrored onto
     // `quantityCartons` so every existing stock calculation - which reads that

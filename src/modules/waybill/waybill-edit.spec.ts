@@ -88,6 +88,41 @@ describe('Editing a loading request', () => {
     expect(data.quantityCartons).toBe(20);
   });
 
+  it('keeps the replaced lines attributed to the order it is filed under', async () => {
+    // A legacy request was raised against an order. An edit replaces its
+    // LINES; it must not quietly lose which order they came from, because the
+    // body no longer carries anything that could restate it.
+    const { service, prisma } = build();
+
+    await service.updateLoadingRequest('c-1', 'lr-1', {
+      loadingCapacity: 100,
+      products: [{ productName: 'A', weightPerCarton: 5, quantityToLoad: 20 }],
+    });
+
+    const data = prisma.loadingRequest.update.mock.calls[0][0].data;
+    expect(data.items.create[0]).toEqual(
+      expect.objectContaining({
+        purchaseId: 'p-1',
+        orderReference: '2310-202606110033',
+      }),
+    );
+  });
+
+  it('leaves a request filed against no order alone', async () => {
+    // Everything raised since submission stopped naming an order.
+    const { service, prisma } = build({ linkedPurchaseId: null });
+
+    await service.updateLoadingRequest('c-1', 'lr-1', {
+      loadingCapacity: 100,
+      products: [{ productName: 'A', weightPerCarton: 5, quantityToLoad: 20 }],
+    });
+
+    const data = prisma.loadingRequest.update.mock.calls[0][0].data;
+    expect(data.items.create[0]).toEqual(
+      expect.objectContaining({ purchaseId: null, orderReference: null }),
+    );
+  });
+
   it('re-checks the capacity against the EDITED lines', async () => {
     // Editing quantities and leaving the old capacity behind is exactly the
     // mistake the rule exists for.
@@ -119,17 +154,18 @@ describe('Editing a loading request', () => {
     expect(prisma.loadingRequest.update).toHaveBeenCalled();
   });
 
-  it('never changes the reference', async () => {
-    // It is what the depot and the ERP know the request by.
+  it('never changes the reference, nor which order it is filed under', async () => {
+    // `reference` is what the depot and the ERP know the request by, and the
+    // body no longer names an order to re-file it against.
     const { service, prisma } = build();
 
     await service.updateLoadingRequest('c-1', 'lr-1', {
-      linkedPurchaseId: 'p-2',
+      driverName: 'Musa Danjuma',
     });
 
     const data = prisma.loadingRequest.update.mock.calls[0][0].data;
     expect(data).not.toHaveProperty('reference');
-    expect(data.linkedPurchaseId).toBe('p-2');
+    expect(data).not.toHaveProperty('linkedPurchaseId');
   });
 
   describe('only while PENDING_ASSIGNMENT', () => {

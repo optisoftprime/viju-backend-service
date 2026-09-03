@@ -123,9 +123,16 @@ export class WaybillController {
       'the truck and the paperwork out of step. Those answer **409**, not ' +
       '403: the request is real and yours, it is the STATE that refuses. ' +
       'Cancel it and raise a new one.\n\n' +
-      'PRODUCT LINES ARE REPLACED WHOLESALE when `products` or `orders` is ' +
-      'present - a partial line list has no meaning a form can express. ' +
-      'Omit both to leave them alone; send `[]` to clear them.\n\n' +
+      'PRODUCT LINES ARE REPLACED WHOLESALE when `products` is present - a ' +
+      'partial line list has no meaning a form can express. Omit it to leave ' +
+      'them alone; send `[]` to clear them.\n\n' +
+      'REMOVED: `orders` and `linkedPurchaseId`, matching ' +
+      'POST /customers/me/waybills. A request is filed against the ACCOUNT, ' +
+      'so an edit replaces the LINES and can no longer re-file it against a ' +
+      'different order. Sending either field now returns 400 (the API ' +
+      'rejects unknown properties). Whatever the request was already filed ' +
+      'under stands, and `linkedPurchaseIds` on the response is unchanged by ' +
+      'an edit.\n\n' +
       '`loadingCapacity` is re-checked against the MERGED result, so ' +
       'editing quantities and leaving the old capacity behind is refused. ' +
       'Resend both together.\n\n' +
