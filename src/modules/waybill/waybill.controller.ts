@@ -75,35 +75,37 @@ export class WaybillController {
       '/customers/me/waybills/accept-terms). Returns the created request in ' +
       'PENDING_ASSIGNMENT status; the regional admin for the region is ' +
       'notified.\n\n' +
-      'PRODUCT BREAKDOWN: send `orders` - an object keyed by ORDER, each ' +
-      'key holding the lines taken from that order, e.g. ' +
-      '`{ "2310-202606110033": [{ "productName": "750ml water", ' +
-      '"quantity": 120 }] }`. One truck is loaded against more than one ' +
-      'sales order, so a request may name several. Each key is either the ' +
-      '`Purchase.id` uuid that `linkedPurchaseId` carries or the ERP ' +
-      'DOC_NO; both work, and every order named must belong to the caller ' +
-      'or the request is rejected with 400.\n\n' +
-      'The lines for an order come from GET /erp/orders/{orderId}/products ' +
-      'for that same order. Echo `productId` and `weightPerCarton` back as ' +
-      'that endpoint returned them - both may be null, because the product ' +
-      'specification sheet does not cover every product. The lines are ' +
-      'stored as sent and never re-resolved, so a later correction to the ' +
-      'sheet cannot change what the distributor declared. They come back on ' +
-      'the response as `products[]`, each carrying `purchaseId` and ' +
-      '`orderReference`, so the app can group them by order again.\n\n' +
-      '`products[]` is still accepted on the way IN as the single-order ' +
-      'form: its lines are attributed to `linkedPurchaseId`. `orders` wins ' +
-      'if a body sends both. `linkedPurchaseId` stays REQUIRED either way - ' +
-      'it is the order the request is filed under and the one its reference ' +
-      'is drawn from.\n\n' +
+      'PRODUCT BREAKDOWN: send `products` - a flat array of the lines being ' +
+      'loaded, e.g. `[{ "productName": "750ml water(L-水)", ' +
+      '"quantityToLoad": 120, "quantityLeft": 200 }]`.\n\n' +
+      'REMOVED: `orders` and `linkedPurchaseId`. A request is filed against ' +
+      'the ACCOUNT, not against a document - the distributor picks from ' +
+      'GET /erp/orders/{customerId}/products, which is everything they still ' +
+      'have to collect across ALL their open orders in the ERP sales-order ' +
+      'feed. There was nothing left for the client to state. Sending either ' +
+      'field now returns 400 (the API rejects unknown properties), so drop ' +
+      'them from the body rather than leaving them in.\n\n' +
+      'Consequently `reference` is now `LR-<erpCode>-<yyyymmdd>` rather than ' +
+      'an order DOC_NO, and `linkedPurchaseIds` comes back empty. Nothing ' +
+      'else about the response changes.\n\n' +
+      'Echo `productId`, `spec`, `quantityLeft` and `weightPerCarton` back ' +
+      'as the products endpoint returned them - `productId`, `spec` and ' +
+      '`weightPerCarton` may be null, because the product specification ' +
+      'sheet does not cover every product. The lines are stored as sent and ' +
+      'never re-resolved, so a later correction to the sheet cannot change ' +
+      'what the distributor declared.\n\n' +
+      'QUANTITY LIMIT: `quantityToLoad` may not exceed what is left to ' +
+      'collect, or the request is refused with 400. It is checked against ' +
+      'the `quantityLeft` on the line AND, independently, against the ' +
+      "ERP's own outstanding quantity for that product - summed across " +
+      'every line naming it, so three lines of 100 against 150 left is ' +
+      'refused even though no single line is over.\n\n' +
       '`warehouseName` is one of LAGOS WAREHOUSE | OGUN WAREHOUSE | ABUJA ' +
       'WAREHOUSE. `loadingCapacity` is the TRUCK’s carton capacity, not the ' +
       'size of this load.\n\n' +
-      'When any lines are present, `quantityCartons` is DERIVED as the sum ' +
-      'of the line quantities ACROSS EVERY ORDER and any value sent for it ' +
-      'is ignored - so the stock figures that read that column cannot ' +
-      'disagree with the lines. With no lines at all the endpoint behaves ' +
-      'exactly as before.',
+      '`quantityCartons` is DERIVED as the sum of the line quantities and ' +
+      'any value sent for it is ignored - so the stock figures that read ' +
+      'that column cannot disagree with the lines.',
   })
   @ApiCreatedResponse({ type: WaybillDto })
   async submit(@CurrentUser() user: any, @Body() dto: SubmitLoadingRequestDto) {

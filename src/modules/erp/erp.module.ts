@@ -3,6 +3,7 @@ import { ErpController } from './erp.controller';
 import { ErpProductsController } from './erp-products.controller';
 import { ErpService } from './erp.service';
 import { ErpOrderStatusService } from './erp-order-status.service';
+import { ErpCustomerProjectionService } from './erp-customer-projection.service';
 import { ErpAccountBalanceService } from './erp-account-balance.service';
 import { ErpStockBalanceService } from './erp-stock-balance.service';
 import { ErpItemCodeService } from './erp-item-code.service';
@@ -17,6 +18,7 @@ import { DefaultOfficerService } from './default-officer.service';
   providers: [
     ErpService,
     ErpOrderStatusService,
+    ErpCustomerProjectionService,
     ErpAccountBalanceService,
     ErpStockBalanceService,
     ErpItemCodeService,
@@ -28,6 +30,7 @@ import { DefaultOfficerService } from './default-officer.service';
   ],
   exports: [
     ErpOrderStatusService,
+    ErpCustomerProjectionService,
     ErpAccountBalanceService,
     ErpStockBalanceService,
     ErpItemCodeService,

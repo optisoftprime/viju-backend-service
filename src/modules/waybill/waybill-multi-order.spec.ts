@@ -3,10 +3,17 @@ import { WaybillService } from './waybill.service';
 /**
  * One loading request spanning SEVERAL orders.
  *
- * A truck is loaded against more than one sales order at a time, so the submit
- * body carries an `orders` map: each key is an order the distributor is drawing
- * from, each value the product lines taken from it. The older single-order
- * `products` array still works and is attributed to `linkedPurchaseId`.
+ * A truck is loaded against more than one sales order at a time, so the body
+ * may carry an `orders` map: each key is an order the distributor is drawing
+ * from, each value the product lines taken from it. `linkedPurchaseId` names
+ * the same orders, its first entry being the primary one.
+ *
+ * THIS IS THE EDIT PATH ONLY. Submission dropped both fields: a request is
+ * filed against the ACCOUNT, and the picker behind it
+ * (GET /erp/orders/{customerId}/products) reports the distributor's whole
+ * outstanding stock across every open order rather than one document's lines,
+ * so there was nothing left for the client to state. The resolution logic
+ * these tests cover is shared, and PATCH is where it is still reachable.
  */
 describe('Loading request across several orders', () => {
   const ORDERS: Record<string, { id: string; erpId: string }> = {
@@ -15,14 +22,26 @@ describe('Loading request across several orders', () => {
   };
 
   const build = () => {
+    const existing = {
+      id: 'lr-1',
+      customerId: 'c-1',
+      reference: '2310-202606110033',
+      linkedPurchaseId: 'p-1',
+      status: 'PENDING_ASSIGNMENT',
+      // Null so the capacity rule stands aside: it must EQUAL the load's
+      // weight, and these tests are about which order a line came from. The
+      // rule has its own spec.
+      loadingCapacity: null,
+      items: [],
+    };
     const prisma = {
-      termsAcceptance: {
-        findFirst: jest.fn().mockResolvedValue({ acceptedAt: new Date() }),
-      },
-      customer: {
-        findUnique: jest
+      loadingRequest: {
+        findFirst: jest.fn().mockResolvedValue(existing),
+        update: jest
           .fn()
-          .mockResolvedValue({ id: 'c-1', region: 'LAGOS', name: 'ADLAK' }),
+          .mockImplementation(({ data }) =>
+            Promise.resolve({ ...existing, ...data, items: [] }),
+          ),
       },
       purchase: {
         // Stands in for the real lookup: an order resolves by uuid OR DOC_NO,
@@ -38,164 +57,115 @@ describe('Loading request across several orders', () => {
           return Promise.resolve(found ?? null);
         }),
       },
-      staff: { findMany: jest.fn().mockResolvedValue([]) },
-      loadingRequest: {
-        create: jest.fn().mockResolvedValue({ id: 'lr-1', items: [] }),
-      },
     };
-    const notifications = { notify: jest.fn().mockResolvedValue(undefined) };
     return {
       prisma,
-      service: new WaybillService(prisma as never, notifications as never),
+      service: new WaybillService(
+        prisma as never,
+        {} as never,
+        {
+          listForCustomer: async () => [],
+        } as never,
+      ),
     };
   };
 
-  const baseDto = {
-    warehouseName: 'LAGOS WAREHOUSE',
-    truckPlateNumber: 'LAG-234-XY',
-    driverName: 'Jimoh Ibrahim',
-    driverPhone: '+2348012345678',
-    // No loadingCapacity: it must EQUAL the load's weight, and these tests
-    // are about which order a line came from. The rule has its own spec.
-    linkedPurchaseId: 'p-1',
-    requestedLoadingDate: '2026-08-30',
-  };
-
-  const submit = async (dto: Record<string, unknown>) => {
+  /** Applies an edit and hands back what would have been written. */
+  const edit = async (dto: Record<string, unknown>) => {
     const { service, prisma } = build();
-    await service.submitLoadingRequest('c-1', { ...baseDto, ...dto } as never);
-    return prisma.loadingRequest.create.mock.calls[0][0].data;
+    await service.updateLoadingRequest('c-1', 'lr-1', dto);
+    return prisma.loadingRequest.update.mock.calls[0][0].data;
   };
 
   it('records which order each line came from', async () => {
-    const data = await submit({
+    const data = await edit({
       orders: {
-        'p-1': [
-          {
-            productId: '101020104',
-            productName: 'Product A',
-            quantity: 120,
-            weightPerCarton: 25,
-          },
-        ],
-        'p-2': [
-          {
-            productId: '101020105',
-            productName: 'Product B',
-            quantity: 10,
-            weightPerCarton: 20,
-          },
-        ],
+        'p-1': [{ productName: '750ml water(L-水)', quantity: 120 }],
+        'p-2': [{ productName: '18.9L water(L)', quantity: 80 }],
       },
     });
 
     expect(data.items.create).toEqual([
-      {
+      expect.objectContaining({
         purchaseId: 'p-1',
         orderReference: '2310-202606110033',
-        productId: '101020104',
-        productName: 'Product A',
-        spec: null,
-        quantityLeft: null,
+        productName: '750ml water(L-水)',
         quantity: 120,
-        weightPerCarton: 25,
-      },
-      {
+      }),
+      expect.objectContaining({
         purchaseId: 'p-2',
         orderReference: '2310-202606110044',
-        productId: '101020105',
-        productName: 'Product B',
-        spec: null,
-        quantityLeft: null,
-        quantity: 10,
-        weightPerCarton: 20,
-      },
+        productName: '18.9L water(L)',
+        quantity: 80,
+      }),
     ]);
   });
 
   it('keys the map by DOC_NO just as well as by uuid', async () => {
-    // The distributor app holds the DOC_NO on screen; either identifies the
-    // order.
-    const data = await submit({
+    const data = await edit({
       orders: {
-        '2310-202606110044': [{ productName: 'Product B', quantity: 10 }],
+        '2310-202606110044': [{ productName: '18.9L water(L)', quantity: 80 }],
       },
     });
 
-    expect(data.items.create[0]).toMatchObject({
-      purchaseId: 'p-2',
-      orderReference: '2310-202606110044',
-    });
+    expect(data.items.create[0]).toEqual(
+      expect.objectContaining({
+        purchaseId: 'p-2',
+        orderReference: '2310-202606110044',
+      }),
+    );
   });
 
   it('sums quantityCartons ACROSS the orders', async () => {
-    // 120 + 80 + 10 + 90. The stock calculations read this column, so it has to
-    // count the whole load and not just the linked order's share of it.
-    const data = await submit({
+    const data = await edit({
       orders: {
-        'p-1': [
-          { productName: 'Product A', quantity: 120 },
-          { productName: 'Product B', quantity: 80 },
-        ],
-        'p-2': [
-          { productName: 'Product A', quantity: 10 },
-          { productName: 'Product B', quantity: 90 },
-        ],
+        'p-1': [{ productName: 'A', quantity: 120 }],
+        'p-2': [{ productName: 'B', quantity: 80 }],
       },
-      quantityCartons: 9999,
     });
 
-    expect(data.quantityCartons).toBe(300);
+    expect(data.quantityCartons).toBe(200);
   });
 
   it('refuses an order belonging to another distributor', async () => {
     const { service } = build();
 
     await expect(
-      service.submitLoadingRequest('c-1', {
-        ...baseDto,
-        orders: { 'p-9': [{ productName: 'Product A', quantity: 5 }] },
-      } as never),
-    ).rejects.toThrow(/does not belong to this customer/);
+      service.updateLoadingRequest('c-1', 'lr-1', {
+        orders: { 'p-9': [{ productName: 'A', quantity: 1 }] },
+      }),
+    ).rejects.toThrow(/Order "p-9" was not found/);
   });
 
-  it('still takes the single-order `products` body', async () => {
-    const data = await submit({
-      products: [
-        { productName: 'Product A', quantity: 120, weightPerCarton: 25 },
-      ],
+  it('still takes the flat `products` body', async () => {
+    // Attributed to the order the request is already filed under.
+    const data = await edit({
+      products: [{ productName: 'A', quantityToLoad: 10 }],
     });
 
     expect(data.items.create).toEqual([
-      {
+      expect.objectContaining({
         purchaseId: 'p-1',
         orderReference: '2310-202606110033',
-        productId: null,
-        productName: 'Product A',
-        spec: null,
-        quantityLeft: null,
-        quantity: 120,
-        weightPerCarton: 25,
-      },
+        quantity: 10,
+      }),
     ]);
   });
 
   it('prefers `orders` when a body carries both', async () => {
-    const data = await submit({
-      products: [{ productName: 'Ignored', quantity: 500 }],
-      orders: { 'p-2': [{ productName: 'Product B', quantity: 10 }] },
+    const data = await edit({
+      products: [{ productName: 'ignored', quantityToLoad: 999 }],
+      orders: { 'p-2': [{ productName: 'A', quantity: 5 }] },
     });
 
     expect(data.items.create).toHaveLength(1);
-    expect(data.items.create[0].productName).toBe('Product B');
-    expect(data.quantityCartons).toBe(10);
+    expect(data.items.create[0].productName).toBe('A');
   });
 
-  it('coerces a numeric productId, as the single-order form does', async () => {
-    // ERP item codes look numeric and JSON keeps them numeric unless quoted.
-    const data = await submit({
+  it('coerces a numeric productId, as the flat form does', async () => {
+    const data = await edit({
       orders: {
-        'p-1': [{ productId: 101020104, productName: 'A', quantity: 1 }],
+        'p-1': [{ productId: 101020104, productName: 'A', quantity: 5 }],
       },
     });
 
@@ -206,66 +176,39 @@ describe('Loading request across several orders', () => {
     const { service } = build();
 
     await expect(
-      service.submitLoadingRequest('c-1', {
-        ...baseDto,
-        orders: { 'p-1': [{ productName: 'Product A' }] },
-      } as never),
-    ).rejects.toThrow(/productName or quantity/);
+      service.updateLoadingRequest('c-1', 'lr-1', {
+        orders: { 'p-1': [{ productName: 'A' }] },
+      }),
+    ).rejects.toThrow(/without a productName or quantity/);
   });
 
   it('rejects a value that is not an array of products', async () => {
     const { service } = build();
 
     await expect(
-      service.submitLoadingRequest('c-1', {
-        ...baseDto,
-        orders: { 'p-1': { productName: 'Product A', quantity: 1 } },
+      service.updateLoadingRequest('c-1', 'lr-1', {
+        orders: { 'p-1': { productName: 'A', quantity: 5 } },
       } as never),
-    ).rejects.toThrow(/must be an array/);
+    ).rejects.toThrow(/must be an array of products/);
   });
 
   describe('linkedPurchaseId as a list', () => {
-    it('files the request under the FIRST order', async () => {
-      const data = await submit({
+    it('re-files the request under the FIRST order', async () => {
+      const data = await edit({
         linkedPurchaseId: ['p-2', 'p-1'],
         orders: {
-          'p-2': [{ productName: 'Product B', quantity: 10 }],
-          'p-1': [{ productName: 'Product A', quantity: 120 }],
+          'p-2': [{ productName: 'A', quantity: 5 }],
+          'p-1': [{ productName: 'B', quantity: 5 }],
         },
       });
 
-      // The column takes the primary; the reference is drawn from its DOC_NO.
       expect(data.linkedPurchaseId).toBe('p-2');
     });
 
-    it('echoes every order back as linkedPurchaseIds', async () => {
-      const { service, prisma } = build();
-      prisma.loadingRequest.create.mockResolvedValue({
-        id: 'lr-1',
-        linkedPurchaseId: 'p-1',
-        items: [{ purchaseId: 'p-1' }, { purchaseId: 'p-2' }],
-      });
-
-      const res = await service.submitLoadingRequest('c-1', {
-        ...baseDto,
-        linkedPurchaseId: ['p-1', 'p-2'],
-        orders: {
-          'p-1': [{ productName: 'Product A', quantity: 120 }],
-          'p-2': [{ productName: 'Product B', quantity: 10 }],
-        },
-      } as never);
-
-      expect(
-        (res as { linkedPurchaseIds: string[] }).linkedPurchaseIds,
-      ).toEqual(['p-1', 'p-2']);
-    });
-
     it('takes DOC_NOs in the list as well as uuids', async () => {
-      const data = await submit({
+      const data = await edit({
         linkedPurchaseId: ['2310-202606110044'],
-        orders: {
-          '2310-202606110044': [{ productName: 'Product B', quantity: 10 }],
-        },
+        orders: { 'p-2': [{ productName: 'A', quantity: 5 }] },
       });
 
       expect(data.linkedPurchaseId).toBe('p-2');
@@ -275,74 +218,57 @@ describe('Loading request across several orders', () => {
       const { service } = build();
 
       await expect(
-        service.submitLoadingRequest('c-1', {
-          ...baseDto,
+        service.updateLoadingRequest('c-1', 'lr-1', {
           linkedPurchaseId: ['p-1', 'p-9'],
-          orders: { 'p-1': [{ productName: 'Product A', quantity: 1 }] },
-        } as never),
+          orders: { 'p-1': [{ productName: 'A', quantity: 5 }] },
+        }),
       ).rejects.toThrow(/Linked order "p-9" was not found/);
     });
 
     it('refuses an order listed but absent from `orders`', async () => {
-      // The lines are the only record of which orders a load draws on, so an
-      // order with no lines would vanish silently.
+      // The lines are the only record of which orders a request draws on, so
+      // an order named and then not loaded from would be silently dropped.
       const { service } = build();
 
       await expect(
-        service.submitLoadingRequest('c-1', {
-          ...baseDto,
+        service.updateLoadingRequest('c-1', 'lr-1', {
           linkedPurchaseId: ['p-1', 'p-2'],
-          orders: { 'p-1': [{ productName: 'Product A', quantity: 1 }] },
-        } as never),
-      ).rejects.toThrow(/listed in linkedPurchaseId but has no products/);
+          orders: { 'p-1': [{ productName: 'A', quantity: 5 }] },
+        }),
+      ).rejects.toThrow(
+        /"2310-202606110044" is listed in linkedPurchaseId but has no products/,
+      );
     });
 
-    it('does not impose that rule on the single-order form', async () => {
-      // Sending a bare id has never promised the two agree; unchanged.
-      const data = await submit({
+    it('does not impose that rule on the single-id form', async () => {
+      const data = await edit({
         linkedPurchaseId: 'p-1',
-        orders: { 'p-2': [{ productName: 'Product B', quantity: 10 }] },
+        orders: { 'p-2': [{ productName: 'A', quantity: 5 }] },
+      });
+
+      expect(data.items.create).toHaveLength(1);
+    });
+
+    it('treats the same order twice as one', async () => {
+      const data = await edit({
+        linkedPurchaseId: ['p-1', 'p-1'],
+        orders: { 'p-1': [{ productName: 'A', quantity: 5 }] },
       });
 
       expect(data.linkedPurchaseId).toBe('p-1');
       expect(data.items.create).toHaveLength(1);
     });
 
-    it('treats the same order twice as one', async () => {
-      const data = await submit({
-        linkedPurchaseId: ['p-1', 'p-1'],
-        orders: { 'p-1': [{ productName: 'Product A', quantity: 5 }] },
-      });
-
-      expect(data.linkedPurchaseId).toBe('p-1');
-    });
-
-    it('accepts an empty list - the form need not name an order', async () => {
-      // The request is filed against the ACCOUNT now. An order id is still
-      // accepted, but its absence is not an error.
-      const { service, prisma } = build();
-
-      await service.submitLoadingRequest('c-1', {
-        ...baseDto,
-        linkedPurchaseId: [],
-        products: [{ productName: 'Product A', quantityToLoad: 5 }],
-      } as never);
-
-      const data = prisma.loadingRequest.create.mock.calls[0][0].data;
-      expect(data.linkedPurchaseId).toBeNull();
-      expect(data.reference).toMatch(/^LR-/);
-    });
-
     it('keeps the original message for a bad single id', async () => {
-      // Clients already match on this string.
+      // Clients already match on this wording.
       const { service } = build();
 
       await expect(
-        service.submitLoadingRequest('c-1', {
-          ...baseDto,
+        service.updateLoadingRequest('c-1', 'lr-1', {
           linkedPurchaseId: 'p-9',
-        } as never),
-      ).rejects.toThrow(/^Linked order not found/);
+          products: [{ productName: 'A', quantityToLoad: 5 }],
+        }),
+      ).rejects.toThrow(/Linked order not found/);
     });
   });
 
@@ -350,11 +276,7 @@ describe('Loading request across several orders', () => {
     const { service } = build();
 
     await expect(
-      service.submitLoadingRequest('c-1', {
-        ...baseDto,
-        orders: {},
-        quantityCartons: 320,
-      } as never),
-    ).rejects.toThrow(/at least one product to load/);
+      service.updateLoadingRequest('c-1', 'lr-1', { orders: {} }),
+    ).rejects.toThrow(/must be more than 0/);
   });
 });

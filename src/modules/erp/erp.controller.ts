@@ -23,6 +23,7 @@ import {
 import {
   ErpAccountBalanceSyncResponseDto,
   ErpDefaultOfficerSyncResponseDto,
+  ErpCustomerProjectionSyncResponseDto,
   ErpOrderStatusSyncResponseDto,
   ErpSyncResponseDto,
 } from './dto/erp-response.dto';
@@ -30,6 +31,7 @@ import { ErpApiKeyGuard } from '../../common/guards/erp-api-key.guard';
 import { ErpOrderStatusService } from './erp-order-status.service';
 import { ErpAccountBalanceService } from './erp-account-balance.service';
 import { DefaultOfficerService } from './default-officer.service';
+import { ErpCustomerProjectionService } from './erp-customer-projection.service';
 
 // ERP→app sync is server-to-server: authenticated via the x-api-key header
 // (ERP_API_KEY), not JWT. Fail-closed in production.
@@ -44,6 +46,7 @@ export class ErpController {
     private readonly orderStatusService: ErpOrderStatusService,
     private readonly accountBalanceService: ErpAccountBalanceService,
     private readonly defaultOfficerService: DefaultOfficerService,
+    private readonly customerProjection: ErpCustomerProjectionService,
   ) {}
 
   @Post('sync/balance')
@@ -82,6 +85,42 @@ export class ErpController {
   async syncPayment(@Body() dto: SyncPaymentDto) {
     await this.erpService.syncPayment(dto);
     return { success: true, message: 'Payment synced successfully' };
+  }
+
+  @Post('sync/customers')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Project ERP customers into the portal',
+    description:
+      'Takes no body. Inserts every customer the ERP holds in a Viju region ' +
+      '(BP_CLUSTER_CODE 1-5 and 9) that has no `Customer` row yet, so the ' +
+      'region-scoped screens stop rendering empty for regions the external ' +
+      'projector has not reached. OTHERS was invisible everywhere for exactly ' +
+      'this reason: its 58 customers had no local row.\n\n' +
+      'NEVER UPDATES AN EXISTING CUSTOMER - it only fills gaps, so curated ' +
+      'accounts keep their phone, officer and history. Safe to call ' +
+      'repeatedly; a second pass inserts nothing.\n\n' +
+      'Projected rows carry a synthetic `ERP-<CUSTOMER_CODE>` phone and no ' +
+      'password, because the feed states one placeholder number for 1,897 ' +
+      'customers and phone is the login identifier. They are directory ' +
+      'entries until onboarding sets a real, verified number.\n\n' +
+      'The app also runs this on a timer; the ingest service should call it ' +
+      'as soon as a customer run finishes.',
+  })
+  @ApiOkResponse({ type: ErpCustomerProjectionSyncResponseDto })
+  async syncCustomers(): Promise<ErpCustomerProjectionSyncResponseDto> {
+    const result = await this.customerProjection.project();
+    return {
+      success: true,
+      message: !result.available
+        ? 'ERP feed (erp_raw) is not present on this database — nothing to project'
+        : result.skipped
+          ? 'Another instance is already projecting — nothing done'
+          : `Projected ${result.inserted} ERP customer(s) into the portal`,
+      inserted: result.inserted,
+      available: result.available,
+      skipped: result.skipped,
+    };
   }
 
   @Post('sync/order-status')
