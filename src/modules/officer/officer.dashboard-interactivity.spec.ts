@@ -49,7 +49,13 @@ describe('Officer customer list (AO-C1, AO-P1, AO-P2)', () => {
     return {
       prisma,
       accountBalance,
-      service: new OfficerService(prisma as never, accountBalance as never),
+      service: new OfficerService(
+        prisma as never,
+        accountBalance as never,
+        undefined as never,
+        { getPhonesByErpIds: jest.fn().mockResolvedValue(new Map()) } as never,
+        undefined as never,
+      ),
     };
   };
 

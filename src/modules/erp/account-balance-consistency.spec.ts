@@ -109,6 +109,7 @@ describe('Account balance consistency across endpoints', () => {
         { send: jest.fn() },
         {
           getLastSeenByErpIds: jest.fn().mockResolvedValue(new Map()),
+          getPhonesByErpIds: jest.fn().mockResolvedValue(new Map()),
         } as never,
         {} as never,
         accountBalance as never,
@@ -161,6 +162,7 @@ describe('Account balance consistency across endpoints', () => {
         { send: jest.fn() },
         {
           getLastSeenByErpIds: jest.fn().mockResolvedValue(new Map()),
+          getPhonesByErpIds: jest.fn().mockResolvedValue(new Map()),
         } as never,
         {} as never,
         accountBalance as never,
@@ -195,6 +197,7 @@ describe('Account balance consistency across endpoints', () => {
         { send: jest.fn() },
         {
           getLastSeenByErpIds: jest.fn().mockResolvedValue(new Map()),
+          getPhonesByErpIds: jest.fn().mockResolvedValue(new Map()),
           getCustomerDetail: jest.fn().mockResolvedValue(null),
         } as never,
         {} as never,
@@ -237,7 +240,13 @@ describe('Account balance consistency across endpoints', () => {
       const accountBalance = {
         getRunningBalances: jest.fn().mockResolvedValue(balances),
       };
-      return new OfficerService(prisma as never, accountBalance as never);
+      return new OfficerService(
+        prisma as never,
+        accountBalance as never,
+        undefined as never,
+        { getPhonesByErpIds: jest.fn().mockResolvedValue(new Map()) } as never,
+        undefined as never,
+      );
     };
 
     it('derives walletBalance from the same feed', async () => {
@@ -271,7 +280,13 @@ describe('Account balance consistency across endpoints', () => {
       const accountBalance = {
         getRunningBalances: jest.fn().mockResolvedValue(balances),
       };
-      return new OfficerService(prisma as never, accountBalance as never);
+      return new OfficerService(
+        prisma as never,
+        accountBalance as never,
+        undefined as never,
+        { getPhonesByErpIds: jest.fn().mockResolvedValue(new Map()) } as never,
+        undefined as never,
+      );
     };
 
     it('derives the balance on the detail route', async () => {

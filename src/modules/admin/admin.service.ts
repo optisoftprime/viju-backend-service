@@ -51,7 +51,7 @@ import {
   sortDirection,
 } from '../../common/pagination/sort.dto';
 import { stockByCustomer } from '../../common/customers/stock-balance';
-import { displayPhone } from '../../common/customers/display-phone';
+import { contactPhone } from '../../common/customers/display-phone';
 import { ErpStockBalanceService } from '../erp/erp-stock-balance.service';
 import {
   balanceByErpId,
@@ -598,17 +598,25 @@ export class AdminService {
 
     // `stockBalanceCartons` is shared with the officer and regional lists, so
     // the STOCK column means the same number on every screen (AO-P2).
-    const [stockBalances, lastSeen, accountBalances] = await Promise.all([
-      stockByCustomer(this.prisma, rows, this.stockBalance),
-      this.erpRaw.getLastSeenByErpIds(rows.map((r) => r.erpId)),
-      this.balancesFor(rows),
-    ]);
+    const [stockBalances, lastSeen, accountBalances, erpPhones] =
+      await Promise.all([
+        stockByCustomer(this.prisma, rows, this.stockBalance),
+        this.erpRaw.getLastSeenByErpIds(rows.map((r) => r.erpId)),
+        this.balancesFor(rows),
+        // The distributor's real contact number. It cannot live in
+        // `Customer.phone` - that column is unique and is the login key - so
+        // it is read from the feed at display time. See `contactPhone`.
+        this.erpRaw.getPhonesByErpIds(rows.map((r) => r.erpId)),
+      ]);
 
     return rows.map((row) => ({
       ...row,
       // A projected customer's stored phone is the portal's own placeholder,
-      // never a number to show. See `displayPhone`.
-      phone: displayPhone((row as { phone?: string | null }).phone),
+      // never a number to show; the ERP's contact number stands in for it.
+      phone: contactPhone(
+        (row as { phone?: string | null }).phone,
+        erpPhones.get(row.erpId),
+      ),
       // Derived from the ERP credit feed, exactly as GET /customers/me does.
       outstandingBalance:
         accountBalances.get(row.erpId) ?? row.outstandingBalance,
@@ -687,7 +695,9 @@ export class AdminService {
       id: customer.id,
       erpId: customer.erpId,
       name: customer.name,
-      phone: displayPhone(customer.phone),
+      // Already resolved by withErpColumns: the stored number when it is a
+      // real one, otherwise the ERP's contact number.
+      phone: enriched.phone,
       email: customer.email ?? null,
       address: erp?.address ?? null,
       region: customer.region,
@@ -748,12 +758,15 @@ export class AdminService {
     // The export must carry the same balance the portal shows, or a
     // reconciliation done in a spreadsheet will disagree with the screen it
     // was taken from.
-    const exportBalances = await balanceByErpId(this.accountBalance, rows);
+    const [exportBalances, exportPhones] = await Promise.all([
+      balanceByErpId(this.accountBalance, rows),
+      this.erpRaw.getPhonesByErpIds(rows.map((c) => c.erpId)),
+    ]);
     const lines = rows.map((c) =>
       [
         this.csv(c.erpId),
         this.csv(c.name),
-        this.csv(displayPhone(c.phone)),
+        this.csv(contactPhone(c.phone, exportPhones.get(c.erpId))),
         c.region,
         c.accountStatus,
         exportBalances.get(c.erpId) ?? c.outstandingBalance,

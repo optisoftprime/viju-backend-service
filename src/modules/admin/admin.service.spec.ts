@@ -61,6 +61,7 @@ describe('AdminService', () => {
   const mockErpRaw = {
     isAvailable: jest.fn().mockResolvedValue(false),
     getLastSeenByErpIds: jest.fn().mockResolvedValue(new Map()),
+    getPhonesByErpIds: jest.fn().mockResolvedValue(new Map()),
     getCustomerCounts: jest.fn().mockResolvedValue({
       erpTotal: 0,
       vijuTotal: 0,

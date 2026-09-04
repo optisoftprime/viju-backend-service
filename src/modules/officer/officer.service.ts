@@ -13,7 +13,8 @@ import {
 } from '../../common/pagination/sort.dto';
 import { AssignedCustomerSortField } from './dto/officer-request.dto';
 import { stockByCustomer } from '../../common/customers/stock-balance';
-import { displayPhone } from '../../common/customers/display-phone';
+import { contactPhone } from '../../common/customers/display-phone';
+import { ErpRawService } from '../../infrastructure/erp-raw/erp-raw.service';
 import { messagePreview } from '../../common/messaging/message-preview';
 import { ErpAccountBalanceService } from '../erp/erp-account-balance.service';
 import { ErpStockBalanceService } from '../erp/erp-stock-balance.service';
@@ -51,6 +52,10 @@ export class OfficerService {
     private readonly prisma: PrismaService,
     private readonly accountBalance: ErpAccountBalanceService,
     private readonly stockBalance: ErpStockBalanceService,
+    // The distributor's real contact number lives in the ERP feed, not in
+    // `Customer.phone` - that column is unique and is the login key. See
+    // `contactPhone`.
+    private readonly erpRaw: ErpRawService,
     // The distributor-facing service, reused verbatim for the per-customer
     // tabs. The officer portal must show a distributor EXACTLY what that
     // distributor sees, so the two are served by one implementation rather
@@ -340,6 +345,7 @@ export class OfficerService {
       stockBalances,
       accountBalances,
       lastMessageRows,
+      erpPhones,
     ] = await Promise.all([
       this.prisma.purchase.groupBy({
         by: ['customerId'],
@@ -363,6 +369,8 @@ export class OfficerService {
       // fetched here and reduced to one per customer below. One query for the
       // whole page, not one per row.
       this.lastMessagesFor(customerIds),
+      // The distributor's real contact number, from the ERP feed.
+      this.erpRaw.getPhonesByErpIds(rows.map((c) => c.erpId)),
     ]);
     const lastPurchaseMap = new Map(
       lastPurchases.map((r) => [r.customerId, r._max.orderDate]),
@@ -376,7 +384,7 @@ export class OfficerService {
       id: c.id,
       name: c.name,
       accountNumber: c.erpId,
-      phone: displayPhone(c.phone),
+      phone: contactPhone(c.phone, erpPhones.get(c.erpId)),
       region: c.region,
       // Derived from the ERP credit feed, exactly as GET /customers/me does.
       walletBalance: accountBalances.get(c.erpId) ?? c.outstandingBalance,

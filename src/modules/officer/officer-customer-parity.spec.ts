@@ -70,6 +70,8 @@ describe('Officer tabs mirror the distributor', () => {
       // these specs can assert the tab's own wiring rather than the balance.
       { getRunningBalances: jest.fn().mockResolvedValue(new Map()) } as never,
       stockBalance as never,
+      // The ERP customer feed, for the contact phone column. Silent here.
+      { getPhonesByErpIds: jest.fn().mockResolvedValue(new Map()) } as never,
       customers as never,
     );
     return { service, prisma, customers, stockBalance };
