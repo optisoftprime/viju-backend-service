@@ -1,4 +1,4 @@
-import { displayPhone, isProjectedPhone } from './display-phone';
+import { contactPhone, displayPhone, isProjectedPhone } from './display-phone';
 
 /**
  * The Phone column must carry a phone number or nothing at all.
@@ -33,5 +33,40 @@ describe('displayPhone', () => {
     expect(isProjectedPhone('ERP-90002')).toBe(true);
     expect(isProjectedPhone('+2348168584112')).toBe(false);
     expect(isProjectedPhone(null)).toBe(false);
+  });
+});
+
+/**
+ * The unique constraint on `Customer.phone` is why a projected customer's real
+ * number was never stored. It must not also be why it stays hidden: the ERP
+ * states one on the customer master, and that is a contact detail, not an
+ * identity.
+ */
+describe('contactPhone', () => {
+  it('shows the ERP number when the stored one is the placeholder', () => {
+    // ABAYOMI (10110001) - a real, unique number the unique constraint kept
+    // out of Customer.phone.
+    expect(contactPhone('ERP-10110001', '09139580925')).toBe('09139580925');
+  });
+
+  it('prefers the stored number when it is a real one', () => {
+    // The account authenticates with it, so an admin has to see THAT number.
+    expect(contactPhone('+2348168584112', '09139580925')).toBe(
+      '+2348168584112',
+    );
+  });
+
+  it('shows the ERP number for a customer with no stored number at all', () => {
+    expect(contactPhone(null, '08036443423')).toBe('08036443423');
+  });
+
+  it('returns an empty string when neither source has one', () => {
+    expect(contactPhone('ERP-90002', null)).toBe('');
+    expect(contactPhone('ERP-90002', undefined)).toBe('');
+    expect(contactPhone(null, null)).toBe('');
+  });
+
+  it('trims a padded ERP value rather than passing whitespace through', () => {
+    expect(contactPhone('ERP-90002', '  08036443423 ')).toBe('08036443423');
   });
 });

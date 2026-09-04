@@ -434,6 +434,50 @@ export class ErpRawService {
   }
 
   /**
+   * The CONTACT phone number the ERP states for each of these customers,
+   * keyed by erpId (CUSTOMER_CODE).
+   *
+   * NOT the same thing as `Customer.phone`. That column is unique and is the
+   * LOGIN IDENTIFIER, so it cannot hold what this feed carries: 1,897 of the
+   * customers in a Viju region state one shared placeholder number, and
+   * copying it would put them all on a single login. Projected customers are
+   * therefore stored with a synthetic `ERP-<CUSTOMER_CODE>` instead.
+   *
+   * A distributor's real number still has to appear on the customer screens,
+   * so it is read here at display time and never used to resolve an account.
+   * Showing it is safe precisely because it is not an identity: nothing
+   * authenticates against this value.
+   *
+   * Read from the feed rather than stored, for the same reason
+   * `getLastSeenByErpIds` is: a local column would only be as fresh as the
+   * projector that writes it. The customer feed is small (~4k rows), so this
+   * stays cheap for a page of results.
+   */
+  async getPhonesByErpIds(erpIds: string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const ids = [...new Set(erpIds.filter((id) => !!id))];
+    if (ids.length === 0 || !(await this.isAvailable())) return out;
+    try {
+      // The freshest row per customer: the feed keeps history, and an old row
+      // may carry a number the ERP has since corrected.
+      const rows = await this.prisma.$queryRaw<
+        { erp_id: string; phone: string | null }[]
+      >`SELECT DISTINCT ON (payload->>'CUSTOMER_CODE')
+               payload->>'CUSTOMER_CODE'          AS erp_id,
+               nullif(trim(payload->>'PhoneNumber'), '') AS phone
+          FROM erp_raw.raw_customer
+         WHERE payload->>'CUSTOMER_CODE' = ANY(${ids})
+         ORDER BY payload->>'CUSTOMER_CODE', last_seen_at DESC NULLS LAST`;
+      for (const row of rows) {
+        if (row.phone) out.set(row.erp_id, row.phone);
+      }
+    } catch (e) {
+      this.logger.error(`getPhonesByErpIds failed: ${(e as Error).message}`);
+    }
+    return out;
+  }
+
+  /**
    * ERP customer codes that map to a given region — used to reconcile the
    * region-scoped screens against the feed.
    */

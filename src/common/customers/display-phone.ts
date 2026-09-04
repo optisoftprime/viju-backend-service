@@ -29,3 +29,34 @@ export function displayPhone(phone: string | null | undefined): string {
 export function isProjectedPhone(phone: string | null | undefined): boolean {
   return !!phone && phone.startsWith(PROJECTED_PHONE_PREFIX);
 }
+
+/**
+ * The contact number to show for a customer, from the two places one can come
+ * from.
+ *
+ * `stored` is `Customer.phone` - unique, and the login identifier. `fromErp`
+ * is `PhoneNumber` on the ERP customer master, which is a contact detail and
+ * nothing more.
+ *
+ * PRECEDENCE: the stored number wins when it is a real one, because that is
+ * the number the account actually authenticates with and an admin needs to see
+ * it. A customer projected from the ERP has only the synthetic placeholder
+ * stored, so the feed's number is shown instead - which is the whole point:
+ * the unique constraint on `phone` is why their real number was never stored,
+ * and it must not be why it stays hidden.
+ *
+ * Empty string when neither source has one, never null, so the column renders
+ * blank rather than "null".
+ *
+ * NOTE the feed's number is NOT unique - 1,897 customers share one placeholder
+ * value - and it is deliberately not treated as an identity anywhere. It is
+ * display only.
+ */
+export function contactPhone(
+  stored: string | null | undefined,
+  fromErp: string | null | undefined,
+): string {
+  const own = displayPhone(stored);
+  if (own) return own;
+  return fromErp?.trim() ?? '';
+}
