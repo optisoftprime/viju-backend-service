@@ -26,12 +26,15 @@ export class PrismaExceptionFilter implements ExceptionFilter {
 
     const { status, message, fields } = this.mapToHttp(exception);
 
-    // Log the original at warn so we can still trace these in dev/prod,
-    // but the client only sees the clean response.
-    this.logger.warn(
+    // Log the original so these stay traceable in dev/prod, while the client
+    // only sees the clean response. A 5xx is OUR failure, not the caller's, so
+    // it goes out at error level - warn would keep a database outage out of
+    // every alert that watches for errors.
+    const line =
       `Prisma ${exception.code} -> HTTP ${status} | ${message}` +
-        (fields ? ` | fields=${fields.join(',')}` : ''),
-    );
+      (fields ? ` | fields=${fields.join(',')}` : '');
+    if (status >= 500) this.logger.error(line);
+    else this.logger.warn(line);
 
     res.status(status).json({
       statusCode: status,
@@ -114,6 +117,30 @@ export class PrismaExceptionFilter implements ExceptionFilter {
           message: 'A required field is missing',
         };
 
+      // ─── The connection family (P1xxx) ──────────────────────────────
+      //
+      // NOT the caller's fault, and it used to be reported as though it
+      // were: these fell through to the 400 below, so a database that had
+      // dropped the connection told the client "Bad Request". That is wrong
+      // twice over - the client cannot fix it by changing the request, and a
+      // 4xx keeps the failure out of every server-error alert.
+      //
+      //   P1000 authentication failed        P1002 reached but timed out
+      //   P1001 cannot reach the server      P1008 operation timed out
+      //   P1017 server closed the connection
+      //
+      // 503 says what is true: the request was fine, the dependency was not,
+      // and retrying may well work.
+      case 'P1000':
+      case 'P1001':
+      case 'P1002':
+      case 'P1008':
+      case 'P1017':
+        return {
+          status: HttpStatus.SERVICE_UNAVAILABLE,
+          message: 'The database is temporarily unavailable. Please retry.',
+        };
+
       default:
         return {
           status: HttpStatus.BAD_REQUEST,
@@ -157,6 +184,7 @@ export class PrismaExceptionFilter implements ExceptionFilter {
         [HttpStatus.BAD_REQUEST]: 'Bad Request',
         [HttpStatus.NOT_FOUND]: 'Not Found',
         [HttpStatus.CONFLICT]: 'Conflict',
+        [HttpStatus.SERVICE_UNAVAILABLE]: 'Service Unavailable',
       }[status] ?? 'Error'
     );
   }

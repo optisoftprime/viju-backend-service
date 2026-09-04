@@ -133,10 +133,18 @@ export class ErpAccountBalanceService implements OnModuleInit, OnModuleDestroy {
         );
       }
     } catch (e) {
-      this.available = false;
+      // NOT cached: a probe that THREW tells us nothing about whether the
+      // table exists - it is almost always the database being briefly
+      // unreachable (P1017 on a dropped connection, a restart, a network
+      // blip). Caching `false` here disabled the ERP feed for the whole
+      // life of the process after one blip at boot, silently degrading
+      // every screen that reads it. Leaving it unset means the next call
+      // probes again.
       this.logger.error(
-        `Could not probe erp_raw.raw_customer_credit: ${(e as Error).message}. Treating it as absent.`,
+        `Could not probe erp_raw.raw_customer_credit: ${(e as Error).message}. ` +
+          'Treating the feed as unavailable for this call only; will retry.',
       );
+      return false;
     }
     return this.available;
   }
